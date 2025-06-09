@@ -115,6 +115,6 @@
     "qrcode": "^1.5.4",
     "select2": "^4.0.13",
     "simplebar": "^6.2.7",
-    "sweetalert2": "^11.14.5"
+    "sweetalert2": "^11.21.2"
   }
 }
