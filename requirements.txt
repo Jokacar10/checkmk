@@ -3625,7 +3625,7 @@ python-jenkins==1.8.3 \
     --hash=sha256:2e1766b253e3b2f28f52abfd0de45ffeaa1191f98520cc8d74d2c317786e59d0 \
     --hash=sha256:8f4761c391ac11e8c1f23f771010920c10440497705ab7175d52358f5a12dc98
     # via checkmk-dev-tools
-python-ldap==3.4.4 \
+python-ldap==3.4.5 \
     --hash=sha256:7edb0accec4e037797705f3a05cbf36a9fde50d08c8f67f2aef99a2628fab828
     # via
     #   -r cmk/requirements.in
