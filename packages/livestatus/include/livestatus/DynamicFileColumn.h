@@ -18,20 +18,25 @@
 #include "livestatus/DynamicColumn.h"
 #include "livestatus/FileSystemHelper.h"
 
+class ICore;
+
 template <typename T>
 class DynamicFileColumn : public DynamicColumn {
 public:
     DynamicFileColumn(
         const std::string &name, const std::string &description,
         const ColumnOffsets &offsets,
-        std::function<std::filesystem::path(const T &)> basepath,
+        std::function<std::filesystem::path(const T &, const ICore &)> basepath,
         std::function<std::filesystem::path(const std::string &args)> filepath);
     std::unique_ptr<Column> createColumn(const std::string &name,
-                                         const std::string &arguments) override;
-    [[nodiscard]] std::filesystem::path basepath(const T & /*data*/) const;
+                                         const std::string &arguments,
+                                         const ICore &core) override;
+    [[nodiscard]] std::filesystem::path basepath(const T &data,
+                                                 const ICore &core) const;
 
 private:
-    const std::function<std::filesystem::path(const T &)> _basepath;
+    const std::function<std::filesystem::path(const T &, const ICore &)>
+        _basepath;
     const std::function<std::filesystem::path(const std::string &args)>
         _filepath;
 };
@@ -40,7 +45,7 @@ template <typename T>
 DynamicFileColumn<T>::DynamicFileColumn(
     const std::string &name, const std::string &description,
     const ColumnOffsets &offsets,
-    std::function<std::filesystem::path(const T &)> basepath,
+    std::function<std::filesystem::path(const T &, const ICore &)> basepath,
     std::function<std::filesystem::path(const std::string &)> filepath)
     : DynamicColumn(name, description, offsets)
     , _basepath{std::move(basepath)}
@@ -48,14 +53,15 @@ DynamicFileColumn<T>::DynamicFileColumn(
 
 template <typename T>
 [[nodiscard]] std::filesystem::path DynamicFileColumn<T>::basepath(
-    const T &data) const {
+    const T &data, const ICore &core) const {
     // This delays the call to mc to after it is constructed.
-    return _basepath(data);
+    return _basepath(data, core);
 }
 
 template <typename T>
 std::unique_ptr<Column> DynamicFileColumn<T>::createColumn(
-    const std::string &name, const std::string &arguments) {
+    const std::string &name, const std::string &arguments,
+    const ICore & /*core*/) {
     // Arguments contains a path relative to basepath and possibly escaped.
     if (arguments.empty()) {
         throw std::runtime_error("invalid arguments for column '" + _name +
@@ -63,8 +69,9 @@ std::unique_ptr<Column> DynamicFileColumn<T>::createColumn(
     }
     const std::filesystem::path f{mk::unescape_filename(arguments)};
     return std::make_unique<BlobColumn<T>>(
-        name, _description, _offsets, BlobFileReader<T>{[this, f](const T &r) {
-            const auto basepath = this->basepath(r);
+        name, _description, _offsets,
+        BlobFileReader<T>{[this, f](const T &r, const ICore &core) {
+            const auto basepath = this->basepath(r, core);
             const auto filepath = _filepath(f);
             const auto path = filepath.empty() ? basepath : basepath / filepath;
             if (!std::filesystem::exists(basepath) ||

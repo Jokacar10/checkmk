@@ -2,7 +2,6 @@
 # Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
-# ruff: noqa: A005
 
 from __future__ import annotations
 
@@ -19,9 +18,7 @@ from typing import Any, Literal
 from flask import current_app, session
 
 import cmk.ccc.version as cmk_version
-
 import cmk.utils.paths
-
 from cmk.gui import log, utils
 from cmk.gui.config import active_config
 from cmk.gui.ctx_stack import request_local_attr
@@ -1290,6 +1287,7 @@ class HTMLGenerator(HTMLWriter):
         # Temporary measure for not having to change all call-sites at once.
         # The first step was to only change call sites from painters.
         theme: Theme = theme,
+        download: str | None = None,
     ) -> HTML:
         classes = [] if cssclass is None else [cssclass]
         if isinstance(class_, list):
@@ -1310,6 +1308,7 @@ class HTMLGenerator(HTMLWriter):
             target=target if target else "",
             onfocus="if (this.blur) this.blur();",
             onclick=onclick,
+            download=download,
         )
 
     def icon_button(
@@ -1326,10 +1325,21 @@ class HTMLGenerator(HTMLWriter):
         # Temporary measure for not having to change all call-sites at once.
         # The first step was to only change call sites from painters.
         theme: Theme = theme,
+        download: str | None = None,
     ) -> None:
         self.write_html(
             HTMLGenerator.render_icon_button(
-                url, title, icon, id_, onclick, style, target, cssclass, class_, theme=theme
+                url,
+                title,
+                icon,
+                id_,
+                onclick,
+                style,
+                target,
+                cssclass,
+                class_,
+                theme=theme,
+                download=download,
             )
         )
 

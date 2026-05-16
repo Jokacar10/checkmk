@@ -12,41 +12,34 @@ from unittest.mock import patch
 import pytest
 from pytest import FixtureRequest
 
-from tests.testlib.unit.base_configuration_scenario import Scenario
-
+import cmk.gui.utils
+from cmk.automations.results import AnalyzeHostRuleEffectivenessResult
+from cmk.base.automations.check_mk import AutomationAnalyzeHostRuleEffectiveness
+from cmk.base.config import LoadingResult
 from cmk.ccc import version
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-from cmk.utils.global_ident_type import PROGRAM_ID_QUICK_SETUP
-from cmk.utils.redis import disable_redis
-from cmk.utils.rulesets import ruleset_matcher
-from cmk.utils.rulesets.definition import RuleGroup
-from cmk.utils.rulesets.ruleset_matcher import RuleOptionsSpec, RulesetName, RuleSpec
-from cmk.utils.tags import TagGroupID, TagID
-
-from cmk.automations.results import AnalyzeHostRuleEffectivenessResult
-
-from cmk.base.automations.check_mk import AutomationAnalyzeHostRuleEffectiveness
-from cmk.base.config import LoadingResult
-
-import cmk.gui.utils
-from cmk.gui.config import active_config
 from cmk.gui.logged_in import user
 from cmk.gui.plugins.wato.check_parameters.local import _parameter_valuespec_local
 from cmk.gui.plugins.wato.check_parameters.ps import _valuespec_inventory_processes_rules
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.rule_specs import legacy_converter
 from cmk.gui.watolib import rulesets
 from cmk.gui.watolib.configuration_bundle_store import BundleId
 from cmk.gui.watolib.configuration_bundles import create_config_bundle, CreateBundleEntities
 from cmk.gui.watolib.hosts_and_folders import Folder, folder_tree
 from cmk.gui.watolib.rulesets import Rule, RuleOptions, Ruleset, RuleValue
+from cmk.utils import paths
+from cmk.utils.global_ident_type import PROGRAM_ID_QUICK_SETUP
+from cmk.utils.redis import disable_redis
+from cmk.utils.rulesets.definition import RuleGroup
+from cmk.utils.rulesets.ruleset_matcher import RuleOptionsSpec, RulesetName, RuleSpec
+from tests.testlib.unit.base_configuration_scenario import Scenario
 
 
 def _ruleset(ruleset_name: RulesetName) -> rulesets.Ruleset:
-    return rulesets.Ruleset(ruleset_name, ruleset_matcher.get_tag_to_group_map(active_config.tags))
+    return rulesets.Ruleset(ruleset_name)
 
 
 GEN_ID_COUNT = {"c": 0}
@@ -88,7 +81,9 @@ def test_rule_from_ruleset_defaults(
     ruleset_name: str, default_value: RuleValue, is_binary: bool
 ) -> None:
     ruleset = _ruleset(ruleset_name)
-    rule = rulesets.Rule.from_ruleset_defaults(folder_tree().root_folder(), ruleset)
+    rule = rulesets.Rule.from_ruleset(
+        folder_tree().root_folder(), ruleset, ruleset.valuespec().default_value()
+    )
     assert isinstance(rule.conditions, rulesets.RuleConditions)
     assert rule.rule_options == RuleOptions(
         disabled=False,
@@ -426,10 +421,7 @@ def test_ruleset_to_config(
     wato_use_git: bool,
     expected_result: str,
 ) -> None:
-    ruleset = rulesets.Ruleset(
-        RuleGroup.CheckgroupParameters("local"),
-        ruleset_matcher.get_tag_to_group_map(active_config.tags),
-    )
+    ruleset = rulesets.Ruleset(RuleGroup.CheckgroupParameters("local"))
     ruleset.replace_folder_config(
         folder_tree().root_folder(),
         [
@@ -486,12 +478,9 @@ def test_ruleset_to_config_sub_folder(
     wato_use_git: bool,
     expected_result: str,
 ) -> None:
-    ruleset = rulesets.Ruleset(
-        RuleGroup.CheckgroupParameters("local"),
-        ruleset_matcher.get_tag_to_group_map(active_config.tags),
-    )
+    ruleset = rulesets.Ruleset(RuleGroup.CheckgroupParameters("local"))
 
-    folder_tree().create_missing_folders("abc", pprint_value=False)
+    folder_tree().create_missing_folders("abc", pprint_value=False, use_git=False)
     folder = folder_tree().folder("abc")
 
     ruleset.replace_folder_config(
@@ -586,6 +575,7 @@ def _setup_rules(rule_a_locked: bool, rule_b_locked: bool) -> tuple[Ruleset, Fol
             "program_id": program_id,
         },
         entities=CreateBundleEntities(),
+        user_permissions=UserPermissions({}, {}, {}, []),
         user_id=user.id,
         pprint_value=False,
         use_git=False,
@@ -706,7 +696,7 @@ def test_ruleset_ordering_move_to(
 ) -> None:
     ruleset, folder, rule = _setup_rules(rule_a_locked, rule_b_locked)
     ruleset.append_rule(folder, rule)
-    ruleset.move_rule_to(rule, 0)
+    ruleset.move_rule_to(rule, index=0, use_git=False)
     assert ruleset.get_folder_rules(folder)[expected_index] == rule
 
 
@@ -789,7 +779,7 @@ def test_matches_search_with_rules(
     folder_name: str,
     expected_result: bool,
 ) -> None:
-    folder_tree().create_missing_folders(folder_name, pprint_value=False)
+    folder_tree().create_missing_folders(folder_name, pprint_value=False, use_git=False)
     folder = folder_tree().folder(folder_name)
     ruleset = _ruleset("host_contactgroups")
     rule = rulesets.Rule.from_config(folder, ruleset, rule_config)
@@ -1015,23 +1005,41 @@ def test_rules_grouped_by_folder() -> None:
     ]
 
     root: Folder = tree.root_folder()
-    ruleset: Ruleset = Ruleset("only_hosts", {TagID("TAG1"): TagGroupID("TG1")})
-    rules: list[tuple[Folder, int, Rule]] = [(root, 0, Rule.from_ruleset_defaults(root, ruleset))]
+    ruleset: Ruleset = Ruleset("only_hosts")
+    rules: list[tuple[Folder, int, Rule]] = [
+        (root, 0, Rule.from_ruleset(root, ruleset, ruleset.valuespec().default_value()))
+    ]
 
     for nr in range(1, 3):
         folder = Folder.new(tree=tree, name="folder%d" % nr, parent_folder=root)
-        rules.append((folder, 0, Rule.from_ruleset_defaults(folder, ruleset)))
+        rules.append(
+            (folder, 0, Rule.from_ruleset(folder, ruleset, ruleset.valuespec().default_value()))
+        )
         for x in range(1, 3):
             subfolder = Folder.new(tree=tree, name="folder%d" % x, parent_folder=folder)
-            rules.append((subfolder, 0, Rule.from_ruleset_defaults(folder, ruleset)))
+            rules.append(
+                (
+                    subfolder,
+                    0,
+                    Rule.from_ruleset(folder, ruleset, ruleset.valuespec().default_value()),
+                )
+            )
             for y in range(1, 3):
                 sub_subfolder = Folder.new(tree=tree, name="folder%d" % y, parent_folder=subfolder)
-                rules.append((sub_subfolder, 0, Rule.from_ruleset_defaults(folder, ruleset)))
+                rules.append(
+                    (
+                        sub_subfolder,
+                        0,
+                        Rule.from_ruleset(folder, ruleset, ruleset.valuespec().default_value()),
+                    )
+                )
 
     # Also test renamed folder
     folder4 = Folder.new(tree=tree, name="folder4", parent_folder=root)
     folder4._title = "abc"
-    rules.append((folder4, 0, Rule.from_ruleset_defaults(folder4, ruleset)))
+    rules.append(
+        (folder4, 0, Rule.from_ruleset(folder4, ruleset, ruleset.valuespec().default_value()))
+    )
 
     sorted_rules = sorted(
         rules, key=lambda x: (x[0].path().split("/"), len(rules) - x[1]), reverse=True

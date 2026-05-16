@@ -4,6 +4,9 @@
  * conditions defined in the file COPYING, which is part of this source code package.
  */
 import type { FormSpec } from 'cmk-shared-typing/typescript/vue_formspec_components'
+
+import type { TranslatedString } from '@/lib/i18nString'
+
 import type { ValidationMessages } from '@/form'
 
 export interface FormSpecRecapWidgetProps {
@@ -42,21 +45,21 @@ export interface ListWidgetProps {
 }
 
 export interface NoteTextWidgetProps {
-  /** @property {string}  text - Text to be displayed */
-  text: string
+  /** @property {TranslatedString}  text - Text to be displayed */
+  text: TranslatedString
 }
 
 export interface DialogWidgetProps {
-  /** @property {string}  text - Text to be displayed */
-  text: string
+  /** @property {TranslatedString}  text - Text to be displayed */
+  text: TranslatedString
 }
 
 export interface TextWidgetProps {
-  /** @property {string}  text - Text to be displayed */
-  text: string
+  /** @property {TranslatedString}  text - Text to be displayed */
+  text: TranslatedString
 
-  /** @property {string}  tooltip - Text used as tooltip */
-  tooltip?: string | null
+  /** @property {TranslatedString}  tooltip - Text used as tooltip */
+  tooltip?: TranslatedString | null
 }
 
 export interface CompositeWidgetProps {
@@ -70,11 +73,11 @@ export interface CollapsibleWidgetProps extends CompositeWidgetProps {
   /** @property {boolean} open - If false, the collapsible will be rendered collapsed */
   open?: boolean
 
-  /** @property {string} title - Title of the collapsible element */
-  title: string
+  /** @property {TranslatedString} title - Title of the collapsible element */
+  title: TranslatedString
 
-  /** @property {string} help_text - Help of the collapsible element */
-  help_text: string | null
+  /** @property {TranslatedString} help_text - Help of the collapsible element */
+  help_text: TranslatedString | null
 }
 
 /** The conditional notification event stage widgets are a really specific solution to a really

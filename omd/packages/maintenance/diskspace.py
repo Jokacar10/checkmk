@@ -14,8 +14,6 @@ from pathlib import Path
 
 from omdlib.utils import get_site_distributed_setup, SiteDistributedSetup
 
-from cmk.utils.paths import diskspace_config_dir
-
 # TODO: The diskspace tool depends on `check_mk` as a cli tool. Therefore, having the
 # "site context" as a dependency is probably appropriate. It could be moved to `cmk/diskspace`,
 # but that is also suboptimal, since the tool depends on `omdlib`.
@@ -25,6 +23,7 @@ from cmk.diskspace.config import read_config
 from cmk.diskspace.file import cleanup_aged, cleanup_oldest_files, load_plugins
 from cmk.diskspace.free_space import fmt_bytes, get_free_space
 from cmk.diskspace.logging import error, print_config, setup_logging, verbose
+from cmk.utils.paths import diskspace_config_dir
 
 
 def main() -> None:
@@ -34,7 +33,7 @@ def main() -> None:
     print_config(config)
     infos = load_plugins(omd_root, omd_root / "share/diskspace", omd_root / "local/share/diskspace")
 
-    if config.cleanup_abandoned_host_files:
+    if config.cleanup_abandoned_host_files is not None:
         do_cleanup_abandoned_host_files(
             omd_root,
             get_site_distributed_setup() == SiteDistributedSetup.DISTRIBUTED_REMOTE,

@@ -4,17 +4,23 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import FormSingleChoiceEditableEditAsync from '@/form/components/forms/FormSingleChoiceEditableEditAsync.vue'
-import { useErrorBoundary } from '@/components/useErrorBoundary'
-import CmkSpace from '@/components/CmkSpace.vue'
-import SlideIn from '@/components/SlideIn.vue'
-import FormValidation from '@/form/components/FormValidation.vue'
-import { useValidation, type ValidationMessages } from '@/form/components/utils/validation'
+import type { ConfigEntityType } from 'cmk-shared-typing/typescript/configuration_entity'
 import type { SingleChoiceEditable } from 'cmk-shared-typing/typescript/vue_formspec_components'
 import { onMounted, ref, toRaw } from 'vue'
-import { configEntityAPI, type Payload } from '@/form/components/utils/configuration_entity'
-import type { ConfigEntityType } from 'cmk-shared-typing/typescript/configuration_entity'
+
+import { untranslated } from '@/lib/i18n'
+import type { TranslatedString } from '@/lib/i18nString'
+
 import CmkDropdown from '@/components/CmkDropdown.vue'
+import CmkSlideInDialog from '@/components/CmkSlideInDialog.vue'
+import CmkSpace from '@/components/CmkSpace.vue'
+import { useErrorBoundary } from '@/components/useErrorBoundary'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import FormSingleChoiceEditableEditAsync from '@/form/components/forms/FormSingleChoiceEditableEditAsync.vue'
+import { type Payload, configEntityAPI } from '@/form/components/utils/configuration_entity'
+import { type ValidationMessages, useValidation } from '@/form/components/utils/validation'
+
 import FormButton from './FormButton.vue'
 
 const props = defineProps<{
@@ -32,8 +38,11 @@ const [validation, selectedObjectId] = useValidation<string | null>(
   () => props.backendValidation
 )
 
-const choices = ref<Array<{ title: string; name: string }>>(
-  structuredClone(toRaw(props.spec.elements))
+const choices = ref<Array<{ title: TranslatedString; name: string }>>(
+  structuredClone(toRaw(props.spec.elements)).map((element) => ({
+    title: untranslated(element.title),
+    name: element.name
+  }))
 )
 
 const slideInObjectId = ref<OptionId | null>(null)
@@ -46,7 +55,7 @@ onMounted(async () => {
   )
   choices.value = entities.map((entity) => ({
     name: entity.ident,
-    title: entity.description
+    title: untranslated(entity.description)
   }))
 })
 
@@ -94,11 +103,13 @@ const slideInAPI = {
 function slideInSubmitted(event: { ident: string; description: string }) {
   data.value = event.ident
   if (choices.value.find((object) => object.name === event.ident) === undefined) {
-    choices.value.push({ title: event.description, name: event.ident })
+    choices.value.push({ title: untranslated(event.description), name: event.ident })
   } else {
     choices.value = choices.value.map((choice) =>
       // Update description of existing object
-      choice.name === event.ident ? { title: event.description, name: event.ident } : choice
+      choice.name === event.ident
+        ? { title: untranslated(event.description), name: event.ident }
+        : choice
     )
   }
   closeSlideIn()
@@ -126,27 +137,27 @@ const { ErrorBoundary, error } = useErrorBoundary()
         type: props.spec.elements.length > 5 ? 'filtered' : 'fixed',
         suggestions: choices
       }"
-      :input-hint="spec.i18n.no_selection"
-      :no-elements-text="spec.i18n.no_objects"
-      :required-text="spec.i18n_base.required"
-      :label="spec.title"
-      class="fsce__dropdown"
+      :input-hint="untranslated(spec.i18n.no_selection)"
+      :no-elements-text="untranslated(spec.i18n.no_objects)"
+      :label="untranslated(spec.title)"
+      class="form-single-choice-editable__dropdown"
+      required
     />
     <template v-if="spec.allow_editing_existing_elements">
       <FormButton
         v-show="selectedObjectId !== null"
         icon="edit"
-        @click.prevent="openSlideIn(selectedObjectId)"
+        @click="openSlideIn(selectedObjectId)"
       >
         {{ spec.i18n.edit }}
       </FormButton>
       <CmkSpace v-show="selectedObjectId !== null" />
     </template>
-    <FormButton @click.prevent="openSlideIn(null)">
+    <FormButton @click="openSlideIn(null)">
       {{ spec.i18n.create }}
     </FormButton>
 
-    <SlideIn
+    <CmkSlideInDialog
       :open="slideInOpen"
       :header="{
         title:
@@ -173,13 +184,13 @@ const { ErrorBoundary, error } = useErrorBoundary()
           @submitted="slideInSubmitted"
         />
       </ErrorBoundary>
-    </SlideIn>
+    </CmkSlideInDialog>
   </div>
   <FormValidation :validation="validation"></FormValidation>
 </template>
 
 <style scoped>
-.fsce__dropdown {
+.form-single-choice-editable__dropdown {
   margin-right: 1em;
 }
 </style>

@@ -15,37 +15,27 @@ import time_machine
 from pytest import MonkeyPatch
 from pytest_mock import MockerFixture
 
-from tests.testlib.unit.rest_api_client import ClientRegistry
-
-from tests.unit.cmk.web_test_app import SetConfig
-
 from cmk.ccc import version
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-
+from cmk.crypto.password import PasswordPolicy
+from cmk.crypto.password_hashing import PasswordHash
 from cmk.gui import userdb
 from cmk.gui.config import active_config
-from cmk.gui.logged_in import user
+from cmk.gui.logged_in import LoggedInSuperUser, user
 from cmk.gui.openapi.endpoints.user_config import (
     _api_to_internal_format,
     _internal_to_api_format,
     _load_user,
 )
 from cmk.gui.openapi.endpoints.utils import complement_customer
-from cmk.gui.session import SuperUserContext
-from cmk.gui.type_defs import CustomUserAttrSpec, UserObject
-from cmk.gui.userdb import ConnectorType, UserRole
-from cmk.gui.userdb._connections import Fixed, LDAPConnectionConfigFixed, LDAPUserConnectionConfig
-from cmk.gui.userdb.ldap_connector import LDAPUserConnector
-from cmk.gui.watolib.custom_attributes import (
-    save_custom_attrs_to_mk_file,
-    update_user_custom_attrs,
-)
+from cmk.gui.type_defs import CustomUserAttrSpec, Users, UserSpec
+from cmk.gui.userdb import ConnectorType, get_user_attributes, UserRole
+from cmk.gui.watolib.custom_attributes import save_custom_attrs_to_mk_file, update_user_custom_attrs
 from cmk.gui.watolib.userroles import clone_role, RoleID
-from cmk.gui.watolib.users import default_sites, edit_users
-
-from cmk.crypto.password_hashing import PasswordHash
+from cmk.gui.watolib.users import create_user, default_sites, edit_users
+from cmk.utils import paths
+from tests.testlib.unit.rest_api_client import ClientRegistry
+from tests.unit.cmk.web_test_app import SetConfig
 
 managedtest = pytest.mark.skipif(
     version.edition(paths.omd_root) is not version.Edition.CME, reason="see #7213"
@@ -122,12 +112,14 @@ def test_openapi_customer(clients: ClientRegistry, monkeypatch: MonkeyPatch) -> 
         "auth_option": {},
         "interface_options": {
             "interface_theme": "default",
-            "mega_menu_icons": "topic",
+            "main_menu_icons": "topic",
+            "mega_menu_icons": "topic",  # TODO: DEPRECATED(18295) remove "mega_menu_icons"
             "navigation_bar_icons": "hide",
             "show_mode": "default",
             "sidebar_position": "right",
             "contextual_help_icon": "show_icon",
         },
+        "start_url": "default_start_url",
     }
 
     resp = clients.User.edit(username=username, customer="provider")
@@ -142,32 +134,33 @@ def test_openapi_user_minimal_settings(
 ) -> None:
     with (
         time_machine.travel(datetime.datetime.fromisoformat("2021-09-24 12:36:00Z")),
-        SuperUserContext(),
     ):
-        user_object: UserObject = {
-            UserId("user"): {
-                "attributes": {
-                    "ui_theme": None,
-                    "ui_sidebar_position": None,
-                    "nav_hide_icons_title": None,
-                    "icons_per_item": None,
-                    "show_mode": None,
-                    "start_url": None,
-                    "force_authuser": False,
-                    "enforce_pw_change": False,
-                    "alias": "User Name",
-                    "locked": False,
-                    "pager": "",
-                    "roles": [],
-                    "contactgroups": [],
-                    "email": "",
-                    "fallback_contact": False,
-                    "disable_notifications": {},
-                },
-                "is_new_user": True,
-            }
+        user_object: UserSpec = {
+            "ui_theme": None,
+            "ui_sidebar_position": None,
+            "nav_hide_icons_title": None,
+            "icons_per_item": None,
+            "show_mode": None,
+            "start_url": None,
+            "force_authuser": False,
+            "enforce_pw_change": False,
+            "alias": "User Name",
+            "locked": False,
+            "pager": "",
+            "roles": [],
+            "contactgroups": [],
+            "email": "",
+            "fallback_contact": False,
+            "disable_notifications": {},
         }
-        edit_users(user_object, default_sites)
+        create_user(
+            UserId("user"),
+            user_object,
+            default_sites,
+            get_user_attributes([]),
+            use_git=False,
+            acting_user=LoggedInSuperUser(),
+        )
 
     user_attributes = _load_internal_attributes(UserId("user"))
 
@@ -302,36 +295,37 @@ def test_openapi_user_internal_with_notifications(
 ) -> None:
     name = UserId(_random_string(10))
 
-    user_object: UserObject = {
-        name: {
-            "attributes": {
-                "ui_theme": None,
-                "ui_sidebar_position": None,
-                "nav_hide_icons_title": None,
-                "icons_per_item": None,
-                "show_mode": None,
-                "start_url": None,
-                "force_authuser": False,
-                "enforce_pw_change": True,
-                "alias": "KPECYCq79E",
-                "locked": False,
-                "pager": "",
-                "roles": [],
-                "contactgroups": [],
-                "email": "",
-                "fallback_contact": False,
-                "password": PasswordHash(
-                    "$5$rounds=535000$eUtToQgKz6n7Qyqk$hh5tq.snoP4J95gVoswOep4LbUxycNG1QF1HI7B4d8C"
-                ),
-                "last_pw_change": 1265013000,
-                "serial": 1,
-                "disable_notifications": {"timerange": (1577836800.0, 1577923200.0)},
-            },
-            "is_new_user": True,
-        }
+    user_object: UserSpec = {
+        "ui_theme": None,
+        "ui_sidebar_position": None,
+        "nav_hide_icons_title": None,
+        "icons_per_item": None,
+        "show_mode": None,
+        "start_url": None,
+        "force_authuser": False,
+        "enforce_pw_change": True,
+        "alias": "KPECYCq79E",
+        "locked": False,
+        "pager": "",
+        "roles": [],
+        "contactgroups": [],
+        "email": "",
+        "fallback_contact": False,
+        "password": PasswordHash(
+            "$5$rounds=535000$eUtToQgKz6n7Qyqk$hh5tq.snoP4J95gVoswOep4LbUxycNG1QF1HI7B4d8C"
+        ),
+        "last_pw_change": 1265013000,
+        "serial": 1,
+        "disable_notifications": {"timerange": (1577836800.0, 1577923200.0)},
     }
-    with SuperUserContext():
-        edit_users(user_object, default_sites)
+    create_user(
+        name,
+        user_object,
+        default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
+    )
 
     assert _load_internal_attributes(name) == {
         "alias": "KPECYCq79E",
@@ -376,6 +370,10 @@ def test_update_user_auth_options(
 
     user_data = resp.json["extensions"]
     user_data.pop("auth_option", None)
+
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
+    # Hint Response != Request >> all responses contain alias AND field.
+    user_data["interface_options"].pop("mega_menu_icons", None)
 
     if test_data is not None:
         user_data.update(test_data)
@@ -503,39 +501,39 @@ def test_openapi_user_internal_auth_handling(
     )
 
     name = UserId("foo")
-
-    user_object: UserObject = {
-        name: {
-            "attributes": {
-                "ui_theme": None,
-                "ui_sidebar_position": None,
-                "nav_hide_icons_title": None,
-                "icons_per_item": None,
-                "show_mode": None,
-                "start_url": None,
-                "force_authuser": False,
-                "enforce_pw_change": True,
-                "alias": "Foo Bar",
-                "locked": False,
-                "pager": "",
-                "roles": ["user"],
-                "contactgroups": [],
-                "email": "",
-                "fallback_contact": False,
-                "password": PasswordHash(
-                    "$5$rounds=535000$eUtToQgKz6n7Qyqk$hh5tq.snoP4J95gVoswOep4LbUxycNG1QF1HI7B4d8C"
-                ),
-                "last_pw_change": 1265011200,  # 2010-02-01 08:00:00
-                "serial": 1,
-                "disable_notifications": {},
-            },
-            "is_new_user": True,
-        }
+    user_object: UserSpec = {
+        "ui_theme": None,
+        "ui_sidebar_position": None,
+        "nav_hide_icons_title": None,
+        "icons_per_item": None,
+        "show_mode": None,
+        "start_url": None,
+        "force_authuser": False,
+        "enforce_pw_change": True,
+        "alias": "Foo Bar",
+        "locked": False,
+        "pager": "",
+        "roles": ["user"],
+        "contactgroups": [],
+        "email": "",
+        "fallback_contact": False,
+        "password": PasswordHash(
+            "$5$rounds=535000$eUtToQgKz6n7Qyqk$hh5tq.snoP4J95gVoswOep4LbUxycNG1QF1HI7B4d8C"
+        ),
+        "last_pw_change": 1265011200,  # 2010-02-01 08:00:00
+        "serial": 1,
+        "disable_notifications": {},
     }
 
     with time_machine.travel(datetime.datetime.fromisoformat("2010-02-01 08:30:00Z")):
-        with SuperUserContext():
-            edit_users(user_object, default_sites)
+        create_user(
+            name,
+            user_object,
+            default_sites,
+            get_user_attributes([]),
+            use_git=False,
+            acting_user=LoggedInSuperUser(),
+        )
 
     assert _load_internal_attributes(name) == {
         "alias": "Foo Bar",
@@ -561,17 +559,15 @@ def test_openapi_user_internal_auth_handling(
         updated_internal_attributes = _api_to_internal_format(
             _load_user(name),
             {"auth_option": {"secret": "QWXWBFUCSUOXNCPJUMS@", "auth_type": "automation"}},
+            PasswordPolicy(12, None),
         )
-        with SuperUserContext():
-            edit_users(
-                {
-                    name: {
-                        "attributes": updated_internal_attributes,
-                        "is_new_user": False,
-                    }
-                },
-                default_sites,
-            )
+        edit_users(
+            {name: updated_internal_attributes},
+            default_sites,
+            get_user_attributes([]),
+            use_git=False,
+            acting_user=LoggedInSuperUser(),
+        )
 
     assert _load_internal_attributes(name) == {
         "alias": "Foo Bar",
@@ -596,18 +592,17 @@ def test_openapi_user_internal_auth_handling(
 
     with time_machine.travel(datetime.datetime.fromisoformat("2010-02-01 09:30:00Z")):
         updated_internal_attributes = _api_to_internal_format(
-            _load_user(name), {"auth_option": {"auth_type": "remove"}}
+            _load_user(name),
+            {"auth_option": {"auth_type": "remove"}},
+            PasswordPolicy(12, None),
         )
-        with SuperUserContext():
-            edit_users(
-                {
-                    name: {
-                        "attributes": updated_internal_attributes,
-                        "is_new_user": False,
-                    }
-                },
-                default_sites,
-            )
+        edit_users(
+            {name: updated_internal_attributes},
+            default_sites,
+            get_user_attributes([]),
+            use_git=False,
+            acting_user=LoggedInSuperUser(),
+        )
     assert _load_internal_attributes(name) == {
         "alias": "Foo Bar",
         "customer": "provider",
@@ -648,32 +643,33 @@ def test_managed_global_internal(
 ) -> None:
     # this test uses the internal mechanics of the user endpoint
 
-    user_object: UserObject = {
-        UserId("user"): {
-            "attributes": {
-                "ui_theme": None,
-                "ui_sidebar_position": None,
-                "nav_hide_icons_title": None,
-                "icons_per_item": None,
-                "show_mode": None,
-                "start_url": None,
-                "force_authuser": False,
-                "enforce_pw_change": False,
-                "alias": "User Name",
-                "locked": False,
-                "pager": "",
-                "roles": [],
-                "contactgroups": [],
-                "customer": None,  # None represents global internally
-                "email": "",
-                "fallback_contact": False,
-                "disable_notifications": {},
-            },
-            "is_new_user": True,
-        }
+    user_object: UserSpec = {
+        "ui_theme": None,
+        "ui_sidebar_position": None,
+        "nav_hide_icons_title": None,
+        "icons_per_item": None,
+        "show_mode": None,
+        "start_url": None,
+        "force_authuser": False,
+        "enforce_pw_change": False,
+        "alias": "User Name",
+        "locked": False,
+        "pager": "",
+        "roles": [],
+        "contactgroups": [],
+        "customer": None,  # None represents global internally
+        "email": "",
+        "fallback_contact": False,
+        "disable_notifications": {},
     }
-    with SuperUserContext():
-        edit_users(user_object, default_sites)
+    create_user(
+        UserId("user"),
+        user_object,
+        default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
+    )
     user_internal = _load_user(UserId("user"))
     user_endpoint_attrs = complement_customer(_internal_to_api_format(user_internal))
     assert user_endpoint_attrs["customer"] == "global"
@@ -715,13 +711,15 @@ def test_global_full_configuration(clients: ClientRegistry) -> None:
         "auth_option": {"enforce_password_change": False, "auth_type": "password"},
         "interface_options": {
             "interface_theme": "default",
-            "mega_menu_icons": "topic",
+            "main_menu_icons": "topic",
+            "mega_menu_icons": "topic",  # TODO: DEPRECATED(18295) remove "mega_menu_icons"
             "navigation_bar_icons": "hide",
             "show_mode": "default",
             "sidebar_position": "right",
             "contextual_help_icon": "show_icon",
         },
         "temperature_unit": "fahrenheit",
+        "start_url": "default_start_url",
     }
 
 
@@ -732,32 +730,33 @@ def test_managed_idle_internal(
     # this test uses the internal mechanics of the user endpoint
     username, _secret = with_automation_user
 
-    user_object: UserObject = {
-        UserId("user"): {
-            "attributes": {
-                "ui_theme": None,
-                "ui_sidebar_position": None,
-                "nav_hide_icons_title": None,
-                "icons_per_item": None,
-                "show_mode": None,
-                "start_url": None,
-                "force_authuser": False,
-                "enforce_pw_change": False,
-                "alias": "User Name",
-                "locked": False,
-                "pager": "",
-                "roles": [],
-                "contactgroups": [],
-                "customer": None,  # None represents global internally
-                "email": "",
-                "fallback_contact": False,
-                "disable_notifications": {},
-            },
-            "is_new_user": True,
-        }
+    user_object: UserSpec = {
+        "ui_theme": None,
+        "ui_sidebar_position": None,
+        "nav_hide_icons_title": None,
+        "icons_per_item": None,
+        "show_mode": None,
+        "start_url": None,
+        "force_authuser": False,
+        "enforce_pw_change": False,
+        "alias": "User Name",
+        "locked": False,
+        "pager": "",
+        "roles": [],
+        "contactgroups": [],
+        "customer": None,  # None represents global internally
+        "email": "",
+        "fallback_contact": False,
+        "disable_notifications": {},
     }
-    with SuperUserContext():
-        edit_users(user_object, default_sites)
+    create_user(
+        UserId("user"),
+        user_object,
+        default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
+    )
 
     user_internal = _load_user(UserId("user"))
     user_endpoint_attrs = complement_customer(_internal_to_api_format(user_internal))
@@ -776,6 +775,9 @@ def test_openapi_user_update_contact_options(clients: ClientRegistry) -> None:
             fullname="Mathias Kettner",
             customer="global",
             auth_option={"auth_type": "password", "password": "password1234"},
+            interface_options={
+                "mega_menu_icons": "entry"
+            },  # TODO: DEPRECATED(18295) remove "mega_menu_icons"
             disable_login=False,
             idle_timeout={"option": "global"},
             roles=["user"],
@@ -804,13 +806,69 @@ def test_openapi_user_update_contact_options(clients: ClientRegistry) -> None:
         "auth_option": {"enforce_password_change": False, "auth_type": "password"},
         "interface_options": {
             "interface_theme": "default",
-            "mega_menu_icons": "topic",
+            "main_menu_icons": "entry",  # TODO reset to "topic" (CMK-23667, Werk#18295)
+            "mega_menu_icons": "entry",  # TODO: DEPRECATED(18295) remove "mega_menu_icons"
             "navigation_bar_icons": "hide",
             "show_mode": "default",
             "sidebar_position": "right",
             "contextual_help_icon": "show_icon",
         },
+        "start_url": "default_start_url",
     }
+
+
+# TODO: DEPRECATED(18295) remove "mega_menu_icons"
+@managedtest
+def test_openapi_user_update_fails_because_alias_and_field_set(clients: ClientRegistry) -> None:
+    # this test uses the internal mechanics of the user endpoint
+    username = "cmkuser"
+    with time_machine.travel(datetime.datetime.fromisoformat("2010-02-01 08:00:00Z")):
+        clients.User.create(
+            username=username,
+            fullname="Mathias Kettner",
+            customer="global",
+            auth_option={"auth_type": "password", "password": "password1234"},
+            interface_options={"mega_menu_icons": "entry"},
+            disable_login=False,
+            idle_timeout={"option": "global"},
+            roles=["user"],
+            disable_notifications={"disable": False},
+            pager_address="",
+            language="en",
+        )
+
+    clients.User.edit(
+        username=username,
+        interface_options={"mega_menu_icons": "entry", "main_menu_icons": "topic"},
+        expect_ok=False,
+    ).assert_status_code(400)
+
+
+# TODO: DEPRECATED(18295) remove "mega_menu_icons"
+@managedtest
+def test_openapi_user_create_fails_because_alias_and_field_set(
+    clients: ClientRegistry,
+) -> None:
+    # this test uses the internal mechanics of the user endpoint
+    username = "cmkuser"
+    with time_machine.travel(datetime.datetime.fromisoformat("2010-02-01 08:00:00Z")):
+        clients.User.create(
+            username=username,
+            fullname="Mathias Kettner",
+            customer="global",
+            auth_option={"auth_type": "password", "password": "password1234"},
+            interface_options={
+                "mega_menu_icons": "entry",
+                "main_menu_icons": "topic",
+            },  # TODO: DEPRECATED(18295) remove "mega_menu_icons"
+            disable_login=False,
+            idle_timeout={"option": "global"},
+            roles=["user"],
+            disable_notifications={"disable": False},
+            pager_address="",
+            language="en",
+            expect_ok=False,
+        ).assert_status_code(400)
 
 
 @managedtest
@@ -917,7 +975,7 @@ def test_user_interface_settings(_mock: None, clients: ClientRegistry) -> None:
             "interface_theme": "dark",
             "sidebar_position": "left",
             "navigation_bar_icons": "show",
-            "mega_menu_icons": "entry",
+            "main_menu_icons": "entry",
             "show_mode": "enforce_show_more",
         },
     )
@@ -926,6 +984,8 @@ def test_user_interface_settings(_mock: None, clients: ClientRegistry) -> None:
     assert interface_options["interface_theme"] == "dark"
     assert interface_options["sidebar_position"] == "left"
     assert interface_options["navigation_bar_icons"] == "show"
+    assert interface_options["main_menu_icons"] == "entry"
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
     assert interface_options["mega_menu_icons"] == "entry"
     assert interface_options["show_mode"] == "enforce_show_more"
 
@@ -997,7 +1057,7 @@ def test_openapi_new_user_with_non_existing_role(clients: ClientRegistry) -> Non
 def custom_user_attributes_ctx(attrs: list[CustomUserAttrSpec]) -> Iterator:
     try:
         save_custom_attrs_to_mk_file({"user": attrs, "host": []})
-        update_user_custom_attrs(datetime.datetime.today())
+        update_user_custom_attrs(get_user_attributes(attrs), datetime.datetime.today())
         yield
     finally:
         save_custom_attrs_to_mk_file({"user": attrs, "host": []})
@@ -1043,7 +1103,7 @@ def test_openapi_custom_attributes_of_user(
                 "interface_theme": "dark",
                 "sidebar_position": "left",
                 "navigation_bar_icons": "show",
-                "mega_menu_icons": "entry",
+                "main_menu_icons": "entry",
                 "show_mode": "enforce_show_more",
             },
             extra={
@@ -1086,7 +1146,7 @@ def test_edit_custom_attributes_of_user(_mock: None, clients: ClientRegistry) ->
                 "interface_theme": "dark",
                 "sidebar_position": "left",
                 "navigation_bar_icons": "show",
-                "mega_menu_icons": "entry",
+                "main_menu_icons": "entry",
                 "show_mode": "enforce_show_more",
             },
             extra={
@@ -1116,7 +1176,7 @@ def test_create_user_with_non_existing_custom_attribute(
             "interface_theme": "dark",
             "sidebar_position": "left",
             "navigation_bar_icons": "show",
-            "mega_menu_icons": "entry",
+            "main_menu_icons": "entry",
             "show_mode": "enforce_show_more",
         },
         extra={
@@ -1171,10 +1231,9 @@ def test_openapi_all_authorized_sites(clients: ClientRegistry) -> None:
 
 
 @pytest.fixture(name="mock_users_config")
-def fixture_mock_users_config(mocker: MockerFixture) -> MagicMock:
-    return mocker.patch(
-        "cmk.gui.userdb.load_users",
-        return_value={
+def fixture_mock_users_config(mocker: MockerFixture) -> None:
+    user_cfg = Users(
+        {
             "saml.user@example.com": {
                 "alias": "Samler",
                 "force_authuser": False,
@@ -1185,8 +1244,11 @@ def fixture_mock_users_config(mocker: MockerFixture) -> MagicMock:
                 "icons_per_item": None,
                 "show_mode": None,
             },
-        },
+        }
     )
+
+    mocker.patch("cmk.gui.fields.definitions.load_users", return_value=user_cfg)
+    mocker.patch("cmk.gui.openapi.endpoints.user_config.load_users", return_value=user_cfg)
 
 
 @pytest.fixture(name="mock_user_connections_config")
@@ -1319,114 +1381,6 @@ def test_create_user_with_contact_group(clients: ClientRegistry) -> None:
     assert resp.json["extensions"]["contactgroups"] == ["group_one"]
 
 
-@pytest.fixture(name="mock_ldap_locked_attributes")
-def fixture_mock_ldap_locked_attributes(request_context: None, mocker: MockerFixture) -> MagicMock:
-    """Mock the locked attributes of a LDAP user"""
-    ldap_config = LDAPUserConnectionConfig(
-        id="CMKTest",
-        description="",
-        comment="",
-        docu_url="",
-        disabled=False,
-        directory_type=(
-            "ad",
-            LDAPConnectionConfigFixed(
-                connect_to=(
-                    "fixed_list",
-                    Fixed(server="some.domain.com"),
-                )
-            ),
-        ),
-        bind=(
-            "CN=svc_checkmk,OU=checkmktest-users,DC=int,DC=testdomain,DC=com",
-            ("store", "AD_svc_checkmk"),
-        ),
-        port=636,
-        use_ssl=True,
-        user_dn="OU=checkmktest-users,DC=int,DC=testdomain,DC=com",
-        user_scope="sub",
-        user_filter="(&(objectclass=user)(objectcategory=person)(|(memberof=CN=cmk_AD_admins,OU=checkmktest-groups,DC=int,DC=testdomain,DC=com)))",
-        user_id_umlauts="keep",
-        group_dn="OU=checkmktest-groups,DC=int,DC=testdomain,DC=com",
-        group_scope="sub",
-        active_plugins={
-            "alias": {},
-            "auth_expire": {},
-            "groups_to_contactgroups": {"nested": True},
-            "disable_notifications": {"attr": "msDS-cloudExtensionAttribute1"},
-            "email": {"attr": "mail"},
-            "icons_per_item": {"attr": "msDS-cloudExtensionAttribute3"},
-            "nav_hide_icons_title": {"attr": "msDS-cloudExtensionAttribute4"},
-            "pager": {"attr": "mobile"},
-            "groups_to_roles": {
-                "admin": [
-                    (
-                        "CN=cmk_AD_admins,OU=checkmktest-groups,DC=int,DC=testdomain,DC=com",
-                        None,
-                    )
-                ]
-            },
-            "show_mode": {"attr": "msDS-cloudExtensionAttribute2"},
-            "ui_sidebar_position": {"attr": "msDS-cloudExtensionAttribute5"},
-            "start_url": {"attr": "msDS-cloudExtensionAttribute9"},
-            "temperature_unit": {"attr": "msDS-cloudExtensionAttribute6"},
-            "ui_theme": {"attr": "msDS-cloudExtensionAttribute7"},
-            "force_authuser": {"attr": "msDS-cloudExtensionAttribute8"},
-        },
-        cache_livetime=300,
-        type="ldap",
-    )
-
-    return mocker.patch(
-        "cmk.gui.openapi.endpoints.user_config.locked_attributes",
-        return_value=LDAPUserConnector(ldap_config).locked_attributes(),
-    )
-
-
-@pytest.mark.usefixtures("mock_ldap_locked_attributes")
-@managedtest
-def test_edit_ldap_user_with_locked_attributes(
-    clients: ClientRegistry,
-) -> None:
-    name = UserId("foo")
-    user_object: UserObject = {
-        name: {
-            "attributes": {
-                "ui_theme": None,
-                "ui_sidebar_position": None,
-                "nav_hide_icons_title": None,
-                "icons_per_item": None,
-                "show_mode": None,
-                "start_url": None,
-                "force_authuser": False,
-                "enforce_pw_change": True,
-                "alias": "cmkADAdmin",
-                "locked": False,
-                "pager": "",
-                "roles": ["guest"],
-                "contactgroups": [],
-                "email": "",
-                "fallback_contact": False,
-                "password": PasswordHash(
-                    "$5$rounds=535000$eUtToQgKz6n7Qyqk$hh5tq.snoP4J95gVoswOep4LbUxycNG1QF1HI7B4d8C"
-                ),
-                "serial": 1,
-                "connector": "CMKTest",
-                "disable_notifications": {},
-            },
-            "is_new_user": True,
-        },
-    }
-    with SuperUserContext():
-        edit_users(user_object, default_sites)
-
-    clients.User.edit(
-        username=name,
-        roles=["admin"],
-        expect_ok=False,
-    ).assert_status_code(403)
-
-
 def test_openapi_minimum_configuration(clients: ClientRegistry) -> None:
     create_resp = clients.User.create(username="user", fullname="User Test")
     get_resp = clients.User.get(username="user")
@@ -1460,3 +1414,50 @@ def test_openapi_full_configuration(clients: ClientRegistry) -> None:
 def test_openapi_user_dismiss_warning(clients: ClientRegistry) -> None:
     clients.User.dismiss_warning(warning="notification_fallback")
     assert user.dismissed_warnings == {"notification_fallback"}
+
+
+@managedtest
+def test_openapi_edit_user_should_not_modify_start_url(clients: ClientRegistry) -> None:
+    username = "user_1"
+    clients.User.create(
+        username=username,
+        fullname="User Test",
+        start_url="welcome_page",
+    )
+    assert (
+        clients.User.edit(
+            username=username,
+            fullname="User Test Updated",
+        ).json["extensions"]["start_url"]
+        == "welcome_page"
+    )
+
+
+@managedtest
+def test_openapi_create_user_edit_start_url(clients: ClientRegistry) -> None:
+    username = "user_2"
+    assert (
+        clients.User.create(
+            username=username,
+            fullname="User Test",
+        ).json["extensions"]["start_url"]
+        == "default_start_url"
+    )
+
+    assert (
+        clients.User.edit(
+            username=username,
+            fullname="User Test Updated",
+            start_url="welcome_page",
+        ).json["extensions"]["start_url"]
+        == "welcome_page"
+    )
+
+    assert (
+        clients.User.edit(
+            username=username,
+            fullname="User Test Updated Again",
+            start_url="some_custom_url",
+        ).json["extensions"]["start_url"]
+        == "some_custom_url"
+    )

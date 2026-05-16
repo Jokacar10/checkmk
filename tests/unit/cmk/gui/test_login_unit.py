@@ -14,21 +14,18 @@ import flask
 import pytest
 from werkzeug.test import create_environ
 
-from tests.unit.cmk.gui.users import create_and_destroy_user
-from tests.unit.cmk.web_test_app import WebTestAppForCMK
-
 from cmk.ccc.user import UserId
-
-from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
-
 from cmk.gui import auth, http, login
-from cmk.gui.config import load_config
+from cmk.gui.config import active_config
 from cmk.gui.http import request
 from cmk.gui.logged_in import LoggedInNobody, LoggedInUser, user
 from cmk.gui.session import session
 from cmk.gui.type_defs import UserSpec, WebAuthnCredential
 from cmk.gui.userdb.session import auth_cookie_name, auth_cookie_value, generate_auth_hash
 from cmk.gui.utils.script_helpers import application_and_request_context
+from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
+from tests.unit.cmk.gui.users import create_and_destroy_user
+from tests.unit.cmk.web_test_app import WebTestAppForCMK
 
 
 @pytest.fixture(name="user_id")
@@ -52,7 +49,7 @@ def test_login_two_factor_redirect(
             "totp_credentials": {},
         },
     }
-    with create_and_destroy_user(custom_attrs=custom_attrs) as user_tuple:
+    with create_and_destroy_user(custom_attrs=custom_attrs, config=active_config) as user_tuple:
         resp = wsgi_app.login(user_tuple[0], user_tuple[1])
         assert resp.status_code == 302
         assert resp.location.startswith("user_login_two_factor.py")
@@ -64,7 +61,7 @@ def test_login_forced_password_change(
     custom_attrs: UserSpec = {
         "enforce_pw_change": True,
     }
-    with create_and_destroy_user(custom_attrs=custom_attrs) as user_tuple:
+    with create_and_destroy_user(custom_attrs=custom_attrs, config=active_config) as user_tuple:
         resp = wsgi_app.login(user_tuple[0], user_tuple[1])
         assert resp.status_code == 302
         assert resp.location.startswith("user_change_pw.py")
@@ -87,7 +84,7 @@ def test_login_two_factor_has_precedence_over_password_change(
             "totp_credentials": {},
         },
     }
-    with create_and_destroy_user(custom_attrs=custom_attrs) as user_tuple:
+    with create_and_destroy_user(custom_attrs=custom_attrs, config=active_config) as user_tuple:
         resp = wsgi_app.login(user_tuple[0], user_tuple[1])
         assert resp.status_code == 302
         assert resp.location.startswith("user_login_two_factor.py")
@@ -238,7 +235,6 @@ def fixture_current_cookie(with_user: tuple[UserId, str], session_id: str) -> It
     environ = {**create_environ(), "HTTP_COOKIE": f"{cookie_name}={cookie_value}"}
 
     with application_and_request_context(environ):
-        load_config()
         yield cookie_name
 
 

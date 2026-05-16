@@ -13,10 +13,5 @@ export interface Topic {
   ident: string
   title: string
   elements: Element[]
-}
-
-export interface SpecLineType {
-  line: string
-  area: string
-  stack: string
+  customContent?: boolean
 }

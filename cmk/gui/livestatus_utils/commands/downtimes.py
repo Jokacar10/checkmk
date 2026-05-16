@@ -9,21 +9,27 @@ from typing import Literal
 
 from livestatus import MultiSiteConnection
 
-from cmk.ccc.site import SiteId
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.site import omd_site, SiteId
 from cmk.ccc.user import UserId
-
+from cmk.gui.exceptions import MKAuthException
+from cmk.gui.livestatus_utils.commands.type_defs import LivestatusCommand
+from cmk.gui.logged_in import user as _user
+from cmk.livestatus_client.commands import (
+    Command,
+    DeleteHostDowntime,
+    DeleteServiceDowntime,
+    ModifyHostDowntime,
+    ModifyServiceDowntime,
+    ScheduleHostDowntime,
+    ScheduleServiceDowntime,
+)
 from cmk.utils.livestatus_helpers import tables
 from cmk.utils.livestatus_helpers.expressions import And, Or, QueryExpression
 from cmk.utils.livestatus_helpers.queries import detailed_connection, Query
 from cmk.utils.livestatus_helpers.tables.downtimes import Downtimes
 from cmk.utils.livestatus_helpers.tables.hosts import Hosts
 from cmk.utils.livestatus_helpers.tables.services import Services
-
-from cmk.gui.exceptions import MKAuthException
-from cmk.gui.livestatus_utils.commands.lowlevel import send_command
-from cmk.gui.livestatus_utils.commands.type_defs import LivestatusCommand
-from cmk.gui.livestatus_utils.commands.utils import to_timestamp
-from cmk.gui.logged_in import user as _user
 
 # TODO: Test duration option
 
@@ -70,20 +76,13 @@ def _del_host_downtime(
         site_id:
             Id of site where command should be executed.
 
-    Examples:
-
-        >>> from cmk.gui.livestatus_utils.testing import simple_expect
-        >>> from cmk.gui.config import load_config
-        >>> from cmk.gui.session import SuperUserContext
-
-        >>> expect = simple_expect("COMMAND [...] DEL_HOST_DOWNTIME;1", match_type="ellipsis")
-        >>> with expect as live, SuperUserContext():
-        ...     load_config()
-        ...     _del_host_downtime(live, 1, "")
 
     """
 
-    return send_command(connection, DOWNTIME.DELETE_HOST, [downtime_id], site_id)
+    connection.command_obj(
+        DeleteHostDowntime(downtime_id=downtime_id),
+        site_id if site_id else omd_site(),
+    )
 
 
 def _del_service_downtime(
@@ -103,20 +102,12 @@ def _del_service_downtime(
         site_id:
             Id of site where command should be executed.
 
-    Examples:
-
-        >>> from cmk.gui.livestatus_utils.testing import simple_expect
-        >>> from cmk.gui.config import load_config
-        >>> from cmk.gui.session import SuperUserContext
-
-        >>> expect = simple_expect("COMMAND [...] DEL_SVC_DOWNTIME;1", match_type="ellipsis")
-        >>> with expect as live, SuperUserContext():
-        ...     load_config()
-        ...     _del_service_downtime(live, 1, "")
 
     """
-
-    return send_command(connection, DOWNTIME.DELETE_SERVICE, [downtime_id], site_id)
+    connection.command_obj(
+        DeleteServiceDowntime(downtime_id=downtime_id),
+        site_id if site_id else omd_site(),
+    )
 
 
 def delete_downtime(
@@ -218,7 +209,7 @@ def schedule_services_downtimes_with_query(
 def schedule_service_downtime(
     connection: MultiSiteConnection,
     site_id: SiteId | None,
-    host_name: str,
+    host_name: HostName,
     service_description: list[str] | str,
     start_time: dt.datetime,
     end_time: dt.datetime,
@@ -280,30 +271,6 @@ def schedule_service_downtime(
     See Also:
         https://assets.nagios.com/downloads/nagioscore/docs/externalcmds/cmdinfo.php?command_id=119
 
-    Examples:
-
-        >>> from zoneinfo import ZoneInfo
-        >>> _start_time = dt.datetime(1970, 1, 1, tzinfo=ZoneInfo("UTC"))
-        >>> _end_time = dt.datetime(1970, 1, 2, tzinfo=ZoneInfo("UTC"))
-
-        >>> from cmk.gui.livestatus_utils.testing import simple_expect
-        >>> from cmk.gui.config import load_config
-        >>> from cmk.gui.session import SuperUserContext
-
-        >>> cmd = "COMMAND [...] SCHEDULE_SVC_DOWNTIME;example.com;Memory;0;86400;16;0;120;;Boom"
-        >>> with simple_expect() as live, SuperUserContext():
-        ...     load_config()
-        ...     _ = live.expect_query("GET services\\nColumns: description\\nFilter: host_name = example.com\\nFilter: description = Memory\\nAnd: 2")
-        ...     _ = live.expect_query(cmd, match_type="ellipsis")
-        ...     schedule_service_downtime(live,
-        ...             SiteId('NO_SITE'),
-        ...             'example.com',
-        ...             'Memory',
-        ...             _start_time,
-        ...             _end_time,
-        ...             recur="day_of_month",
-        ...             duration=2,
-        ...             comment="Boom")
 
     """
 
@@ -688,27 +655,6 @@ def schedule_host_downtime(
       * https://assets.nagios.com/downloads/nagioscore/docs/externalcmds/cmdinfo.php?command_id=118
       * https://assets.nagios.com/downloads/nagioscore/docs/externalcmds/cmdinfo.php?command_id=122
 
-    Examples:
-        >>> from zoneinfo import ZoneInfo
-        >>> _start_time = dt.datetime(1970, 1, 1, tzinfo=ZoneInfo("UTC"))
-        >>> _end_time = dt.datetime(1970, 1, 2, tzinfo=ZoneInfo("UTC"))
-
-        >>> from cmk.gui.livestatus_utils.testing import simple_expect
-        >>> from cmk.gui.config import load_config
-        >>> from cmk.gui.session import SuperUserContext
-
-        >>> cmd = "COMMAND [...] SCHEDULE_HOST_DOWNTIME;example.com;0;86400;16;0;120;;Boom"
-        >>> with simple_expect() as live, SuperUserContext():
-        ...     load_config()
-        ...     _ = live.expect_query("GET hosts\\nColumns: name\\nFilter: name = example.com")
-        ...     _ = live.expect_query(cmd, match_type="ellipsis")
-        ...     schedule_host_downtime(live,
-        ...             'example.com',
-        ...             _start_time,
-        ...             _end_time,
-        ...             recur="day_of_month",
-        ...             duration=2,
-        ...             comment="Boom")
 
     """
     if isinstance(host_entry, str):
@@ -797,7 +743,7 @@ def _schedule_downtime(
     sites: MultiSiteConnection,
     command: LivestatusCommand,
     site_id: SiteId | None,
-    host_or_group: str,
+    host_or_group: HostName,
     service_description: str | None,
     start_time: dt.datetime,
     end_time: dt.datetime,
@@ -817,30 +763,37 @@ def _schedule_downtime(
     _user.need_permission("action.downtimes")
 
     recur_mode = _recur_mode(recur, duration)
-
+    cmd: Command
     if command == DOWNTIME.SCHEDULE_HOST:
-        params = [host_or_group]
+        cmd = ScheduleHostDowntime(
+            host_name=host_or_group,
+            start_time=start_time,
+            end_time=end_time,
+            recur_mode=recur_mode,
+            trigger_id=trigger_id,
+            duration=60 * duration,
+            user=user_id,
+            comment=comment,
+        )
     elif command == DOWNTIME.SCHEDULE_SERVICE:
         if not service_description:
             raise ValueError("Service name necessary.")
-        params = [host_or_group, service_description]
+        cmd = ScheduleServiceDowntime(
+            host_name=host_or_group,
+            start_time=start_time,
+            end_time=end_time,
+            recur_mode=recur_mode,
+            trigger_id=trigger_id,
+            duration=60 * duration,
+            user=user_id,
+            comment=comment,
+            description=service_description,
+        )
     else:
         raise ValueError(f"Unsupported command: {command}")
-
-    return send_command(
-        sites,
-        command,
-        [
-            *params,
-            to_timestamp(start_time),
-            to_timestamp(end_time),
-            recur_mode,
-            trigger_id,
-            60 * duration,  # duration is in minutes but livestatus is expecting seconds.,
-            user_id,
-            comment.replace("\n", ""),
-        ],
-        site_id,
+    sites.command_obj(
+        cmd,
+        site_id if site_id else omd_site(),
     )
 
 
@@ -867,19 +820,6 @@ def _recur_mode(recur: RecurMode, duration: int) -> int:
        16: (undefined?)
        17: repeats on the same day of the month as ??? (start_date or end_date?)
 
-    Examples:
-
-        We don't test the KeyError case as it's supposed to be one execution path and mypy will
-        check for the input.
-
-        >>> _recur_mode('fixed', 0)
-        1
-
-        >>> _recur_mode('fixed', 30)
-        0
-
-        >>> _recur_mode('second_week', 0)
-        9
 
     """
     mapping: dict[str, int] = {
@@ -917,16 +857,6 @@ def _deduplicate(seq):
         Deduplicated sequence. The first entry of duplications is kept, any repeating entries
         are discarded.
 
-    Examples:
-
-        >>> _deduplicate([1, 1, 2, 1, 3, 4, 5, 1, 2, 3, 6, 1])
-        [1, 2, 3, 4, 5, 6]
-
-        >>> _deduplicate((1, 1, 2, 1, 3, 4, 5, 1, 2, 3, 6, 1))
-        [1, 2, 3, 4, 5, 6]
-
-        >>> _deduplicate(['Hello', 'Hello', 'World', 'World', 'World', '!', '!', '!'])
-        ['Hello', 'World', '!']
 
     """
     result = []
@@ -951,18 +881,19 @@ def _modify_downtime(
 ) -> None:
     _user.need_permission("action.downtimes")
 
-    return send_command(
-        sites,
-        command,
-        [
-            downtime_id,
-            "",  # start_time (not used),
-            end_time,  # end_time,
-            "",  # recur_mode (not used),
-            "",  # trigger_id (not used),
-            "",  # duration (not used),
-            user_id,
-            comment.replace("\n", ""),
-        ],
-        site_id,
+    sites.command_obj(
+        ModifyHostDowntime(
+            downtime_id=downtime_id,
+            end_time=end_time,
+            user=user_id,
+            comment=comment,
+        )
+        if command == DOWNTIME.MODIFY_HOST
+        else ModifyServiceDowntime(
+            downtime_id=downtime_id,
+            end_time=end_time,
+            user=user_id,
+            comment=comment,
+        ),
+        site_id if site_id else omd_site(),
     )

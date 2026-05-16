@@ -5,6 +5,7 @@ load("//bazel/rules:doctest.bzl", "py_doc_test")
 load("//bazel/rules:package_wheel.bzl", "package_wheel")
 
 exports_files([
+    "dev-requirements.in",
     "pyproject.toml",
     "requirements.in",
 ])
@@ -25,9 +26,11 @@ py_library(
         "cmk/crypto/totp.py",
         "cmk/crypto/x509.py",
     ],
+    data = [":py_typed"],
     imports = ["."],
     visibility = ["//cmk:__pkg__"],
     deps = [
+        "//packages/cmk-ccc:site",
         requirement("bcrypt"),
         requirement("cryptography"),
         requirement("pyasn1"),
@@ -70,7 +73,15 @@ py_wheel(
     strip_path_prefixes = ["packages/cmk-crypto"],
     # TODO: Duplicated from pyproject.toml
     version = "1.1.0",
-    deps = [":cmk-crypto"],
+    deps = [
+        ":cmk-crypto",
+        ":py_typed",
+    ],
+)
+
+filegroup(
+    name = "py_typed",
+    srcs = ["cmk/crypto/py.typed"],
 )
 
 package_wheel(

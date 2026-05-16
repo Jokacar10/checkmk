@@ -10,13 +10,11 @@ from dataclasses import dataclass
 from typing import NamedTuple, TypedDict
 
 from cmk.ccc.hostaddress import HostName
-
+from cmk.checkengine.parameters import Parameters
 from cmk.utils.servicename import Item
 
-from cmk.checkengine.parameters import Parameters
-from cmk.checkengine.sectionparser import ParsedSectionName
-
 from ._check import CheckPluginName, ServiceID
+from ._sections import ParsedSectionName
 
 
 class _AutocheckDict(TypedDict):

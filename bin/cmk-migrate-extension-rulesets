@@ -9,34 +9,30 @@ import sys
 from collections.abc import Sequence
 from typing import assert_never
 
-from cmk.utils import paths
-from cmk.utils.redis import disable_redis
-from cmk.utils.rulesets.definition import RuleGroup
-
-from cmk.gui import main_modules  # pylint: disable=cmk-module-layer-violation
-from cmk.gui.config import active_config  # pylint: disable=cmk-module-layer-violation
-from cmk.gui.rulespec import register_plugins  # pylint: disable=cmk-module-layer-violation
-from cmk.gui.utils.rule_specs.loader import (  # pylint: disable=cmk-module-layer-violation
-    load_discovered_rule_specs,
-    RuleSpec,
-)
-from cmk.gui.utils.script_helpers import gui_context  # pylint: disable=cmk-module-layer-violation
-from cmk.gui.watolib.notification_parameter import (  # pylint: disable=cmk-module-layer-violation
-    notification_parameter_registry,
-)
-from cmk.gui.watolib.rulesets import (  # pylint: disable=cmk-module-layer-violation
-    AllRulesets,
-    RulesetCollection,
-)
-from cmk.gui.watolib.rulespecs import (  # pylint: disable=cmk-module-layer-violation
-    rulespec_registry,
-)
-
 from cmk.discover_plugins import (
     CMK_ADDONS_PLUGINS,
     CMK_PLUGINS,
     discover_plugins_from_modules,
     PluginGroup,
+)
+from cmk.gui import main_modules
+from cmk.gui.config import active_config
+from cmk.gui.rulespec import register_plugins
+from cmk.gui.session import SuperUserContext
+from cmk.gui.utils.rule_specs.loader import (
+    load_discovered_rule_specs,
+    RuleSpec,
+)
+from cmk.gui.utils.script_helpers import gui_context
+from cmk.gui.watolib.notification_parameter import (
+    notification_parameter_registry,
+)
+from cmk.gui.watolib.rulesets import (
+    AllRulesets,
+    RulesetCollection,
+)
+from cmk.gui.watolib.rulespecs import (
+    rulespec_registry,
 )
 from cmk.mkp_tool import Installer, Manifest, PackageName, PackagePart
 from cmk.rulesets.v1 import entry_point_prefixes
@@ -56,12 +52,15 @@ from cmk.rulesets.v1.rule_specs import (
     SNMP,
     SpecialAgent,
 )
-from cmk.update_config.plugins.actions.rulesets import (  # pylint: disable=cmk-module-layer-violation
+from cmk.update_config.plugins.actions.rulesets import (
     validate_rule_values,
 )
-from cmk.update_config.plugins.lib.rulesets import (  # pylint: disable=cmk-module-layer-violation
+from cmk.update_config.plugins.lib.rulesets import (
     transform_wato_rulesets_params,
 )
+from cmk.utils import paths
+from cmk.utils.redis import disable_redis
+from cmk.utils.rulesets.definition import RuleGroup
 
 logger = logging.getLogger(__name__)
 
@@ -174,7 +173,7 @@ def _discover_load_plugins(modules: set[str]) -> set[str]:
 
 def _load_and_transform_rulesets(discovered_names: set[str]) -> None:
     main_modules.load_plugins()
-    with disable_redis(), gui_context():
+    with disable_redis(), gui_context(), SuperUserContext():
         all_rulesets = AllRulesets.load_all_rulesets()
         discovered_rulesets = {
             ruleset_name: ruleset

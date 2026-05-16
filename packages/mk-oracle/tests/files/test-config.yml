@@ -9,8 +9,37 @@ orasql:
     options: # optional
       max_connections: 6 # optional, default: absent, 6
       max_queries: 16 # optional, for the future use
+      use_host_oci: auto # optional, default: no, values: auto, never, always, "path-to-oci-lib"
   target: # mandatory
     connection:
       name: localhost
     authentication: 
       user: "" # mandatory
+    sections: # optional, if absent will use default as defined below
+      - instance: # special section
+        affinity: "all" # optional, default: "db", values: "all", "db", "asm"
+      - dataguard_stats:
+      - locks:
+      - logswitches:
+      - longactivesessions:
+      - performance:
+      - processes:
+        affinity: "all" # optional, default "db", values: "all", "db", "asm"
+      - recovery_area:
+      - recovery_status:
+      - sessions:
+      - systemparameter:
+      - undostat:
+      - asm_diskgroup:
+        is_async: yes
+        affinity: "asm" # optional, default: "asm", values: "all", "db", "asm"
+      - iostats:
+        is_async: yes
+      - jobs:
+        is_async: yes
+      - resumable:
+        is_async: yes
+      - rman:
+        is_async: yes
+      - tablespaces:
+        is_async: yes

@@ -14,17 +14,17 @@
 #include "livestatus/ColumnFilter.h"
 
 class RegExp;
-enum class RelationalOperator;
 class Row;
+enum class RelationalOperator;
 
 class StringFilter : public ColumnFilter {
 public:
     StringFilter(Kind kind, std::string columnName,
                  std::function<std::string(Row)>, RelationalOperator relOp,
                  const std::string &value);
-    [[nodiscard]] bool accepts(
-        Row row, const User &user,
-        std::chrono::seconds timezone_offset) const override;
+    [[nodiscard]] bool accepts(Row row, const User &user,
+                               std::chrono::seconds timezone_offset,
+                               const ICore &core) const override;
     [[nodiscard]] std::optional<std::string> stringValueRestrictionFor(
         const std::string &column_name) const override;
     [[nodiscard]] std::unique_ptr<Filter> copy() const override;

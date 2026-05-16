@@ -9,25 +9,21 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Literal, NamedTuple, NoReturn, overload, Protocol, TypedDict, TypeVar
+from typing import (
+    Any,
+    Literal,
+    NamedTuple,
+    NoReturn,
+    overload,
+    override,
+    Protocol,
+    TypedDict,
+    TypeVar,
+)
 
 from marshmallow import Schema as marshmallow_Schema
 
 from livestatus import LivestatusResponse, Query
-
-from cmk.ccc import plugin_registry
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.site import SiteId
-
-from cmk.utils.macros import MacroMapping, replace_macros_in_str
-from cmk.utils.rulesets.ruleset_matcher import TagCondition
-from cmk.utils.servicename import ServiceName
-from cmk.utils.tags import TagGroupID, TagID
-
-from cmk.checkengine.submitters import (  # pylint: disable=cmk-module-layer-violation
-    ServiceDetails,
-    ServiceState,
-)
 
 from cmk.bi.schema import Schema
 from cmk.bi.type_defs import (
@@ -37,7 +33,18 @@ from cmk.bi.type_defs import (
     HostState,
     SearchConfig,
 )
+from cmk.ccc import plugin_registry
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.site import SiteId
+from cmk.checkengine.submitters import (  # pylint: disable=cmk-module-layer-violation
+    ServiceDetails,
+    ServiceState,
+)
 from cmk.fields import Boolean, Constant, Dict, Integer, List, Nested, String
+from cmk.utils.macros import MacroMapping, replace_macros_in_str
+from cmk.utils.rulesets.ruleset_matcher import TagCondition
+from cmk.utils.servicename import ServiceName
+from cmk.utils.tags import TagGroupID, TagID
 
 ReqList = partial(List, required=True)
 ReqDict = partial(Dict, required=True)
@@ -253,6 +260,7 @@ class BIAggregationComputationOptions(ABCWithSchema):
         self.escalate_downtimes_as_warn = computation_config["escalate_downtimes_as_warn"]
         self.freeze_aggregations = computation_config.get("freeze_aggregations", False)
 
+    @override
     @classmethod
     def schema(cls) -> type[BIAggregationComputationOptionsSchema]:
         return BIAggregationComputationOptionsSchema
@@ -299,6 +307,7 @@ class BIAggregationGroups(ABCWithSchema):
     def combined_groups(self) -> set[str]:
         return set(self.names + ["/".join(x) for x in self.paths])
 
+    @override
     @classmethod
     def schema(cls) -> type[BIAggregationGroupsSchema]:
         return BIAggregationGroupsSchema
@@ -332,6 +341,7 @@ class BIParams(ABCWithSchema):
         # Note: The BIParams may get additional options
         # Like keywords which are passed down the tree, without being explicit set for a rule
 
+    @override
     @classmethod
     def schema(cls) -> type[BIParamsSchema]:
         return BIParamsSchema
@@ -608,6 +618,7 @@ class ABCBIAction(ABC):
 
 
 class BIActionRegistry(plugin_registry.Registry[type[ABCBIAction]]):
+    @override
     def plugin_name(self, instance: type[ABCBIAction]) -> str:
         return instance.kind()
 
@@ -658,6 +669,7 @@ class ABCBISearch(ABC):
 
 
 class BISearchRegistry(plugin_registry.Registry[type[ABCBISearch]]):
+    @override
     def plugin_name(self, instance: type[ABCBISearch]) -> str:
         return instance.kind()
 
@@ -676,24 +688,24 @@ bi_search_registry = BISearchRegistry()
 #   |          |___/ |___/                                                 |
 #   +----------------------------------------------------------------------+
 
-AggregationKind = Literal[
+AggregationFunctionKind = Literal[
     "best",
     "count_ok",
     "worst",
 ]
 
 
-class AggregationFunctionConfig(TypedDict):
-    type: AggregationKind
+class AggregationFunctionSerialized(TypedDict):
+    type: AggregationFunctionKind
 
 
 class ABCBIAggregationFunction(ABC):
-    def __init__(self, aggr_function_config: AggregationFunctionConfig) -> None:
+    def __init__(self, aggr_function_config: AggregationFunctionSerialized) -> None:
         super().__init__()
 
     @classmethod
     @abstractmethod
-    def kind(cls) -> AggregationKind:
+    def kind(cls) -> AggregationFunctionKind:
         raise NotImplementedError()
 
     @abstractmethod
@@ -706,15 +718,18 @@ class ABCBIAggregationFunction(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def serialize(self) -> AggregationFunctionConfig:
+    def serialize(self) -> AggregationFunctionSerialized:
         raise NotImplementedError()
 
 
 class BIAggregationFunctionRegistry(plugin_registry.Registry[type[ABCBIAggregationFunction]]):
+    @override
     def plugin_name(self, instance: type[ABCBIAggregationFunction]) -> str:
         return instance.kind()
 
-    def instantiate(self, aggr_func_config: AggregationFunctionConfig) -> ABCBIAggregationFunction:
+    def instantiate(
+        self, aggr_func_config: AggregationFunctionSerialized
+    ) -> ABCBIAggregationFunction:
         return self._entries[aggr_func_config["type"]](aggr_func_config)
 
 

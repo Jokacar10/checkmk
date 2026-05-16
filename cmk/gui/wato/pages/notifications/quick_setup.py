@@ -4,14 +4,12 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any, assert_never, cast, Final, get_args, Literal
+from typing import assert_never, cast, Final, get_args, Literal
 
+from livestatus import SiteConfiguration
+
+from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils.notify_types import HostEventType, ServiceEventType
-from cmk.utils.tags import AuxTag, TagGroup
-from cmk.utils.timeperiod import TimeperiodName
-
 from cmk.gui.config import active_config
 from cmk.gui.form_specs.converter import Tuple
 from cmk.gui.form_specs.private import (
@@ -29,6 +27,7 @@ from cmk.gui.form_specs.private import (
     SingleChoiceEditable,
     SingleChoiceElementExtended,
     SingleChoiceExtended,
+    TwoColumnDictionary,
     World,
 )
 from cmk.gui.form_specs.private.cascading_single_choice_extended import (
@@ -91,9 +90,8 @@ from cmk.gui.watolib.hosts_and_folders import folder_tree
 from cmk.gui.watolib.mode import mode_url
 from cmk.gui.watolib.notifications import NotificationRuleConfigFile
 from cmk.gui.watolib.timeperiods import load_timeperiods
-from cmk.gui.watolib.user_scripts import load_notification_scripts
+from cmk.gui.watolib.user_scripts import load_notification_scripts, NotificationUserScripts
 from cmk.gui.watolib.users import notification_script_choices
-
 from cmk.rulesets.v1 import Help, Label, Message, Title
 from cmk.rulesets.v1.form_specs import (
     CascadingSingleChoice,
@@ -130,9 +128,11 @@ from cmk.shared_typing.vue_formspec_components import (
     CascadingSingleChoiceLayout,
     Condition,
     ConditionGroup,
-    DictionaryLayout,
     ListOfStringsLayout,
 )
+from cmk.utils.notify_types import HostEventType, ServiceEventType
+from cmk.utils.tags import AuxTag, TagGroup
+from cmk.utils.timeperiod import TimeperiodName
 
 NEXT_BUTTON_ARIA_LABEL = _("Go to the next stage")
 PREV_BUTTON_ARIA_LABEL = _("Go to the previous stage")
@@ -184,14 +184,22 @@ def _service_to_state_choices() -> Sequence[SingleChoiceElementExtended[int]]:
     ]
 
 
-def _validate_host_state_change(state_change: tuple) -> None:
-    if host_event_mapper(state_change) not in list(get_args(get_args(HostEventType)[0])):
+def _validate_host_state_change(
+    state_change: object,
+) -> object:
+    if not isinstance(state_change, tuple) or host_event_mapper(state_change) not in list(
+        get_args(get_args(HostEventType)[0])
+    ):
         raise ValidationError(Message("Invalid state change for host"))
+    return state_change
 
 
-def _validate_service_state_change(state_change: tuple) -> None:
-    if service_event_mapper(state_change) not in list(get_args(get_args(ServiceEventType)[0])):
+def _validate_service_state_change(state_change: object) -> object:
+    if not isinstance(state_change, tuple) or service_event_mapper(state_change) not in list(
+        get_args(get_args(ServiceEventType)[0])
+    ):
         raise ValidationError(Message("Invalid state change for service"))
+    return state_change
 
 
 def _event_choices(
@@ -267,8 +275,12 @@ def _event_choices(
     ]
 
 
-def _validate_at_least_one_event(trigger_events: Mapping) -> None:
-    if not trigger_events:
+def _validate_at_least_one_event(trigger_events: Mapping[str, object]) -> None:
+    if (
+        not trigger_events["host_events"]
+        and not trigger_events["service_events"]
+        and not trigger_events.get("ec_alerts", False)
+    ):
         raise ValidationError(Message("At least one triggering event must be selected."))
 
 
@@ -284,21 +296,8 @@ def triggering_events() -> QuickSetupStage:
                         CascadingSingleChoiceElement(
                             name="specific_events",
                             title=Title("Specific events"),
-                            parameter_form=DictionaryExtended(
-                                layout=DictionaryLayout.two_columns,
-                                prefill=DefaultValue(
-                                    {
-                                        "host_events": [
-                                            ("state_change", (-1, HostState.DOWN)),
-                                            ("state_change", (-1, HostState.UP)),
-                                        ],
-                                        "service_events": [
-                                            ("state_change", (-1, ServiceState.CRIT)),
-                                            ("state_change", (-1, ServiceState.WARN)),
-                                            ("state_change", (-1, ServiceState.OK)),
-                                        ],
-                                    }
-                                ),
+                            parameter_form=TwoColumnDictionary(
+                                default_checked=["host_events", "service_events"],
                                 elements={
                                     "host_events": DictElement(
                                         parameter_form=ListUniqueSelection(
@@ -313,12 +312,16 @@ def triggering_events() -> QuickSetupStage:
                                                 "service filter matches, host events are "
                                                 "still matched by the rule."
                                             ),
-                                            prefill=DefaultValue([]),
+                                            prefill=DefaultValue(
+                                                [
+                                                    ("state_change", (-1, HostState.DOWN)),
+                                                    ("state_change", (-1, HostState.UP)),
+                                                ]
+                                            ),
                                             single_choice_type=CascadingSingleChoice,
                                             cascading_single_choice_layout=CascadingSingleChoiceLayout.horizontal,
                                             elements=_event_choices("host"),
                                             add_element_label=Label("Add event"),
-                                            custom_validate=[_validate_empty_selection],
                                         )
                                     ),
                                     "service_events": DictElement(
@@ -329,12 +332,17 @@ def triggering_events() -> QuickSetupStage:
                                                 "defined by the 'Notified events for "
                                                 "services' ruleset"
                                             ),
-                                            prefill=DefaultValue([]),
+                                            prefill=DefaultValue(
+                                                [
+                                                    ("state_change", (-1, ServiceState.CRIT)),
+                                                    ("state_change", (-1, ServiceState.WARN)),
+                                                    ("state_change", (-1, ServiceState.OK)),
+                                                ]
+                                            ),
                                             single_choice_type=CascadingSingleChoice,
                                             cascading_single_choice_layout=CascadingSingleChoiceLayout.horizontal,
                                             elements=_event_choices("service"),
                                             add_element_label=Label("Add event"),
-                                            custom_validate=[_validate_empty_selection],
                                         )
                                     ),
                                     "ec_alerts": DictElement(
@@ -384,6 +392,7 @@ def custom_recap_formspec_triggering_events(
     stage_index: StageIndex,
     all_stages_form_data: ParsedFormData,
     progress_logger: ProgressLogger,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     debug: bool,
 ) -> Sequence[Widget]:
     cleaned_stages_form_data = {
@@ -404,17 +413,9 @@ def custom_recap_formspec_triggering_events(
         stage_index,
         cleaned_stages_form_data,
         progress_logger,
+        site_configs,
         debug=debug,
     )
-
-
-def _validate_empty_selection(selections: Sequence[Sequence[str | None]]) -> None:
-    # TODO validation seems not to be possible for a single empty element of
-    # the Tuple
-    if ["", None] in selections or not selections:
-        raise ValidationError(
-            Message("At least one selection is missing."),
-        )
 
 
 def _get_contact_group_users() -> list[tuple[UserId, str]]:
@@ -425,7 +426,7 @@ def _get_contact_group_users() -> list[tuple[UserId, str]]:
     )
 
 
-def _get_service_levels_single_choice() -> Sequence[SingleChoiceElementExtended]:
+def _get_service_levels_single_choice() -> Sequence[SingleChoiceElementExtended[int]]:
     return [
         SingleChoiceElementExtended(
             name=name,
@@ -478,6 +479,7 @@ def custom_recap_formspec_filter_for_hosts_and_services(
     stage_index: StageIndex,
     all_stages_form_data: ParsedFormData,
     progress_logger: ProgressLogger,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     debug: bool,
 ) -> Sequence[Widget]:
     cleaned_stages_form_data = {
@@ -486,7 +488,7 @@ def custom_recap_formspec_filter_for_hosts_and_services(
         if len(form_data) > 0
     }
     return recaps.recaps_form_spec(
-        quick_setup_id, stage_index, cleaned_stages_form_data, progress_logger, debug
+        quick_setup_id, stage_index, cleaned_stages_form_data, progress_logger, site_configs, debug
     )
 
 
@@ -528,8 +530,7 @@ def filter_for_hosts_and_services() -> QuickSetupStage:
                         items=[
                             FormSpecWrapper(
                                 id=FormSpecId("ec_alert_filters"),
-                                form_spec=DictionaryExtended(
-                                    layout=DictionaryLayout.two_columns,
+                                form_spec=TwoColumnDictionary(
                                     elements={
                                         "rule_ids": DictElement(
                                             parameter_form=ListExtended(
@@ -616,8 +617,7 @@ def filter_for_hosts_and_services() -> QuickSetupStage:
                 items=[
                     FormSpecWrapper(
                         id=FormSpecId("host_filters"),
-                        form_spec=DictionaryExtended(
-                            layout=DictionaryLayout.two_columns,
+                        form_spec=TwoColumnDictionary(
                             elements={
                                 "host_tags": DictElement(
                                     parameter_form=ConditionChoices(
@@ -722,8 +722,7 @@ def filter_for_hosts_and_services() -> QuickSetupStage:
                             ),
                             FormSpecWrapper(
                                 id=FormSpecId("service_filters"),
-                                form_spec=DictionaryExtended(
-                                    layout=DictionaryLayout.two_columns,
+                                form_spec=TwoColumnDictionary(
                                     elements={
                                         "service_labels": DictElement(
                                             parameter_form=Labels(
@@ -963,8 +962,7 @@ def filter_for_hosts_and_services() -> QuickSetupStage:
                 items=[
                     FormSpecWrapper(
                         id=FormSpecId("assignee_filters"),
-                        form_spec=DictionaryExtended(
-                            layout=DictionaryLayout.two_columns,
+                        form_spec=TwoColumnDictionary(
                             elements={
                                 "contact_groups": DictElement(
                                     parameter_form=MultipleChoiceExtended(
@@ -1035,8 +1033,7 @@ def filter_for_hosts_and_services() -> QuickSetupStage:
                 items=[
                     FormSpecWrapper(
                         id=FormSpecId("general_filters"),
-                        form_spec=DictionaryExtended(
-                            layout=DictionaryLayout.two_columns,
+                        form_spec=TwoColumnDictionary(
                             elements={
                                 "service_level": DictElement(
                                     parameter_form=CascadingSingleChoiceExtended(
@@ -1132,14 +1129,14 @@ def filter_for_hosts_and_services() -> QuickSetupStage:
     )
 
 
-def supports_bulk(script_name: str, notification_scripts: dict[str, Any]) -> bool:
+def supports_bulk(script_name: str, notification_scripts: NotificationUserScripts) -> bool:
     if script_name not in notification_scripts:
         return False
     return notification_scripts[script_name].get("bulk", False)
 
 
 def notification_method() -> QuickSetupStage:
-    def bulk_notification_dict_element() -> DictElement:
+    def bulk_notification_dict_element() -> DictElement[tuple[str, object]]:
         return DictElement(
             required=False,
             parameter_form=CascadingSingleChoiceExtended(
@@ -1175,8 +1172,9 @@ def notification_method() -> QuickSetupStage:
         )
 
     def bulk_notification_supported(
-        script_name: str, notification_scripts: dict[str, Any]
-    ) -> dict[str, DictElement]:
+        script_name: str,
+        notification_scripts: NotificationUserScripts,
+    ) -> dict[str, DictElement[tuple[str, object]]]:
         if not supports_bulk(script_name, notification_scripts):
             return {}
         return {
@@ -1335,8 +1333,7 @@ def notification_method() -> QuickSetupStage:
         return [
             FormSpecWrapper(
                 id=FormSpecId("notification_method"),
-                form_spec=DictionaryExtended(
-                    layout=DictionaryLayout.two_columns,
+                form_spec=TwoColumnDictionary(
                     elements={
                         "notification_effect": DictElement(
                             required=True,
@@ -1724,7 +1721,6 @@ def sending_conditions() -> QuickSetupStage:
             FormSpecWrapper(
                 id=FormSpecId("sending_conditions"),
                 form_spec=DictionaryExtended(
-                    layout=DictionaryLayout.one_column,
                     elements={
                         "frequency_and_timing": DictElement(
                             required=True,
@@ -1864,8 +1860,7 @@ def general_properties() -> QuickSetupStage:
         return [
             FormSpecWrapper(
                 id=FormSpecId("general_properties"),
-                form_spec=DictionaryExtended(
-                    layout=DictionaryLayout.two_columns,
+                form_spec=TwoColumnDictionary(
                     elements={
                         "description": DictElement(
                             required=True,
@@ -1946,14 +1941,16 @@ def save_and_test_action(
     mode: QuickSetupActionMode,
     _progress_logger: ProgressLogger,
     object_id: str | None,
+    use_git: bool,
+    pprint_value: bool,
 ) -> str:
     match mode:
         case QuickSetupActionMode.SAVE:
-            _save(all_stages_form_data)
+            _save(all_stages_form_data, use_git=use_git, pprint_value=pprint_value)
             result_msg = _("New notification rule successfully created!")
         case QuickSetupActionMode.EDIT:
             assert object_id is not None
-            _edit(all_stages_form_data, object_id)
+            _edit(all_stages_form_data, object_id, use_git=use_git, pprint_value=pprint_value)
             result_msg = _("Notification rule successfully edited!")
         case _:
             raise ValueError(f"Unknown mode {mode}")
@@ -1965,17 +1962,22 @@ def save_and_new_action(
     mode: QuickSetupActionMode,
     _progress_logger: ProgressLogger,
     object_id: str | None,
+    use_git: bool,
+    pprint_value: bool,
 ) -> str:
     match mode:
         case QuickSetupActionMode.SAVE:
-            _save(all_stages_form_data)
+            _save(all_stages_form_data, use_git=use_git, pprint_value=pprint_value)
+            result_msg = _("New notification rule successfully created!")
         case QuickSetupActionMode.EDIT:
             assert object_id is not None
-            _edit(all_stages_form_data, object_id)
+            _edit(all_stages_form_data, object_id, use_git=use_git, pprint_value=pprint_value)
+            result_msg = _("Notification rule successfully edited!")
         case _:
             raise ValueError(f"Unknown mode {mode}")
     return mode_url(
-        "notification_rule_quick_setup", result=_("New notification rule successfully created!")
+        "notification_rule_quick_setup",
+        result=result_msg,
     )
 
 
@@ -1983,25 +1985,36 @@ def register(quick_setup_registry: QuickSetupRegistry) -> None:
     quick_setup_registry.register(quick_setup_notifications)
 
 
-def _save(all_stages_form_data: ParsedFormData) -> None:
+def _save(all_stages_form_data: ParsedFormData, *, use_git: bool, pprint_value: bool) -> None:
     config_file = NotificationRuleConfigFile()
     notifications_rules = list(config_file.load_for_modification())
     notifications_rules += [
         migrate_to_event_rule(cast(NotificationQuickSetupSpec, all_stages_form_data))
     ]
-    config_file.save(notifications_rules, pprint_value=active_config.wato_pprint_config)
+    config_file.rule_created(
+        notifications_rules,
+        pprint_value=pprint_value,
+        use_git=use_git,
+    )
 
 
-def _edit(all_stages_form_data: ParsedFormData, object_id: str) -> None:
+def _edit(
+    all_stages_form_data: ParsedFormData, object_id: str, *, use_git: bool, pprint_value: bool
+) -> None:
     config_file = NotificationRuleConfigFile()
     notification_rules = list(config_file.load_for_modification())
+    rule_nr = "N/A"
     for n, rule in enumerate(notification_rules):
         if rule["rule_id"] == object_id:
             notification_rules[n] = migrate_to_event_rule(
                 cast(NotificationQuickSetupSpec, all_stages_form_data)
             )
+            rule_nr = str(n)
             break
-    config_file.save(notification_rules, pprint_value=active_config.wato_pprint_config)
+
+    config_file.rule_updated(
+        rules=notification_rules, rule_number=rule_nr, pprint_value=pprint_value, use_git=use_git
+    )
 
 
 def load_notifications(object_id: str) -> ParsedFormData:

@@ -5,17 +5,12 @@
 
 import json
 from collections.abc import Mapping, Sequence
-from dataclasses import asdict
 from typing import cast, Literal
 
 import cmk.ccc.version as cmk_version
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils import paths
-from cmk.utils.rulesets.definition import RuleGroup
-
 from cmk.gui import forms
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
@@ -28,19 +23,20 @@ from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.valuespec import FixedValue, ValueSpec
 from cmk.gui.watolib.configuration_bundle_store import is_locked_by_quick_setup
 from cmk.gui.watolib.host_attributes import (
+    ABCHostAttribute,
     ABCHostAttributeValueSpec,
-    get_sorted_host_attribute_topics,
-    get_sorted_host_attributes_by_topic,
+    sorted_host_attribute_topics,
+    sorted_host_attributes_by_topic,
 )
 from cmk.gui.watolib.hosts_and_folders import (
     Folder,
     folder_from_request,
-    folder_preserving_link,
     Host,
     SearchFolder,
 )
-
-from cmk.shared_typing.agent_connection_test import AgentConnectionTest, I18n
+from cmk.utils import paths
+from cmk.utils.rulesets.definition import RuleGroup
+from cmk.utils.tags import TagID
 
 #   "host"        -> normal host edit dialog
 #   "cluster"     -> normal host edit dialog
@@ -58,10 +54,13 @@ def _get_single_host(hosts: Mapping[str, object]) -> Host | None:
 
 # TODO: Wow, this function REALLY has to be cleaned up
 def configure_attributes(
+    host_attributes: Mapping[str, ABCHostAttribute],
     new: bool,
     hosts: Mapping[str, Host | Folder | None],
     for_what: DialogIdent,
     parent: Folder | SearchFolder | None,
+    aux_tags_by_tag: Mapping[TagID | None, Sequence[TagID]],
+    config: Config,
     myself: Folder | None = None,
     without_attributes: Sequence[str] | None = None,
     varprefix: str = "",
@@ -95,9 +94,9 @@ def configure_attributes(
     show_more_mode = user.show_mode != "default_show_less"
     is_cse = cmk_version.edition(paths.omd_root) == cmk_version.Edition.CSE
 
-    for topic_id, topic_title in get_sorted_host_attribute_topics(for_what, new):
+    for topic_id, topic_title in sorted_host_attribute_topics(host_attributes, for_what, new):
         topic_is_volatile = True  # assume topic is sometimes hidden due to dependencies
-        topic_attributes = get_sorted_host_attributes_by_topic(topic_id)
+        topic_attributes = sorted_host_attributes_by_topic(host_attributes, topic_id)
 
         single_edit_host = _get_single_host(hosts)
 
@@ -105,7 +104,7 @@ def configure_attributes(
             topic_title,
             isopen=topic_id in ["basic", "address", "monitoring_agents"],
             table_id=topic_id,
-            show_more_toggle=any(attribute.is_show_more() for attribute in topic_attributes),
+            show_more_toggle=any(attribute.is_show_more(config) for attribute in topic_attributes),
             show_more_mode=show_more_mode,
         )
 
@@ -293,7 +292,7 @@ def configure_attributes(
                 _u(attr.title()),
                 checkbox=checkbox_code,
                 section_id="attr_" + attrname,
-                is_show_more=attr.is_show_more(),
+                is_show_more=attr.is_show_more(config),
                 is_changed=active,
             )
             html.help(attr.help())
@@ -323,8 +322,6 @@ def configure_attributes(
                     id_="attr_entry_%s" % attrname, style="display: none;" if not active else None
                 )
                 attr.render_input(varprefix, defvalue)
-                if defvalue == "cmk-agent":
-                    _render_connection_test()
                 html.close_div()
 
                 html.open_div(
@@ -375,8 +372,6 @@ def configure_attributes(
                     html.b(content)
 
             html.write_text_permissive(explanation)
-            if defvalue == "cmk-agent":
-                _render_connection_test()
             html.close_div()
 
         # if host is managed by a config bundle, show the source (which is not a real attribute)
@@ -406,7 +401,7 @@ def configure_attributes(
             | set(dependency_mapping_roles.keys())
             | set(hide_attributes)
         ),
-        "aux_tags_by_tag": active_config.tags.get_aux_tags_by_tag(),
+        "aux_tags_by_tag": aux_tags_by_tag,
         "depends_on_tags": dependency_mapping_tags,
         "depends_on_roles": dependency_mapping_roles,
         "volatile_topics": volatile_topics,
@@ -416,34 +411,6 @@ def configure_attributes(
     html.javascript(
         "cmk.wato.prepare_edit_dialog(%s);"
         "cmk.wato.fix_visibility();" % json.dumps(dialog_properties)
-    )
-
-
-def _render_connection_test() -> None:
-    html.vue_component(
-        component_name="cmk-agent-connection-test",
-        data=asdict(
-            AgentConnectionTest(
-                url=folder_preserving_link([("mode", "agent_of_host"), ("host", "TEST")]),
-                i18n=I18n(
-                    dialog_message=_(
-                        "Already installed the agent? If so, please check your firewall settings"
-                    ),
-                    slide_in_title=_("Checkmk agent connection failed"),
-                    msg_start=_("Test Checkmk agent connection"),
-                    msg_success=_("Agent connection successful"),
-                    msg_loading=_("Agent connection test running"),
-                    msg_missing=_("Please enter a hostname to test Checkmk agent connection"),
-                    msg_error=_(
-                        "Connection failed, enter new hostname to check again "
-                        "or download and install the Checkmk agent."
-                    ),
-                ),
-                input_hostname="host",
-                input_ipv4="ipaddress",
-                input_ipv6="ipv6address",
-            ),
-        ),
     )
 
 

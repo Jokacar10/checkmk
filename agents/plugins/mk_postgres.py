@@ -69,8 +69,10 @@ import sys
 import tempfile
 
 try:
-    from collections.abc import Callable, Iterable, Sequence  # noqa: F401
-    from typing import Any  # noqa: F401
+    from collections.abc import Callable, Iterable, Sequence
+    from typing import Any
+
+    _ = Callable, Iterable, Sequence, Any  # make ruff happy
 except ImportError:
     # We need typing only for testing
     pass
@@ -159,7 +161,7 @@ class PostgresBase:
     """
 
     __metaclass__ = abc.ABCMeta
-    _supported_pg_versions = ["12"]
+    _supported_pg_versions = ["12", "15"]
 
     def __init__(self, db_user, pg_binary_path, instance, process_match_patterns):
         # type: (str, str | None, dict, Sequence[re.Pattern]) -> None

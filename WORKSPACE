@@ -5,14 +5,6 @@ load("//omd/packages/asio:asio_http.bzl", "asio_workspace")
 
 asio_workspace()
 
-load("//omd/packages/re2:re2_http.bzl", "re2_workspace")
-
-re2_workspace()
-
-load("//omd/packages/msitools:msitools_http.bzl", "msitools_workspace")
-
-msitools_workspace()
-
 load("//omd/packages/perl-modules:perl-modules_http.bzl", "perl_modules")
 
 perl_modules()
@@ -33,19 +25,6 @@ load("//omd/packages/nagios:nagios_http.bzl", "nagios_workspace")
 
 nagios_workspace()
 
-load("//omd/packages/python3-modules:create_python_requirements.bzl", "create_python_requirements")
-
-create_python_requirements(
-    name = "python_modules",
-    ignored_modules = [
-        # Broken third party packages
-        "netapp-ontap",  # their build process is broken, see https://github.com/NetApp/ontap-rest-python/issues/46
-        # Currently broken due to new cython version, see https://github.com/pymssql/pymssql/issues/937
-        "pymssql",
-    ],
-    requirements_lock = "//:runtime-requirements.txt",
-)
-
 load("//omd/packages/mod_wsgi:mod_wsgi_http.bzl", "mod_wsgi_workspace")
 
 mod_wsgi_workspace()
@@ -57,10 +36,6 @@ rrdtool_workspace()
 load("//omd/packages/rrdtool:rrdtool_native.bzl", "rrdtool_native_workspace")
 
 rrdtool_native_workspace()
-
-load("//omd/packages/httplib:httplib_http.bzl", "httplib_workspace")
-
-httplib_workspace()
 
 load("@aspect_rules_lint//lint:ruff.bzl", "fetch_ruff")
 

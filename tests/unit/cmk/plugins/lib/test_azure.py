@@ -4,10 +4,17 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 from collections.abc import Mapping, Sequence
+from types import EllipsisType
 from typing import Any
+from unittest import mock
+from unittest.mock import Mock
 
 import pytest
+import time_machine
 
+from cmk.agent_based.v2 import (
+    check_levels as check_levels_v2,
+)
 from cmk.agent_based.v2 import (
     CheckResult,
     DiscoveryResult,
@@ -18,25 +25,30 @@ from cmk.agent_based.v2 import (
     Service,
     ServiceLabel,
     State,
+    TableRow,
 )
 from cmk.plugins.lib.azure import (
     _get_metrics,
     _get_metrics_number,
     _parse_resource,
+    _threshold_hit_for_time,
     AzureMetric,
     check_connections,
     check_cpu,
     check_memory,
     check_network,
+    check_resource_metrics,
     check_storage,
     create_check_metrics_function_single,
     create_discover_by_metrics_function,
     create_discover_by_metrics_function_single,
+    inventory_common_azure,
     iter_resource_attributes,
     MetricData,
     parse_resources,
     Resource,
     Section,
+    SustainedLevelDirection,
 )
 
 RESOURCES = [
@@ -153,6 +165,8 @@ MULTIPLE_RESOURCE_SECTION = {
         subscription="2fac104f-cb9c-461d-be57-037039662426",
     ),
 }
+
+EPOCH = 1757328437.8742359
 
 
 @pytest.mark.parametrize(
@@ -664,3 +678,414 @@ def test_create_check_azure_metrics_function_single_error() -> None:
     )
     with pytest.raises(IgnoreResultsError, match="Only one resource expected"):
         list(check_func({}, MULTIPLE_RESOURCE_SECTION))
+
+
+@pytest.mark.parametrize(
+    "section,expected_result",
+    [
+        pytest.param(
+            PARSED_RESOURCES,
+            [
+                Result(state=State.OK, summary="Storage: 2.95%"),
+                Metric("storage_percent", 2.95),
+            ],
+            id="one resource",
+        ),
+        pytest.param(MULTIPLE_RESOURCE_SECTION, [], id="multiple resources"),
+    ],
+)
+def test_create_check_azure_metrics_function_single_specified_check_levels(
+    section: Section, expected_result: CheckResult
+) -> None:
+    check_func = create_check_metrics_function_single(
+        [
+            MetricData(
+                "average_storage_percent",
+                "storage_percent",
+                "Storage",
+                render.percent,
+                upper_levels_param="storage",
+            ),
+        ],
+        suppress_error=True,
+        check_levels=check_levels_v2,
+    )
+    assert list(check_func({}, section)) == expected_result
+
+
+def test_check_resource_metric_map_func() -> None:
+    metric_data = MetricData(
+        "total_connections_failed",
+        "connections_failed",
+        "Connections failed",
+        str,
+    )
+
+    metric_data_with_map_fn = MetricData(
+        "total_connections_failed",
+        "connections_failed_2",
+        "Connections failed 2",
+        str,
+        map_func=lambda x: x * 10,
+    )
+
+    check_result = check_resource_metrics(
+        PARSED_RESOURCES["checkmk-mysql-server"],
+        {},
+        [metric_data, metric_data_with_map_fn],
+    )
+
+    assert list(check_result) == (
+        [
+            Result(state=State.OK, summary="Connections failed: 2.0"),
+            Metric("connections_failed", 2.0),
+            Result(state=State.OK, summary="Connections failed 2: 20.0"),
+            Metric("connections_failed_2", 20.0),
+        ]
+    )
+
+
+def test_check_resource_metric_notice_only() -> None:
+    metric_data = MetricData(
+        "total_connections_failed",
+        "connections_failed",
+        "Connections failed",
+        str,
+    )
+
+    metric_data_with_notice_only = MetricData(
+        "total_connections_failed",
+        "connections_failed_2",
+        "Connections failed 2",
+        str,
+        notice_only=True,
+    )
+
+    check_result = check_resource_metrics(
+        PARSED_RESOURCES["checkmk-mysql-server"],
+        {},
+        [metric_data, metric_data_with_notice_only],
+    )
+
+    assert list(check_result) == (
+        [
+            Result(state=State.OK, summary="Connections failed: 2.0"),
+            Metric("connections_failed", 2.0),
+            Result(state=State.OK, notice="Connections failed 2: 2.0"),
+            Metric("connections_failed_2", 2.0),
+        ]
+    )
+
+
+@mock.patch("cmk.plugins.lib.azure.get_value_store", return_value={})
+@time_machine.travel(EPOCH)
+def test_check_resource_metric_average(get_value_store: Mock) -> None:
+    metric_data = MetricData(
+        "total_connections_failed",
+        "connections_failed",
+        "Connections failed",
+        str,
+        average_mins_param="average_mins",
+    )
+
+    check_result = check_resource_metrics(
+        PARSED_RESOURCES["checkmk-mysql-server"],
+        {
+            "average_mins": 5,
+        },
+        [metric_data],
+    )
+
+    assert list(check_result) == (
+        [
+            Metric("connections_failed", 2.0),
+            Result(state=State.OK, summary="Connections failed: 2.0"),
+            Metric("connections_failed_average", 2.0),
+        ]
+    )
+
+    get_value_store.assert_called_once()
+
+
+@mock.patch(
+    "cmk.plugins.lib.azure.get_value_store",
+    return_value={"connections_failed_sustained_threshold": EPOCH - 1000},
+)
+@time_machine.travel(EPOCH)
+def test_check_resource_sustained_threshold(get_value_store: Mock) -> None:
+    metric_data = MetricData(
+        "total_connections_failed",
+        "connections_failed",
+        "Connections failed",
+        str,
+        sustained_threshold_param="threshold",
+        sustained_levels_time_param="threshold_levels",
+        sustained_level_direction=SustainedLevelDirection.UPPER_BOUND,
+    )
+
+    check_result = check_resource_metrics(
+        PARSED_RESOURCES["checkmk-mysql-server"],
+        {
+            "threshold": 1.5,
+            "threshold_levels": ("fixed", (30.0, 60.0)),
+        },
+        [metric_data],
+    )
+
+    assert list(check_result) == (
+        [
+            Result(
+                state=State.CRIT,
+                summary=(
+                    "Above the threshold for: 16 minutes 40 seconds "
+                    "(warn/crit at 30 seconds/1 minute 0 seconds)"
+                ),
+            ),
+            Result(state=State.OK, summary="Connections failed: 2.0"),
+            Metric("connections_failed", 2.0),
+        ]
+    )
+
+    get_value_store.assert_called_once()
+
+
+@mock.patch(
+    "cmk.plugins.lib.azure.get_value_store",
+    return_value={"connections_failed_sustained_threshold": EPOCH - 1000},
+)
+@time_machine.travel(EPOCH)
+def test_check_resource_sustained_threshold_map_func(get_value_store: Mock) -> None:
+    metric_data = MetricData(
+        "total_connections_failed",
+        "connections_failed",
+        "Connections failed",
+        str,
+        sustained_threshold_param="threshold",
+        sustained_levels_time_param="threshold_levels",
+        sustained_level_direction=SustainedLevelDirection.UPPER_BOUND,
+        map_func=lambda value: value * 100,
+    )
+
+    check_result = check_resource_metrics(
+        PARSED_RESOURCES["checkmk-mysql-server"],
+        {
+            "threshold": 199,
+            "threshold_levels": ("fixed", (30.0, 60.0)),
+        },
+        [metric_data],
+    )
+
+    assert list(check_result) == (
+        [
+            Result(
+                state=State.CRIT,
+                summary="Above the threshold for: 16 minutes 40 seconds (warn/crit at 30 seconds/1 minute 0 seconds)",
+            ),
+            Result(state=State.OK, summary="Connections failed: 200.0"),
+            Metric("connections_failed", 200.0),
+        ]
+    )
+
+    get_value_store.assert_called_once()
+
+
+def test_inventory_common_azure():
+    inventory = list(inventory_common_azure(PARSED_RESOURCES))
+
+    expected_metadata: dict[int | float | str, str] = {
+        "Object": "Microsoft.DBforMySQL/servers",
+        "Resource group": "BurningMan",
+        "Entity": "Resource",
+        "Cloud provider": "Azure",
+        "Region": "westeurope",
+        "Name": "checkmk-mysql-server",
+        # TODO: These require updating the fixture data
+        # "Subscription name": ,
+        # "Subscription ID",
+    }
+
+    tags = {}
+    matched_rows = 0
+    for inv in inventory:
+        assert isinstance(inv, TableRow)  # sate mypy
+        if "metadata" in inv.path:
+            key = inv.key_columns["information"]
+            value = inv.inventory_columns["value"]
+
+            # We might output more than we look for.
+            # Particularly with outdated fixture data.
+            if key in expected_metadata:
+                matched_rows += 1
+                assert expected_metadata[key] == value
+        elif "tags" in inv.path:
+            tags[inv.key_columns["name"]] = inv.inventory_columns["value"]
+
+    # Since the test is not 1:1 with the expected rows, do an extra check after,
+    # to ensure we actually ran the assertion above
+    assert matched_rows == len(expected_metadata)
+
+    assert tags["tag1"] == "value1"
+    assert tags["tag2"] == "value2"
+    assert len(tags) == 2
+
+
+@pytest.mark.parametrize(
+    "current_value1, current_value2, threshold, limits, now1, now2, timestamp_in_vs, direction, label, expected1, expected2",
+    [
+        pytest.param(
+            50,
+            48,
+            60,
+            (60, 120),
+            EPOCH,
+            EPOCH + 30,
+            ...,
+            SustainedLevelDirection.UPPER_BOUND,
+            None,
+            [],
+            [],
+            id="threshold not crossed",
+        ),
+        pytest.param(
+            50,
+            48,
+            30,
+            (60, 120),
+            EPOCH,
+            EPOCH + 30,
+            ...,
+            SustainedLevelDirection.UPPER_BOUND,
+            None,
+            [],
+            [
+                Result(state=State.OK, notice="Above the threshold for: 30 seconds"),
+            ],
+            id="threshold crossed, but time not crossed",
+        ),
+        pytest.param(
+            50,
+            48,
+            30,
+            (60, 120),
+            EPOCH,
+            EPOCH + 61,
+            ...,
+            SustainedLevelDirection.UPPER_BOUND,
+            None,
+            [],
+            [
+                Result(
+                    state=State.WARN,
+                    notice="Above the threshold for: 1 minute 1 second (warn/crit at 1 minute 0 seconds/2 minutes 0 seconds)",
+                ),
+            ],
+            id="threshold crossed first run, time crossed second run",
+        ),
+        pytest.param(
+            50,
+            48,
+            30,
+            (60, 120),
+            EPOCH,
+            EPOCH + 1,
+            ...,
+            SustainedLevelDirection.UPPER_BOUND,
+            None,
+            [],
+            [
+                Result(state=State.OK, notice="Above the threshold for: 1 second"),
+            ],
+            id="threshold crossed first and second run, but time not crossed",
+        ),
+        pytest.param(
+            50,
+            28,
+            30,
+            (60, 120),
+            EPOCH,
+            EPOCH + 30,
+            EPOCH - 15,
+            SustainedLevelDirection.UPPER_BOUND,
+            None,
+            [
+                Result(state=State.OK, notice="Above the threshold for: 15 seconds"),
+            ],
+            [],
+            id="threshold still crossed from previous run, then ok",
+        ),
+        pytest.param(
+            27,
+            28,
+            30,
+            (60, 120),
+            EPOCH,
+            EPOCH + 30,
+            EPOCH - 15,
+            SustainedLevelDirection.UPPER_BOUND,
+            None,
+            [],
+            [],
+            id="threshold no longer crossed from previous run",
+        ),
+        pytest.param(
+            50,
+            68,
+            70,
+            (60, 120),
+            EPOCH,
+            EPOCH + 80,
+            EPOCH - 15,
+            SustainedLevelDirection.LOWER_BOUND,
+            "Value is too low since",
+            [
+                Result(state=State.OK, notice="Value is too low since: 15 seconds"),
+            ],
+            [
+                Result(
+                    state=State.WARN,
+                    notice="Value is too low since: 1 minute 35 seconds (warn/crit at 1 minute 0 seconds/2 minutes 0 seconds)",
+                ),
+            ],
+            id="threshold crossed first run, is lower bound",
+        ),
+    ],
+)
+def test_threshold_hit_for_time(
+    current_value1: float,
+    current_value2: float,
+    threshold: float,
+    limits: tuple[float, float],
+    now1: float,
+    now2: float,
+    timestamp_in_vs: Mapping[str, float] | EllipsisType,
+    direction: SustainedLevelDirection,
+    label: str | None,
+    expected1: Sequence[Metric | Result],
+    expected2: Sequence[Metric | Result],
+) -> None:
+    value_store = {}
+    if timestamp_in_vs is not ...:
+        value_store["timestamp"] = timestamp_in_vs
+
+    first_result = _threshold_hit_for_time(
+        current_value1,
+        threshold,
+        ("fixed", limits),
+        now1,
+        value_store,
+        "timestamp",
+        direction=direction,
+        label=label,
+    )
+    assert list(first_result) == expected1
+    second_result = _threshold_hit_for_time(
+        current_value2,
+        threshold,
+        ("fixed", limits),
+        now2,
+        value_store,
+        "timestamp",
+        direction=direction,
+        label=label,
+    )
+    assert list(second_result) == expected2

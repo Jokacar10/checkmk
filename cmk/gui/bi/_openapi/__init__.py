@@ -18,15 +18,6 @@ import http.client
 from collections.abc import Mapping
 from typing import Any
 
-from cmk.gui import fields as gui_fields
-from cmk.gui.bi import BIManager, get_cached_bi_packs
-from cmk.gui.http import Response
-from cmk.gui.logged_in import user
-from cmk.gui.openapi.restful_objects import constructors, Endpoint, response_schemas
-from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
-from cmk.gui.openapi.utils import ProblemException, serve_json
-from cmk.gui.utils import permission_verification as permissions
-
 from cmk import fields
 from cmk.bi.aggregation import BIAggregation, BIAggregationSchema
 from cmk.bi.computer import BIAggregationFilter
@@ -42,6 +33,14 @@ from cmk.bi.packs import (
 from cmk.bi.rule import BIRule, BIRuleSchema
 from cmk.bi.schema import Schema
 from cmk.bi.trees import BICompiledRule
+from cmk.gui import fields as gui_fields
+from cmk.gui.bi import BIManager, get_cached_bi_packs
+from cmk.gui.http import Response
+from cmk.gui.logged_in import user
+from cmk.gui.openapi.restful_objects import constructors, Endpoint, response_schemas
+from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
+from cmk.gui.openapi.utils import ProblemException, serve_json
+from cmk.gui.utils import permission_verification as permissions
 
 BI_RULE_ID = {
     "rule_id": fields.String(
@@ -713,19 +712,19 @@ def _update_bi_pack(params: Mapping[str, Any], must_exist: bool) -> Response:
     return serve_json(BIPackEndpointSchema().dump(new_pack.serialize()))
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(get_bi_rule)
-    endpoint_registry.register(put_bi_rule)
-    endpoint_registry.register(post_bi_rule)
-    endpoint_registry.register(delete_bi_rule)
-    endpoint_registry.register(bi_aggregation_state_post)
-    endpoint_registry.register(bi_aggregation_state_get)
-    endpoint_registry.register(get_bi_aggregation)
-    endpoint_registry.register(put_bi_aggregation)
-    endpoint_registry.register(post_bi_aggregation)
-    endpoint_registry.register(delete_bi_aggregation)
-    endpoint_registry.register(get_bi_packs)
-    endpoint_registry.register(get_bi_pack)
-    endpoint_registry.register(delete_bi_pack)
-    endpoint_registry.register(put_bi_pack)
-    endpoint_registry.register(post_bi_pack)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(get_bi_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(put_bi_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(post_bi_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(delete_bi_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(bi_aggregation_state_post, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(bi_aggregation_state_get, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(get_bi_aggregation, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(put_bi_aggregation, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(post_bi_aggregation, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(delete_bi_aggregation, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(get_bi_packs, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(get_bi_pack, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(delete_bi_pack, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(put_bi_pack, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(post_bi_pack, ignore_duplicates=ignore_duplicates)

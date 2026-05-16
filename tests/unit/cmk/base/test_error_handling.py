@@ -5,17 +5,15 @@
 
 import pytest
 
-from cmk.ccc.exceptions import MKAgentError, MKGeneralException, MKTimeout
+from cmk.base.errorhandling import CheckResultErrorHandler
+from cmk.ccc.crash_reporting import make_crash_report_base_path
+from cmk.ccc.exceptions import MKGeneralException, MKTimeout
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils import paths
-
-from cmk.snmplib import SNMPBackendEnum
-
 from cmk.checkengine.checkresults import ActiveCheckResult
 from cmk.checkengine.exitspec import ExitSpec
-
-from cmk.base.errorhandling import CheckResultErrorHandler
+from cmk.helper_interface import FetcherError
+from cmk.snmplib import SNMPBackendEnum
+from cmk.utils import paths
 
 
 def _handler() -> CheckResultErrorHandler:
@@ -58,7 +56,7 @@ def test_MKTimeout_exception_returns_2() -> None:
 
 def test_MKAgentError_exception_returns_2() -> None:
     with _handler() as handler:
-        raise MKAgentError("oops!")
+        raise FetcherError("oops!")
 
     assert handler.result is not None
     assert handler.result.state == 2
@@ -84,5 +82,5 @@ def test_unhandled_exception_returns_3() -> None:
     assert handler.result.as_text().startswith("check failed - please submit a crash report!")
     # "... (Crash-ID: ...)"
     crash_id = handler.result.as_text().rsplit(" ", maxsplit=1)[-1][:-1]
-    crash_file = paths.crash_dir / "check" / crash_id / "crash.info"
+    crash_file = make_crash_report_base_path(paths.omd_root) / "check" / crash_id / "crash.info"
     crash_file.unlink()

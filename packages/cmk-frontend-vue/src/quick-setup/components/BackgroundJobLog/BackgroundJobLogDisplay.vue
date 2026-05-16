@@ -5,8 +5,9 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import CmkIcon from '@/components/CmkIcon.vue'
-import type { LogStep, LogStepStatus } from './useBackgroundJobLog'
 import CmkLoading from '@/components/CmkLoading.vue'
+
+import type { LogStep, LogStepStatus } from './useBackgroundJobLog'
 
 interface BackgroundJobLogDisplayProps {
   /** @property {LogStep} steps - List of steps*/
@@ -32,24 +33,25 @@ const getIcon = (step: LogStep) => {
       <CmkIcon :name="getIcon(item)" variant="inline" size="medium" /> {{ item.title }}
     </li>
     <li v-if="!!props.displayLoading">
-      <CmkLoading class="qs-background-job-loading-dots" />
+      <CmkLoading class="qs-background-job-log-display__loading-dots" />
     </li>
   </ul>
 </template>
 
 <style scoped>
-.qs-background-job-loading-dots {
+.qs-background-job-log-display__loading-dots {
   padding-left: 25px;
 }
 
 .qs-background-job-log-display__list {
   padding-top: 7px;
   min-height: 40px;
-  padding-left: 0px;
+  padding-left: 0;
   line-height: 18px;
   list-style-position: inside;
   list-style-type: none;
 }
+
 .qs-background-job-log-display__list li {
   padding-top: 5px;
 }

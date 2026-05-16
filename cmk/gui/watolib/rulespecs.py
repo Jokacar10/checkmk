@@ -8,17 +8,13 @@
 import abc
 import re
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast, Literal, NamedTuple
 
 import cmk.ccc.plugin_registry
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.version import Edition, edition, mark_edition_only
-
-from cmk.utils import paths
-from cmk.utils.rulesets.definition import RuleGroup
-
 from cmk.gui.config import active_config
 from cmk.gui.form_specs.converter import Tuple as FSTuple
 from cmk.gui.form_specs.private import SingleChoiceElementExtended, SingleChoiceExtended
@@ -27,14 +23,13 @@ from cmk.gui.global_config import get_global_config
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
-from cmk.gui.i18n import _
+from cmk.gui.i18n import _, translate_to_current_language
 from cmk.gui.log import logger
 from cmk.gui.type_defs import HTTPVariables
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.urls import (
     DocReference,
     makeuri,
-    makeuri_contextless,
     makeuri_contextless_rulespec_group,
 )
 from cmk.gui.valuespec import (
@@ -55,14 +50,14 @@ from cmk.gui.valuespec import (
     ValueSpecText,
     ValueSpecValidateFunc,
 )
-
 from cmk.rulesets.v1 import Help, Label, Title
-from cmk.rulesets.v1.form_specs import DefaultValue, FormSpec, SingleChoice, SingleChoiceElement
+from cmk.rulesets.v1.form_specs import DefaultValue, FormSpec
 from cmk.rulesets.v1.form_specs import FixedValue as FSFixedValue
+from cmk.utils import paths
+from cmk.utils.rulesets.definition import RuleGroup
 
 from .check_mk_automations import get_check_information_cached
 from .main_menu import ABCMainModule, MainModuleRegistry
-from .search import ABCMatchItemGenerator, MatchItem, MatchItems
 from .timeperiods import TimeperiodSelection
 
 MatchType = Literal["first", "all", "list", "dict", "varies"]
@@ -442,6 +437,12 @@ class Rulespec(abc.ABC):
     def help(self) -> None | str | HTML:
         if self._help:
             return self._help()
+
+        try:
+            help = self.form_spec.help_text
+            return None if help is None else help.localize(translate_to_current_language)
+        except FormSpecNotImplementedError:
+            pass
 
         return self.valuespec.help()
 
@@ -1134,21 +1135,24 @@ class ManualCheckParameterRulespec(HostRulespec):
 
 def _get_check_type_group_choice(
     title: Title, help_text: Help, check_group_name: str, *, debug: bool
-) -> SingleChoice:
-    checks = get_check_information_cached(debug=debug)
-    elements: list[SingleChoiceElement] = []
-    for checkname, check in checks.items():
-        if check.get("group") == check_group_name:
-            elements.append(
-                SingleChoiceElement(
-                    name=str(checkname),
-                    title=Title(f"{checkname} - {check['title']}"),  # pylint: disable=localization-of-non-literal-string
+) -> SingleChoiceExtended[str]:
+    def delayed_elements() -> Sequence[SingleChoiceElementExtended[str]]:
+        checks = get_check_information_cached(debug=debug)
+        elements: list[SingleChoiceElementExtended[str]] = []
+        for checkname, check in checks.items():
+            if check.get("group") == check_group_name:
+                elements.append(
+                    SingleChoiceElementExtended[str](
+                        name=str(checkname),
+                        title=Title(f"{checkname} - {check['title']}"),  # pylint: disable=localization-of-non-literal-string
+                    )
                 )
-            )
-    return SingleChoice(
+        return elements
+
+    return SingleChoiceExtended(
         title=title,
         help_text=help_text,
-        elements=elements,
+        elements=delayed_elements,
     )
 
 
@@ -1426,49 +1430,6 @@ def main_module_from_rulespec_group_name(
             main_group_name,
         )
     ]()
-
-
-class MatchItemGeneratorRules(ABCMatchItemGenerator):
-    def __init__(
-        self,
-        name: str,
-        rulesepc_group_reg: RulespecGroupRegistry,
-        rulespec_reg: RulespecRegistry,
-    ) -> None:
-        super().__init__(name)
-        self._rulespec_group_registry = rulesepc_group_reg
-        self._rulespec_registry = rulespec_reg
-
-    def _topic(self, rulespec: Rulespec) -> str:
-        if rulespec.is_deprecated:
-            return _("Deprecated rulesets")
-        return f"{self._rulespec_group_registry[rulespec.main_group_name]().title}"
-
-    def generate_match_items(self) -> MatchItems:
-        allow_list = get_rulespec_allow_list()
-        for group in self._rulespec_registry.get_all_groups():
-            for rulespec in self._rulespec_registry.get_by_group(group):
-                if not rulespec.title or not allow_list.is_visible(rulespec.name):
-                    continue
-
-                yield MatchItem(
-                    title=rulespec.title,
-                    topic=self._topic(rulespec),
-                    url=makeuri_contextless(
-                        request,
-                        [("mode", "edit_ruleset"), ("varname", rulespec.name)],
-                        filename="wato.py",
-                    ),
-                    match_texts=[rulespec.title, rulespec.name],
-                )
-
-    @staticmethod
-    def is_affected_by_change(_change_action_name: str) -> bool:
-        return False
-
-    @property
-    def is_localization_dependent(self) -> bool:
-        return True
 
 
 rulespec_registry = RulespecRegistry(rulespec_group_registry)

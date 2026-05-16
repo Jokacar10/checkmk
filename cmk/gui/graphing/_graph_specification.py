@@ -19,12 +19,11 @@ from pydantic import (
 )
 
 from cmk.ccc.plugin_registry import Registry
-
-from cmk.gui.i18n import _
-
 from cmk.graphing.v1 import graphs as graphs_api
+from cmk.gui.color import scalar_colors
+from cmk.gui.i18n import _
+from cmk.gui.utils.roles import UserPermissions
 
-from ._color import scalar_colors
 from ._from_api import RegisteredMetric
 from ._graph_render_config import GraphRenderOptions
 from ._metric_operation import (
@@ -88,6 +87,7 @@ class GraphSpecification(BaseModel, ABC, frozen=True):
         self,
         registered_metrics: Mapping[str, RegisteredMetric],
         registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+        user_permissions: UserPermissions,
     ) -> Sequence[GraphRecipe]: ...
 
     # mypy does not support other decorators on top of @property:
@@ -163,5 +163,6 @@ class GraphRecipe(BaseModel, frozen=True):
     specification: SerializeAsAny[GraphSpecification]
 
     @field_validator("specification", mode="before")
+    @classmethod
     def parse_specification(cls, value: Mapping[str, object]) -> GraphSpecification:
         return parse_raw_graph_specification(value)

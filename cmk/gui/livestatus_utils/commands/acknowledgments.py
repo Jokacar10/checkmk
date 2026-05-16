@@ -4,29 +4,126 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 """This module contains helpers to trigger acknowledgments."""
 
+import datetime as dt
+
 from livestatus import MultiSiteConnection
 
+from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
+from cmk.gui.livestatus_utils.commands.downtimes import QueryException
+from cmk.gui.logged_in import user as _user
+from cmk.livestatus_client.commands import (
+    AcknowledgeHostProblem,
+    Acknowledgement,
+    AcknowledgeServiceProblem,
+    Command,
+    RemoveHostAcknowledgement,
+    RemoveServiceAcknowledgement,
+)
 from cmk.utils.livestatus_helpers import tables
 from cmk.utils.livestatus_helpers.queries import detailed_connection, Query
 from cmk.utils.livestatus_helpers.tables import Hosts
 
-from cmk.gui.livestatus_utils.commands.downtimes import QueryException
-from cmk.gui.livestatus_utils.commands.lowlevel import send_command
-from cmk.gui.logged_in import user as _user
+
+def _acknowledge_problem(
+    connection: MultiSiteConnection,
+    site_id: SiteId,
+    host_name: HostName,
+    service_description: str | None = None,
+    *,
+    sticky: bool = False,
+    notify: bool = False,
+    persistent: bool = False,
+    user: UserId = UserId.builtin(),
+    comment: str = "",
+    expire_on: dt.datetime | None = None,
+) -> None:
+    """Acknowledge a problem for a host or service.
+
+    Args:
+        connection: A livestatus connection object.
+        site_id: Site ID of the host or service.
+        host_name: Host name for which this acknowledgement is for.
+        service_description: Service name, if acknowledging a service problem.
+        sticky: If set, only a state-change to the UP/OK state will discard the acknowledgement.
+                Otherwise, it will be discarded on any state-change.
+        notify: If set, notifications will be sent out to the configured contacts.
+        persistent: If set, the comment will persist a restart.
+        user: User ID of the user who acknowledged the problem.
+        comment: Comment to be stored alongside the acknowledgement.
+        expire_on: If set, the acknowledgement will expire at this time.
+    """
+
+    acknowledgement = Acknowledgement.STICKY if sticky else Acknowledgement.NORMAL
+    command: Command
+    if service_description:
+        command = AcknowledgeServiceProblem(
+            host_name=host_name,
+            acknowledgement=acknowledgement,
+            notify=notify,
+            persistent=persistent,
+            user=user,
+            comment=comment,
+            description=service_description,
+            expire_on=expire_on,
+        )
+    else:
+        command = AcknowledgeHostProblem(
+            host_name=host_name,
+            acknowledgement=acknowledgement,
+            notify=notify,
+            persistent=persistent,
+            user=user,
+            comment=comment,
+            expire_on=expire_on,
+        )
+
+    connection.command_obj(
+        command,
+        site_id,
+    )
+
+
+def remove_acknowledgement(
+    connection: MultiSiteConnection,
+    site_id: SiteId,
+    host_name: HostName,
+    service_description: str | None = None,
+) -> None:
+    """Remove an acknowledgement for a host or service problem.
+
+    Args:
+        connection: A livestatus connection object.
+        site_id: Site ID of the host or service.
+        host_name: Host name for which this acknowledgement is for.
+        service_description: Service name, if acknowledging a service problem.
+    """
+    command: Command
+    if service_description:
+        command = RemoveServiceAcknowledgement(
+            host_name=host_name,
+            description=service_description,
+        )
+    else:
+        command = RemoveHostAcknowledgement(host_name=host_name)
+
+    connection.command_obj(
+        command,
+        site_id,
+    )
 
 
 def acknowledge_service_problem(
     connection: MultiSiteConnection,
-    host_name: str,
+    host_name: HostName,
     service_description: str,
     sticky: bool = False,
     notify: bool = False,
     persistent: bool = False,
     user: UserId = UserId.builtin(),
     comment: str = "",
+    expire_on: dt.datetime | None = None,
 ) -> None:
     """Acknowledge the current problem for the given service.
 
@@ -34,28 +131,16 @@ def acknowledge_service_problem(
     long as the service doesn't change state. At state change, notifications are re-enabled.
 
     Args:
-        connection:
-            A livestatus connection object.
-
-        host_name:
-            The host-name for which this acknowledgement is for.
-
-        service_description:
-            The service name of the service, whose problems shall be acknowledged.
-
-        sticky:
-            If set, only a state-change of the service to an OK state will discard the
-            acknowledgement. Otherwise, it will be discarded on any state-change. Defaults to False.
-
-        notify:
-            If set, notifications will be sent out to the configured contacts. Defaults to False.
-
-        persistent:
-            If set, the comment will persist a restart. Defaults to False.
-
-        user:
-        comment:
-            If set, this comment will be stored alongside the acknowledgement.
+        connection: A livestatus connection object.
+        host_name: Host name for which this acknowledgement is for.
+        service_description: Service name for which this acknowledgement is for.
+        sticky: If set, only a state-change to the UP/OK state will discard the acknowledgement.
+                Otherwise, it will be discarded on any state-change.
+        notify: If set, notifications will be sent out to the configured contacts.
+        persistent: If set, the comment will persist a restart.
+        user: User ID of the user who acknowledged the problem.
+        comment: Comment to be stored alongside the acknowledgement.
+        expire_on: If set, the acknowledgement will expire at this time.
 
     Examples:
 
@@ -63,7 +148,7 @@ def acknowledge_service_problem(
         >>> from cmk.gui.utils.script_helpers import application_and_request_context
         >>> from cmk.gui.livestatus_utils.testing import mock_site
 
-        >>> cmd = "COMMAND [...] ACKNOWLEDGE_SVC_PROBLEM;example.com;drain;1;0;0;;"
+        >>> cmd = "COMMAND [...] ACKNOWLEDGE_SVC_PROBLEM;example.com;drain;1;0;0;;;"
         >>> with simple_expect() as live:
         ...     _ = live.expect_query("GET hosts\\nColumns: name\\nFilter: name = example.com")
         ...     _ = live.expect_query(cmd, match_type="ellipsis")
@@ -81,21 +166,17 @@ def acknowledge_service_problem(
 
     site_id = _query_site(connection, host_name)
 
-    acknowledgement = 2 if sticky else 1  # 1: normal, 2: sticky
-
-    return send_command(
+    _acknowledge_problem(
         connection,
-        "ACKNOWLEDGE_SVC_PROBLEM",
-        [
-            host_name,
-            service_description,
-            acknowledgement,
-            int(notify),
-            int(persistent),
-            user,
-            comment,
-        ],
-        site_id=site_id,
+        site_id,
+        host_name,
+        service_description,
+        sticky=sticky,
+        notify=notify,
+        persistent=persistent,
+        user=user,
+        comment=comment,
+        expire_on=expire_on,
     )
 
 
@@ -107,6 +188,7 @@ def acknowledge_servicegroup_problem(
     persistent: bool = False,
     user: UserId = UserId.builtin(),
     comment: str = "",
+    expire_on: dt.datetime | None = None,
 ) -> None:
     """Acknowledge the problems of the current services of the service group
 
@@ -114,30 +196,19 @@ def acknowledge_servicegroup_problem(
     long as a specific service doesn't change state. At state change, notifications are re-enabled.
 
     Args:
-        connection:
-            A livestatus connection object.
-
-        servicegroup_name:
-            The host-name for which this acknowledgement is for.
-
-        sticky:
-            If set, only a state-change of the service to an OK state will discard the
-            acknowledgement. Otherwise it will be discarded on any state-change. Defaults to False.
-
-        notify:
-            If set, notifications will be sent out to the configured contacts. Defaults to False.
-
-        persistent:
-            If set, the comment will persist a restart. Defaults to False.
-
-        user:
-        comment:
-            If set, this comment will be stored alongside the acknowledgement.
+        connection: A livestatus connection object.
+        servicegroup_name: Service group name for which this acknowledgement is for.
+        sticky: If set, only a state-change to the UP/OK state will discard the acknowledgement.
+                Otherwise, it will be discarded on any state-change.
+        notify: If set, notifications will be sent out to the configured contacts.
+        persistent: If set, the comment will persist a restart.
+        user: User ID of the user who acknowledged the problem.
+        comment: Comment to be stored alongside the acknowledgement.
+        expire_on: If set, the acknowledgement will expire at this time.
 
     Raises:
         ValueError:
             When the service group could not be found.
-
     """
     _user.need_permission("action.acknowledge")
 
@@ -147,35 +218,32 @@ def acknowledge_servicegroup_problem(
             tables.Servicegroups.name.equals(servicegroup_name),
         ).fetchall(conn)
 
-    acknowledgement = 2 if sticky else 1  # 1: normal, 2: sticky
-
     for entry in group_entries:
         site_id = entry["site"]
         for host_name, service_description in entry["members"]:
-            send_command(
+            _acknowledge_problem(
                 connection,
-                "ACKNOWLEDGE_SVC_PROBLEM",
-                [
-                    host_name,
-                    service_description,
-                    acknowledgement,
-                    int(notify),
-                    int(persistent),
-                    user,
-                    comment,
-                ],
-                site_id=site_id,
+                site_id,
+                host_name,
+                service_description,
+                sticky=sticky,
+                notify=notify,
+                persistent=persistent,
+                user=user,
+                comment=comment,
+                expire_on=expire_on,
             )
 
 
 def acknowledge_host_problem(
     connection: MultiSiteConnection,
-    host_name: str,
+    host_name: HostName,
     sticky: bool = False,
     notify: bool = False,
     persistent: bool = False,
     user: UserId = UserId.builtin(),
     comment: str = "",
+    expire_on: dt.datetime | None = None,
 ) -> None:
     """Acknowledge the current problem for the given host.
 
@@ -183,25 +251,15 @@ def acknowledge_host_problem(
     host doesn't change state. At state change, notifications are re-enabled.
 
     Args:
-        connection:
-            A livestatus connection object.
-
-        host_name:
-            The host-name for which this acknowledgement is for.
-
-        sticky:
-            If set, only a state-change of the host to an UP state will discard the acknowledgement.
-            Otherwise it will be discarded on any state-change. Defaults to False.
-
-        notify:
-            If set, notifications will be sent out to the configured contacts. Defaults to False.
-
-        persistent:
-            If set, the comment will persist a restart. Defaults to False.
-
-        user:
-        comment:
-            If set, this comment will be stored alongside the acknowledgement.
+        connection: A livestatus connection object.
+        host_name: Host name for which this acknowledgement is for.
+        sticky: If set, only a state-change to the UP/OK state will discard the acknowledgement.
+                Otherwise, it will be discarded on any state-change.
+        notify: If set, notifications will be sent out to the configured contacts.
+        persistent: If set, the comment will persist a restart.
+        user: User ID of the user who acknowledged the problem.
+        comment: Comment to be stored alongside the acknowledgement.
+        expire_on: If set, the acknowledgement will expire at this time.
 
     Examples:
 
@@ -209,7 +267,7 @@ def acknowledge_host_problem(
         >>> from cmk.gui.utils.script_helpers import application_and_request_context
         >>> from cmk.gui.livestatus_utils.testing import mock_site
 
-        >>> cmd = "COMMAND [...] ACKNOWLEDGE_HOST_PROBLEM;example.com;1;0;0;;"
+        >>> cmd = "COMMAND [...] ACKNOWLEDGE_HOST_PROBLEM;example.com;1;0;0;;;"
         >>> with simple_expect() as live:
         ...     _ = live.expect_query("GET hosts\\nColumns: name\\nFilter: name = example.com")
         ...     _ = live.expect_query(cmd, match_type="ellipsis")
@@ -222,27 +280,22 @@ def acknowledge_host_problem(
             Traceback (most recent call last):
             ...
             cmk.gui.exceptions.MKAuthException: ...
-
     """
     _user.need_permission("action.acknowledge")
 
-    acknowledgement = 2 if sticky else 1  # 1: normal, 2: sticky
-
     with detailed_connection(connection) as conn:
-        site_id = Query([Hosts.name], Hosts.name.equals(host_name)).first_value(conn)
+        site_id = Query([Hosts.name], Hosts.name.equals(host_name)).value(conn)
 
-    return send_command(
+    _acknowledge_problem(
         connection,
-        "ACKNOWLEDGE_HOST_PROBLEM",
-        [
-            host_name,
-            acknowledgement,
-            int(notify),
-            int(persistent),
-            user,
-            comment,
-        ],
-        site_id=site_id,
+        site_id,
+        host_name,
+        sticky=sticky,
+        notify=notify,
+        persistent=persistent,
+        user=user,
+        comment=comment,
+        expire_on=expire_on,
     )
 
 
@@ -254,6 +307,7 @@ def acknowledge_hostgroup_problem(
     persistent: bool = False,
     user: UserId = UserId.builtin(),
     comment: str = "",
+    expire_on: dt.datetime | None = None,
 ) -> None:
     """Acknowledge the problems of the current hosts of the host group
 
@@ -261,30 +315,19 @@ def acknowledge_hostgroup_problem(
     long as a specific service doesn't change state. At state change, notifications are re-enabled.
 
     Args:
-        connection:
-            A livestatus connection object.
-
-        hostgroup_name:
-            The name of the host group.
-
-        sticky:
-            If set, only a state-change of the service to an OK state will discard the
-            acknowledgement. Otherwise it will be discarded on any state-change. Defaults to False.
-
-        notify:
-            If set, notifications will be sent out to the configured contacts. Defaults to False.
-
-        persistent:
-            If set, the comment will persist a restart. Defaults to False.
-
-        user:
-        comment:
-            If set, this comment will be stored alongside the acknowledgement.
+        connection: A livestatus connection object.
+        hostgroup_name: Host group name for which this acknowledgement is for.
+        sticky: If set, only a state-change to the UP/OK state will discard the acknowledgement.
+                Otherwise, it will be discarded on any state-change.
+        notify: If set, notifications will be sent out to the configured contacts.
+        persistent: If set, the comment will persist a restart.
+        user: User ID of the user who acknowledged the problem.
+        comment: Comment to be stored alongside the acknowledgement.
+        expire_on: If set, the acknowledgement will expire at this time.
 
     Raises:
         ValueError:
             when the host group in question doesn't exist.
-
     """
     _user.need_permission("action.acknowledge")
 
@@ -293,23 +336,19 @@ def acknowledge_hostgroup_problem(
             [tables.Hostgroups.members], tables.Hostgroups.name.equals(hostgroup_name)
         ).fetchall(conn)
 
-    acknowledgement = 2 if sticky else 1  # 1: normal, 2: sticky
-
     for entry in group_entries:
         site_id = entry["site"]
         for host_name in entry["members"]:
-            send_command(
+            _acknowledge_problem(
                 connection,
-                "ACKNOWLEDGE_HOST_PROBLEM",
-                [
-                    host_name,
-                    acknowledgement,
-                    int(notify),
-                    int(persistent),
-                    user,
-                    comment,
-                ],
-                site_id=site_id,
+                site_id,
+                host_name,
+                sticky=sticky,
+                notify=notify,
+                persistent=persistent,
+                user=user,
+                comment=comment,
+                expire_on=expire_on,
             )
 
 

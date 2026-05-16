@@ -12,18 +12,24 @@ from pathlib import Path
 
 import cmk.ccc.cleanup
 import cmk.ccc.debug
-from cmk.ccc.exceptions import OnError
-from cmk.ccc.hostaddress import HostName
-
+import cmk.ccc.version as cmk_version
 import cmk.utils.password_store
 import cmk.utils.paths
-from cmk.utils.config_path import VersionedConfigPath
-from cmk.utils.cpu_tracking import CPUTracker
-from cmk.utils.log import console
-
-from cmk.fetchers import Mode as FetchMode
-from cmk.fetchers.filecache import FileCacheOptions
-
+from cmk.base import config
+from cmk.base.checkers import (
+    CMKFetcher,
+    CMKParser,
+    CMKSummarizer,
+    SectionPluginMapper,
+)
+from cmk.base.configlib.fetchers import make_parsed_snmp_fetch_intervals_config
+from cmk.base.configlib.servicename import make_final_service_name_config
+from cmk.base.errorhandling import CheckResultErrorHandler
+from cmk.base.modes.check_mk import execute_active_check_inventory
+from cmk.ccc.config_path import VersionedConfigPath
+from cmk.ccc.cpu_tracking import CPUTracker
+from cmk.ccc.exceptions import OnError
+from cmk.ccc.hostaddress import HostName
 from cmk.checkengine.checking import make_timing_results
 from cmk.checkengine.checkresults import ActiveCheckResult
 from cmk.checkengine.inventory import HWSWInventoryParameters
@@ -35,16 +41,17 @@ from cmk.checkengine.plugin_backend import (
 )
 from cmk.checkengine.plugins import AgentBasedPlugins
 from cmk.checkengine.submitters import ServiceState
-
-from cmk.base import config
-from cmk.base.checkers import (
-    CMKFetcher,
-    CMKParser,
-    CMKSummarizer,
-    SectionPluginMapper,
+from cmk.fetchers import Mode as FetchMode
+from cmk.fetchers import NoSelectedSNMPSections, SNMPFetcherConfig
+from cmk.fetchers.config import make_cached_snmp_sections_dir
+from cmk.fetchers.filecache import FileCacheOptions
+from cmk.utils.ip_lookup import (
+    ConfiguredIPLookup,
+    make_lookup_ip_address,
+    make_lookup_mgmt_board_ip_address,
 )
-from cmk.base.errorhandling import CheckResultErrorHandler
-from cmk.base.modes.check_mk import execute_active_check_inventory
+from cmk.utils.log import console
+from cmk.utils.rulesets.ruleset_matcher import BundledHostRulesetMatcher
 
 
 def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
@@ -118,44 +125,85 @@ def main(
     )
 
     return inventory_as_check(
+        cmk_version.edition(cmk.utils.paths.omd_root),
         parameters,
         args.hostname,
-        load_plugins_from_index(VersionedConfigPath.LATEST_CONFIG)
+        load_plugins_from_index(VersionedConfigPath.make_latest_path(cmk.utils.paths.omd_root))
         if args.use_indexed_plugins
         else load_checks(),
     )
 
 
 def inventory_as_check(
-    parameters: HWSWInventoryParameters, hostname: HostName, plugins: AgentBasedPlugins
+    edition: cmk_version.Edition,
+    parameters: HWSWInventoryParameters,
+    hostname: HostName,
+    plugins: AgentBasedPlugins,
 ) -> ServiceState:
     loading_result = config.load(discovery_rulesets=extract_known_discovery_rulesets(plugins))
+    loaded_config = loading_result.loaded_config
+    ruleset_matcher = loading_result.config_cache.ruleset_matcher
+    label_manager = loading_result.config_cache.label_manager
+
     config_cache = loading_result.config_cache
-    config_cache.ruleset_matcher.ruleset_optimizer.set_all_processed_hosts({hostname})
-    hosts_config = config.make_hosts_config(loading_result.loaded_config)
-    service_name_config = config_cache.make_passive_service_name_config()
+    ruleset_matcher.ruleset_optimizer.set_all_processed_hosts({hostname})
+    hosts_config = config.make_hosts_config(loaded_config)
+    service_name_config = config_cache.make_passive_service_name_config(
+        make_final_service_name_config(loaded_config, ruleset_matcher)
+    )
+    enforced_service_table = config.EnforcedServicesTable(
+        BundledHostRulesetMatcher(
+            loaded_config.static_checks, ruleset_matcher, label_manager.labels_of_host
+        ),
+        service_name_config,
+        plugins.check_plugins,
+    )
+
+    ip_lookup_config = config_cache.ip_lookup_config()
+    ip_address_of_bare = make_lookup_ip_address(ip_lookup_config)
+    ip_address_of = ConfiguredIPLookup(
+        ip_address_of_bare,
+        allow_empty=config_cache.hosts_config.clusters,
+        error_handler=config.handle_ip_lookup_failure,
+    )
     file_cache_options = FileCacheOptions()
 
     fetcher = CMKFetcher(
         config_cache,
+        lambda hn: config.make_fetcher_trigger(edition, label_manager.labels_of_host(hostname)),
         config_cache.fetcher_factory(
-            config_cache.make_service_configurer(plugins.check_plugins, service_name_config)
+            config_cache.make_service_configurer(plugins.check_plugins, service_name_config),
+            ip_address_of,
+            service_name_config,
+            enforced_service_table,
+            SNMPFetcherConfig(
+                on_error=OnError.RAISE,
+                missing_sys_description=config_cache.missing_sys_description,
+                oid_cache_dir=cmk.utils.paths.snmp_scan_cache_dir,
+                selected_sections=NoSelectedSNMPSections(),
+                backend_override=None,
+                stored_walk_path=cmk.utils.paths.snmpwalks_dir,
+                walk_cache_path=cmk.utils.paths.var_dir / "snmp_cache",
+                section_cache_path=make_cached_snmp_sections_dir(cmk.utils.paths.var_dir),
+                caching_config=make_parsed_snmp_fetch_intervals_config(
+                    loaded_config, ruleset_matcher, label_manager.labels_of_host
+                ),
+            ),
         ),
         plugins,
+        default_address_family=ip_lookup_config.default_address_family,
         file_cache_options=file_cache_options,
         force_snmp_cache_refresh=False,
-        ip_address_of=config.ConfiguredIPLookup(
-            config_cache, error_handler=config.handle_ip_lookup_failure
-        ),
+        get_ip_stack_config=ip_lookup_config.ip_stack_config,
+        ip_address_of=ip_address_of,
+        ip_address_of_mandatory=ip_address_of_bare,
+        ip_address_of_mgmt=make_lookup_mgmt_board_ip_address(ip_lookup_config),
         mode=FetchMode.INVENTORY,
-        on_error=OnError.RAISE,
-        selected_sections=NO_SELECTION,
         simulation_mode=config.simulation_mode,
-        snmp_backend_override=None,
         password_store_file=cmk.utils.password_store.core_password_store_path(),
     )
     parser = CMKParser(
-        config_cache.parser_factory(),
+        config.make_parser_config(loaded_config, ruleset_matcher, label_manager),
         selected_sections=NO_SELECTION,
         keep_outdated=file_cache_options.keep_outdated,
         logger=logging.getLogger("cmk.base.inventory"),

@@ -24,7 +24,8 @@ $package_name = Split-Path -Path (Get-Location) -Leaf
 
 $exe_name = "$package_name.exe"
 $work_dir = "$pwd"
-$cargo_target = "i686-pc-windows-msvc"
+$cargo_toolchain = "1.87.0" # to be in sync with rust toolchain/bazel/etc
+$cargo_target = "x86_64-pc-windows-msvc"
 
 $packBuild = $false
 $packClippy = $false
@@ -152,10 +153,10 @@ function Invoke-Cargo-With-Explicit-Package {
     )
     $further_args_string = $further_args -join ' '
     Write-Host "${package_name}: $cmd --package $package_name $further_args_string" -ForegroundColor White
-    & cargo $cmd --package $package_name $further_args
+    & cargo $cmd  --package $package_name $further_args
 
-    if ($lastexitcode -ne 0) {
-        Write-Error "${package_name}: Failed to $cmd --package $package_name $further_args_string with code $lastexitcode" -ErrorAction Stop
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "${package_name}: Failed to $cmd --package $package_name $further_args_string with code $LASTEXITCODE" -ErrorAction Stop
     }
 }
 
@@ -193,20 +194,19 @@ $result = 1
 try {
     $mainStartTime = Get-Date
 
+    if ( "$env:CI_ORA2_DB_TEST" -eq "" ) {
+        Write-Error "CI_ORA2_DB_TEST environment variable is not set. Please set it to the test registry name." -ErrorAction Stop
+    }
+
     & rustup --version > nul
-    if ($lastexitcode -ne 0) {
+    if ($LASTEXITCODE -ne 0) {
         Write-Error "rustup not found, please install it and/or add to PATH" -ErrorAction Stop
     }
     &rustup update
     &rustup install
-    &rustup target add $cargo_target
+    &rustup target add $cargo_target --toolchain $cargo_toolchain
     & rustc --target $cargo_target -V
     & cargo -V
-
-    # Disable assert()s in C/C++ parts (e.g. wepoll-ffi), they map to _assert()/_wassert(),
-    # which is not provided by libucrt. The latter is needed for static linking.
-    # https://github.com/rust-lang/cc-rs#external-configuration-via-environment-variables
-    $env:CFLAGS = "-DNDEBUG"
 
     # shorten path
     Start-ShortenPath "$shortenLink" "$shortenPath"
@@ -216,22 +216,26 @@ try {
         Invoke-Cargo-With-Explicit-Package "clean"
     }
     if ($packBuild -or $packTest -or - $packOci) {
-        $target = "//packages/mk-oracle:oci_light_win_x86"
+        $target = "//omd/packages/oci:oci_light_win_x64"
         & bazel build $target
         if ($LASTEXITCODE -eq 0) {
-            $oci_light_win_x86_zip = (& bazel cquery $target --output=starlark  --starlark:expr='target.files.to_list()[0].path' )
-            $packaged = Split-Path "$oci_light_win_x86_zip" -leaf
-            Write-Host "Oracle runtime light/win/x86: $oci_light_win_x86_zip with name $packaged" -ForegroundColor Green
-            Copy-Item -Path "$root_dir/$oci_light_win_x86" -Destination "$arte_dir/" -Force -ErrorAction Stop
+            $oci_light_win_x64_zip = (& bazel cquery $target --output=starlark  --starlark:expr='target.files.to_list()[0].path' )
+            $packaged = Split-Path "$oci_light_win_x64_zip" -leaf
+            Write-Host "Oracle runtime light/win/x64: $oci_light_win_x64_zip with name $packaged" -ForegroundColor Green
+            Copy-Item -Path "$root_dir/$oci_light_win_x64_zip" -Destination "$arte_dir/" -Force -ErrorAction Stop
             $source_hash = (Get-FileHash "$arte_dir/$packaged" -Algorithm SHA256).Hash
-            & mkdir "runtimes/$packaged" -ErrorAction SilentlyContinue | Out-Null
-            if (!(Test-Path "runtimes/$packaged/.hash") -or
-                ((Get-Content "runtimes/$packaged/.hash" -ErrorAction Stop) -ne $source_hash)) {
-                Set-Content "runtimes/$packaged/.hash" $source_hash -ErrorAction Stop
+            $runtime_path = "runtimes/runtime"
+            & mkdir "$runtime_path" -ErrorAction SilentlyContinue | Out-Null
+            if (!(Test-Path "$runtime_path/.hash") -or
+                ((Get-Content "$runtime_path/.hash" -ErrorAction Stop) -ne $source_hash)) {
+                Write-Host "Oracle runtime light/win/x64: hash updated $source_hash" -ForegroundColor Green
+                Set-Content "$runtime_path/.hash" $source_hash -ErrorAction Stop
             }
+            Expand-Archive -Path "$arte_dir/$packaged" -DestinationPath "$runtime_path" -Force -ErrorAction Stop
         }
         else {
-            Write-Host "Failed Oracle runtime light/win/x86: $oci_light_win_x86" -ForegroundColor Red
+            Write-Host "Failed Oracle runtime light/win/x64: $oci_light_win_x64" -ForegroundColor Red
+            exit(1)
         }
     }
     if ($packBuild) {
@@ -242,7 +246,7 @@ try {
         Invoke-Cargo-With-Explicit-Package "build" "--release" "--target" $cargo_target
     }
     if ($packClippy) {
-        Invoke-Cargo-With-Explicit-Package "clippy" "--release" "--target" $cargo_target "--tests" "--" "--deny" "warnings"
+        Invoke-Cargo-With-Explicit-Package "clippy" "--release" "--tests" "--" "--deny" "warnings"
     }
 
     if ($packFormat) {
@@ -253,12 +257,9 @@ try {
         Invoke-Cargo-With-Explicit-Package "fmt" "--" "--check"
     }
     if ($packTest) {
-        if (-not (Test-Administrator)) {
-            Write-Error "Testing must be executed as Administrator." -ErrorAction Stop
-        }
         # TODO(timi): move it to CI
         .\tests\files\ci-scripts\manage-test-registry-set.ps1 --reinstall 2.5.0
-        Invoke-Cargo-With-Explicit-Package "test" "--release" "--target" $cargo_target "--" "--test-threads=4"
+        Invoke-Cargo-With-Explicit-Package "test" "--release" "--target" $cargo_target  "--" "--test-threads=4"
     }
     if ($packBuild -and $packTest -and $packClippy) {
         $exe_dir = Join-Path (cargo metadata --no-deps | ConvertFrom-json).target_directory "$cargo_target" "release"

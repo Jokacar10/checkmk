@@ -73,8 +73,8 @@ std::vector<::column::service_list::Entry> getServices(const row_type &row,
 }
 }  // namespace
 
-TableHosts::TableHosts(ICore *mc) {
-    addColumns(this, *mc, "", ColumnOffsets{}, LockComments::yes,
+TableHosts::TableHosts() {
+    addColumns(this, "", ColumnOffsets{}, LockComments::yes,
                LockDowntimes::yes);
 }
 
@@ -83,8 +83,7 @@ std::string TableHosts::name() const { return "hosts"; }
 std::string TableHosts::namePrefix() const { return "host_"; }
 
 // static
-void TableHosts::addColumns(Table *table, const ICore &core,
-                            const std::string &prefix,
+void TableHosts::addColumns(Table *table, const std::string &prefix,
                             const ColumnOffsets &offsets,
                             LockComments lock_comments,
                             LockDowntimes lock_downtimes) {
@@ -219,7 +218,8 @@ void TableHosts::addColumns(Table *table, const ICore &core,
         "Type of acknowledgement (0: none, 1: normal, 2: sticky)", offsets,
         [](const row_type &row) { return row.acknowledgement_type(); }));
     table->addColumn(std::make_unique<IntColumn<row_type>>(
-        prefix + "check_type", "Type of check (0: active, 1: passive)", offsets,
+        prefix + "check_type",
+        "Type of check (0: active, 1: passive, 2: shadow)", offsets,
         [](const row_type &row) { return row.check_type(); }));
     table->addColumn(std::make_unique<IntColumn<row_type>>(
         prefix + "last_state", "State before last state change", offsets,
@@ -413,7 +413,8 @@ void TableHosts::addColumns(Table *table, const ICore &core,
         prefix + "contacts", "A list of all contacts of this object", offsets,
         [](const row_type &row) { return row.contacts(); }));
 
-    auto get_downtimes = [&core, lock_downtimes](const row_type &row) {
+    auto get_downtimes = [lock_downtimes](const row_type &row,
+                                          const ICore &core) {
         return lock_downtimes == LockDowntimes::yes
                    ? core.downtimes(row)
                    : core.downtimes_unlocked(row);
@@ -439,7 +440,8 @@ void TableHosts::addColumns(Table *table, const ICore &core,
         std::make_unique<DowntimeRenderer>(DowntimeRenderer::verbosity::full),
         get_downtimes));
 
-    auto get_comments = [&core, lock_comments](const row_type &row) {
+    auto get_comments = [lock_comments](const row_type &row,
+                                        const ICore &core) {
         return lock_comments == LockComments::yes ? core.comments(row)
                                                   : core.comments_unlocked(row);
     };
@@ -580,7 +582,7 @@ void TableHosts::addColumns(Table *table, const ICore &core,
                                 row_type, RRDDataMaker::value_type>>>(
         prefix + "rrddata",
         "RRD metrics data of this object. This is a column with parameters: rrddata:COLUMN_TITLE:VARNAME:FROM_TIME:UNTIL_TIME:RESOLUTION",
-        core, offsets));
+        offsets));
 
     table->addColumn(std::make_unique<IntColumn<row_type>>(
         prefix + "num_services", "The total number of services of the host",
@@ -646,8 +648,9 @@ void TableHosts::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<BoolColumn<row_type>>(
         prefix + "pnpgraph_present",
         "Whether there is a PNP4Nagios graph present for this object (-1/0/1)",
-        offsets,
-        [&core](const row_type &row) { return core.isPnpGraphPresent(row); }));
+        offsets, [](const row_type &row, const ICore &core) {
+            return core.isPnpGraphPresent(row);
+        }));
 
     // TODO CMK-23408
     const auto add_extension = [](std::filesystem::path p,
@@ -663,7 +666,7 @@ void TableHosts::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<TimeColumn<row_type>>(
         prefix + "mk_inventory_last",
         "The timestamp of the last Check_MK HW/SW Inventory for this host. 0 means that no inventory data is present",
-        offsets, [&core, &try_json](const row_type &row) {
+        offsets, [&try_json](const row_type &row, const ICore &core) {
             return mk_inventory_last(
                 try_json(core.paths()->inventory_directory() / row.name(), ""));
         }));
@@ -671,29 +674,32 @@ void TableHosts::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "mk_inventory",
         "The file content of the Check_MK HW/SW Inventory", offsets,
-        BlobFileReader<row_type>{[&core, &try_json](const row_type &row) {
-            return try_json(core.paths()->inventory_directory() / row.name(),
-                            "");
-        }}));
+        BlobFileReader<row_type>{
+            [&try_json](const row_type &row, const ICore &core) {
+                return try_json(
+                    core.paths()->inventory_directory() / row.name(), "");
+            }}));
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "mk_inventory_gz",
         "The gzipped file content of the Check_MK HW/SW Inventory", offsets,
-        BlobFileReader<row_type>{[&core, &try_json](const row_type &row) {
-            return try_json(core.paths()->inventory_directory() / row.name(),
-                            ".gz");
-        }}));
+        BlobFileReader<row_type>{
+            [&try_json](const row_type &row, const ICore &core) {
+                return try_json(
+                    core.paths()->inventory_directory() / row.name(), ".gz");
+            }}));
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "structured_status",
         "The file content of the structured status of the Check_MK HW/SW Inventory",
         offsets,
-        BlobFileReader<row_type>{[&core, &try_json](const row_type &row) {
+        BlobFileReader<row_type>{[&try_json](const row_type &row,
+                                             const ICore &core) {
             return try_json(
                 core.paths()->structured_status_directory() / row.name(), "");
         }}));
     table->addColumn(std::make_unique<ListColumn<row_type>>(
         prefix + "mk_logwatch_files",
         "This list of logfiles with problems fetched via mk_logwatch", offsets,
-        [&core](const row_type &row, const Column &col) {
+        [](const row_type &row, const Column &col, const ICore &core) {
             const auto logwatch_directory = core.paths()->logwatch_directory();
             auto dir = logwatch_directory.empty() || row.name().empty()
                            ? std::filesystem::path()
@@ -704,7 +710,7 @@ void TableHosts::addColumns(Table *table, const ICore &core,
     table->addDynamicColumn(std::make_unique<DynamicFileColumn<row_type>>(
         prefix + "mk_logwatch_file",
         "This contents of a logfile fetched via mk_logwatch", offsets,
-        [&core](const row_type & /*row*/) {
+        [](const row_type & /*row*/, const ICore &core) {
             return core.paths()->logwatch_directory();
         },
         [](const std::string &args) { return std::filesystem::path{args}; }));
@@ -771,7 +777,9 @@ void TableHosts::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<ListColumn<row_type>>(
         prefix + "metrics",
         "A list of all metrics of this object that historically existed",
-        offsets, [&core](const row_type &row) { return core.metrics(row); }));
+        offsets, [](const row_type &row, const ICore &core) {
+            return core.metrics(row);
+        }));
     table->addColumn(std::make_unique<IntColumn<row_type>>(
         prefix + "smartping_timeout",
         "Maximum expected time between two received packets in ms", offsets,

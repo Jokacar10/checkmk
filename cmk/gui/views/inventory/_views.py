@@ -4,7 +4,6 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 from cmk.ccc.user import UserId
-
 from cmk.gui.i18n import _
 from cmk.gui.type_defs import (
     ColumnSpec,
@@ -72,7 +71,7 @@ _INV_VIEW_HOST = ViewSpec(
         "sort_index": 99,
         "is_show_more": False,
         "packaged": False,
-        "megamenu_search_terms": [],
+        "main_menu_search_terms": [],
     }
 )
 
@@ -133,7 +132,7 @@ _INV_VIEW_HOST_CPU = ViewSpec(
         "icon": None,
         "add_context_to_title": True,
         "packaged": False,
-        "megamenu_search_terms": [],
+        "main_menu_search_terms": [],
     }
 )
 
@@ -190,7 +189,7 @@ _INV_VIEW_HOST_PORTS = ViewSpec(
         "icon": None,
         "add_context_to_title": True,
         "packaged": False,
-        "megamenu_search_terms": [],
+        "main_menu_search_terms": [],
     }
 )
 
@@ -240,6 +239,6 @@ _INV_VIEW_HOST_HISTORY = ViewSpec(
         "add_context_to_title": True,
         "sort_index": 99,
         "packaged": False,
-        "megamenu_search_terms": [],
+        "main_menu_search_terms": [],
     }
 )

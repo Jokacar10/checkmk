@@ -14,23 +14,21 @@
 
 #include "Interface.h"
 #include "livestatus/ColumnFilter.h"
+#include "livestatus/Row.h"
 
 class Logger;
 class RegExp;
 enum class RelationalOperator;
-class Row;
 
 class DictStrValueFilter : public ColumnFilter {
-    // Elsewhere, `function_type` is a std::variant of functions but we
-    // currently have a single element, so we skip that entirely.
     using function_type = std::function<Attributes(Row)>;
 
 public:
     DictStrValueFilter(Kind kind, std::string columnName, function_type f,
                        RelationalOperator relOp, const std::string &value);
-    [[nodiscard]] bool accepts(
-        Row row, const User &user,
-        std::chrono::seconds timezone_offset) const override;
+    [[nodiscard]] bool accepts(Row row, const User &user,
+                               std::chrono::seconds timezone_offset,
+                               const ICore &core) const override;
     [[nodiscard]] std::unique_ptr<Filter> copy() const override;
     [[nodiscard]] std::unique_ptr<Filter> negate() const override;
 
@@ -42,8 +40,6 @@ private:
 };
 
 class DictDoubleValueFilter : public ColumnFilter {
-    // Elsewhere, `function_type` is a std::variant of functions but we
-    // currently have a single element, so we skip that entirely.
     using function_type =
         std::function<std::unordered_map<std::string, double>(Row)>;
 
@@ -51,9 +47,9 @@ public:
     DictDoubleValueFilter(Kind kind, std::string columnName, function_type f,
                           RelationalOperator relOp, const std::string &value,
                           Logger *logger);
-    [[nodiscard]] bool accepts(
-        Row row, const User &user,
-        std::chrono::seconds timezone_offset) const override;
+    [[nodiscard]] bool accepts(Row row, const User &user,
+                               std::chrono::seconds timezone_offset,
+                               const ICore &core) const override;
     [[nodiscard]] std::unique_ptr<Filter> copy() const override;
     [[nodiscard]] std::unique_ptr<Filter> negate() const override;
     [[nodiscard]] Logger *logger() const { return logger_; }

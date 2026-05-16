@@ -18,10 +18,8 @@ import urllib3
 from pydantic import BaseModel, Field
 
 import cmk.ccc.site
-from cmk.ccc.exceptions import MKException
 from cmk.ccc.site import omd_site
 from cmk.ccc.user import UserId
-
 from cmk.utils.local_secrets import AutomationUserSecret, SiteInternalSecret
 from cmk.utils.password_store import lookup
 from cmk.utils.paths import omd_root
@@ -198,7 +196,7 @@ class AggregationData:
                 self._aggregation_targets.setdefault(target_name, {})[aggr_name] = aggr_data
 
 
-class RawdataException(MKException):
+class RawdataException(Exception):
     pass
 
 

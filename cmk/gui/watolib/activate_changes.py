@@ -18,6 +18,7 @@ import subprocess
 import tarfile
 import time
 import traceback
+from collections import Counter
 from collections.abc import (
     Callable,
     Collection,
@@ -30,6 +31,7 @@ from collections.abc import (
 from contextlib import contextmanager, suppress
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from html import unescape
 from itertools import filterfalse
 from multiprocessing.pool import AsyncResult, ThreadPool
 from pathlib import Path
@@ -39,29 +41,24 @@ from urllib.parse import urlparse
 from pydantic import BaseModel
 from setproctitle import setthreadtitle
 
-from livestatus import BrokerConnections, SiteConfiguration
+from livestatus import BrokerConnections, SiteConfiguration, SiteConfigurations
 
+import cmk.ec.export as ec  # pylint: disable=cmk-module-layer-violation
+import cmk.gui.utils
+import cmk.gui.watolib.automations
+import cmk.gui.watolib.git
+import cmk.gui.watolib.sidebar_reload
+import cmk.gui.watolib.utils
+from cmk import mkp_tool, trace
+from cmk.bi.type_defs import frozen_aggregations_dir
 from cmk.ccc import store, version
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.plugin_registry import Registry
 from cmk.ccc.site import omd_site, SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils import agent_registration, paths, render, setup_search_index
-from cmk.utils.licensing.export import LicenseUsageExtensions
-from cmk.utils.licensing.registry import get_licensing_user_effect, is_free
-from cmk.utils.licensing.usage import save_extensions
-from cmk.utils.paths import configuration_lockfile
-from cmk.utils.visuals import invalidate_visuals_cache
-
-import cmk.ec.export as ec  # pylint: disable=cmk-module-layer-violation
-
-import cmk.gui.utils
-import cmk.gui.watolib.automations
-import cmk.gui.watolib.git
-import cmk.gui.watolib.sidebar_reload
-import cmk.gui.watolib.utils
+from cmk.crypto.certificate import PersistedCertificateWithPrivateKey
+from cmk.discover_plugins import addons_plugins_local_path, plugins_local_path
 from cmk.gui import hooks, userdb
 from cmk.gui.background_job import (
     BackgroundJob,
@@ -70,7 +67,7 @@ from cmk.gui.background_job import (
     JobStatusSpec,
     JobTarget,
 )
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.crash_handler import crash_dump_message, handle_exception_as_gui_crash_report
 from cmk.gui.exceptions import MKAuthException, MKInternalError, MKUserError
 from cmk.gui.http import Request
@@ -80,17 +77,15 @@ from cmk.gui.log import logger
 from cmk.gui.logged_in import user
 from cmk.gui.nodevis.utils import topology_dir
 from cmk.gui.site_config import (
-    configured_sites,
-    enabled_sites,
+    is_distributed_setup_remote_site,
     is_single_local_site,
-    is_wato_slave_site,
     site_is_local,
 )
 from cmk.gui.sites import SiteStatus
 from cmk.gui.sites import states as sites_states
 from cmk.gui.type_defs import GlobalSettings, Users
 from cmk.gui.user_sites import activation_sites
-from cmk.gui.userdb import load_users, user_sync_default_config
+from cmk.gui.userdb import get_user_attributes, load_users, user_sync_default_config, UserAttribute
 from cmk.gui.userdb.htpasswd import HtpasswdUserConnector
 from cmk.gui.userdb.store import load_users_uncached, save_users
 from cmk.gui.utils import escaping
@@ -100,7 +95,11 @@ from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.watolib import backup_snapshots
 from cmk.gui.watolib.audit_log import log_audit
 from cmk.gui.watolib.automation_commands import AutomationCommand
-from cmk.gui.watolib.automations import RemoteAutomationConfig
+from cmk.gui.watolib.automations import (
+    LocalAutomationConfig,
+    make_automation_config,
+    RemoteAutomationConfig,
+)
 from cmk.gui.watolib.broker_certificates import (
     broker_certificate_sync_registry,
     BrokerCertificateSync,
@@ -134,12 +133,13 @@ from cmk.gui.watolib.paths import wato_var_dir
 from cmk.gui.watolib.piggyback_hub import has_piggyback_hub_relevant_changes
 from cmk.gui.watolib.site_changes import ChangeSpec, SiteChanges
 from cmk.gui.watolib.snapshots import SnapshotManager
-
-from cmk import mkp_tool, trace
-from cmk.bi.type_defs import frozen_aggregations_dir
-from cmk.crypto.certificate import PersistedCertificateWithPrivateKey
-from cmk.discover_plugins import addons_plugins_local_path, plugins_local_path
 from cmk.messaging import rabbitmq
+from cmk.utils import agent_registration, paths, render, setup_search_index
+from cmk.utils.licensing.export import LicenseUsageExtensions
+from cmk.utils.licensing.registry import get_licensing_user_effect, is_free
+from cmk.utils.licensing.usage import save_extensions
+from cmk.utils.paths import configuration_lockfile
+from cmk.utils.visuals import invalidate_visuals_cache
 
 # TODO: Make private
 Phase = str  # TODO: Make dedicated type
@@ -332,20 +332,25 @@ def register(replication_path_registry_: ReplicationPathRegistry) -> None:
 
 
 # If the site is not up-to-date, synchronize it first.
-def sync_changes_before_remote_automation(site_id: SiteId) -> None:
+def sync_changes_before_remote_automation(site_id: SiteId, debug: bool) -> None:
     manager = ActivateChangesManager()
-    manager.load()
+    # TODO: So far we used active_config.sites. Would it be enough to use [site_id]?
+    manager.changes.load(list(active_config.sites))
 
-    if not manager.is_sync_needed(site_id):
+    if not manager.changes.is_sync_needed(site_id, active_config.sites[site_id]):
         return
 
     logger.info("Syncing %s", site_id)
 
     manager.start(
-        [site_id],
+        sites=[site_id],
         activate_foreign=True,
         prevent_activate=True,
         source="INTERNAL",
+        all_site_configs=active_config.sites,
+        max_snapshots=active_config.wato_max_snapshots,
+        use_git=active_config.wato_use_git,
+        debug=debug,
     )
 
     # Wait maximum 30 seconds for sync to finish
@@ -394,18 +399,11 @@ def clear_site_replication_status(site_id: SiteId) -> None:
     except FileNotFoundError:
         pass  # Not existant -> OK
 
-    ActivateChanges().confirm_site_changes(site_id)
+    ActivateChanges.confirm_site_changes(site_id)
 
 
 def _site_replication_status_path(site_id: SiteId) -> Path:
     return var_dir / f"replication_status_{site_id}.mk"
-
-
-def _load_replication_status(lock: bool = False) -> dict[SiteId, SiteReplicationStatus]:
-    return {
-        site_id: _load_site_replication_status(site_id, lock=lock)
-        for site_id in active_config.sites
-    }
 
 
 @dataclass
@@ -657,11 +655,13 @@ def _handle_activation_changes_exception(
     )
 
 
-def _load_expected_duration(site_id: SiteId, activate_changes: ActivateChanges) -> float:
+def _load_expected_duration(
+    site_id: SiteId, site_config: SiteConfiguration, activate_changes: ActivateChanges
+) -> float:
     times = get_activation_times(site_id)
     duration = 0.0
 
-    if activate_changes.is_sync_needed(site_id):
+    if activate_changes.is_sync_needed(site_id, site_config):
         duration += times.get(ACTIVATION_TIME_SYNC, 0)
 
     if activate_changes.is_activate_needed(site_id):
@@ -683,18 +683,20 @@ def _set_sync_state(
 
 
 def _get_config_sync_state(
-    site_id: SiteId, replication_paths: Sequence[ReplicationPath]
+    automation_config: RemoteAutomationConfig,
+    replication_paths: Sequence[ReplicationPath],
+    *,
+    debug: bool,
 ) -> tuple[ConfigSyncFileInfos, int]:
     """Get the config file states from the remote sites
 
     Calls the automation call "get-config-sync-state" on the remote site,
     which is handled by AutomationGetConfigSyncState."""
-    site = active_config.sites[site_id]
     response = cmk.gui.watolib.automations.do_remote_automation(
-        RemoteAutomationConfig.from_site_config(site),
+        automation_config,
         "get-config-sync-state",
         [("replication_paths", repr([r.serialize() for r in replication_paths]))],
-        debug=active_config.debug,
+        debug=debug,
     )
 
     assert isinstance(response, tuple)
@@ -703,10 +705,13 @@ def _get_config_sync_state(
 
 def _synchronize_files(
     site_id: SiteId,
+    automation_config: RemoteAutomationConfig,
     files_to_sync: list[str],
     files_to_delete: list[str],
     remote_config_generation: int,
     site_config_dir: Path,
+    *,
+    debug: bool,
 ) -> None:
     """Pack the files in a simple tar archive and send it to the remote site
 
@@ -716,9 +721,8 @@ def _synchronize_files(
 
     sync_archive = _get_sync_archive(files_to_sync, site_config_dir)
 
-    site = active_config.sites[site_id]
     response = cmk.gui.watolib.automations.do_remote_automation(
-        RemoteAutomationConfig.from_site_config(site),
+        automation_config,
         "receive-config-sync",
         [
             ("site_id", site_id),
@@ -726,7 +730,7 @@ def _synchronize_files(
             ("config_generation", "%d" % remote_config_generation),
         ],
         files={"sync_archive": io.BytesIO(sync_archive)},
-        debug=active_config.debug,
+        debug=debug,
     )
 
     if response is not True:
@@ -745,6 +749,8 @@ def fetch_sync_state(
     site_activation_state: SiteActivationState,
     central_file_infos: ConfigSyncFileInfos,
     origin_span: trace.Span,
+    automation_config: RemoteAutomationConfig,
+    debug: bool,
 ) -> tuple[SyncState, SiteActivationState, float] | None:
     site_id = site_activation_state["_site_id"]
     site_logger = logger.getChild(f"site[{site_id}]")
@@ -760,7 +766,9 @@ def fetch_sync_state(
             site_logger.debug("Starting config sync (%r)", site_activation_state)
 
             remote_file_infos, remote_config_generation = _get_config_sync_state(
-                site_id, replication_paths
+                automation_config,
+                replication_paths,
+                debug=debug,
             )
             site_logger.debug("Received %d file infos from remote", len(remote_file_infos))
 
@@ -782,6 +790,7 @@ def fetch_sync_state(
 
 def calc_sync_delta(
     sync_state: SyncState,
+    file_sync_enabled: bool,
     file_filter_func: FileFilterFunc,
     site_activation_state: SiteActivationState,
     sync_start: float,
@@ -799,7 +808,7 @@ def calc_sync_delta(
             sync_delta = get_file_names_to_sync(
                 site_logger,
                 sync_state,
-                bool(active_config.sites[site_id].get("sync_files")),
+                file_sync_enabled,
                 file_filter_func,
             )
 
@@ -822,6 +831,8 @@ def synchronize_files(
     site_activation_state: SiteActivationState,
     sync_start: float,
     origin_span: trace.Span,
+    automation_config: RemoteAutomationConfig,
+    debug: bool,
 ) -> SiteActivationState | None:
     site_id = site_activation_state["_site_id"]
     site_logger = logger.getChild(f"site[{site_id}]")
@@ -850,10 +861,12 @@ def synchronize_files(
             )
             _synchronize_files(
                 site_id,
+                automation_config,
                 sync_delta.to_sync_new + sync_delta.to_sync_changed,
                 sync_delta.to_delete,
                 remote_config_generation,
                 site_config_dir,
+                debug=debug,
             )
             site_logger.debug("Finished config sync")
             return site_activation_state
@@ -924,7 +937,11 @@ def _get_domains_needing_activation(
     return domain_requests
 
 
-def _get_omd_domain_background_job_result(site_id: SiteId) -> Sequence[str]:
+def _get_omd_domain_background_job_result(
+    automation_config: RemoteAutomationConfig,
+    *,
+    debug: bool,
+) -> Sequence[str]:
     """
     OMD domain needs restart of the whole site so the apache connection gets lost.
     A background job is started and we have to wait for the result
@@ -932,10 +949,10 @@ def _get_omd_domain_background_job_result(site_id: SiteId) -> Sequence[str]:
     while True:
         try:
             raw_omd_response = cmk.gui.watolib.automations.do_remote_automation(
-                RemoteAutomationConfig.from_site_config(active_config.sites[site_id]),
+                automation_config,
                 "checkmk-remote-automation-get-status",
                 [("request", repr("omd-config-change"))],
-                debug=active_config.debug,
+                debug=debug,
             )
 
             assert isinstance(raw_omd_response, tuple)
@@ -952,20 +969,25 @@ def _get_omd_domain_background_job_result(site_id: SiteId) -> Sequence[str]:
 
 
 def _call_activate_changes_automation(
-    site_id: SiteId, site_changes_activate_until: Sequence[ChangeSpec]
+    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
+    site_changes_activate_until: Sequence[ChangeSpec],
+    *,
+    debug: bool,
+    is_remote_site: bool,
 ) -> ConfigWarnings:
     domain_requests = _get_domains_needing_activation(site_changes_activate_until)
 
-    if site_is_local(site_config := active_config.sites[site_id], site_id):
-        return execute_activate_changes(domain_requests)
+    if isinstance(automation_config, LocalAutomationConfig):
+        return execute_activate_changes(domain_requests, is_remote_site=is_remote_site)
 
     serialized_requests = list(asdict(x) for x in domain_requests)
     try:
         response = cmk.gui.watolib.automations.do_remote_automation(
-            RemoteAutomationConfig.from_site_config(site_config),
+            automation_config,
             "activate-changes",
             [("domains", repr(serialized_requests)), ("site_id", site_id)],
-            debug=active_config.debug,
+            debug=debug,
         )
     except cmk.gui.watolib.automations.MKAutomationException as e:
         if "Invalid automation command: activate-changes" in "%s" % e:
@@ -978,7 +1000,7 @@ def _call_activate_changes_automation(
     assert isinstance(response, dict)
     if any(request.name == OMDDomainName and request.settings for request in domain_requests):
         response.setdefault(OMDDomainName, []).extend(
-            _get_omd_domain_background_job_result(site_id)
+            _get_omd_domain_background_job_result(automation_config, debug=debug)
         )
 
     return response
@@ -986,14 +1008,24 @@ def _call_activate_changes_automation(
 
 def _do_activate(
     site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     site_changes_activate_until: Sequence[ChangeSpec],
     site_activation_state: SiteActivationState,
+    *,
+    debug: bool,
+    is_remote_site: bool,
 ) -> ConfigWarnings:
     _set_result(site_activation_state, PHASE_ACTIVATE, _("Activating"))
 
     start = time.time()
 
-    configuration_warnings = _call_activate_changes_automation(site_id, site_changes_activate_until)
+    configuration_warnings = _call_activate_changes_automation(
+        site_id,
+        automation_config,
+        site_changes_activate_until,
+        debug=debug,
+        is_remote_site=is_remote_site,
+    )
 
     duration = time.time() - start
     update_activation_time(site_id, ACTIVATION_TIME_RESTART, duration)
@@ -1005,6 +1037,9 @@ def activate_site_changes(
     prevent_activate: bool,
     site_activation_state: SiteActivationState,
     origin_span: trace.Span,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
+    debug: bool,
+    is_remote_site: bool,
 ) -> SiteActivationState | None:
     site_id = site_activation_state["_site_id"]
     site_logger = logger.getChild(f"site[{site_id}]")
@@ -1022,7 +1057,12 @@ def activate_site_changes(
             else:
                 if activate_changes.is_activate_needed_until(site_id):
                     configuration_warnings = _do_activate(
-                        site_id, site_changes_activate_until, site_activation_state
+                        site_id,
+                        automation_config,
+                        site_changes_activate_until,
+                        site_activation_state,
+                        debug=debug,
+                        is_remote_site=is_remote_site,
                     )
                 _confirm_activated_changes(site_id, site_changes_activate_until)
 
@@ -1033,10 +1073,38 @@ def activate_site_changes(
             return None
 
 
+class ActivationSitesSummary(TypedDict):
+    siteId: str
+    siteName: str
+    version: str
+    changes: int
+    onlineStatus: Literal[
+        "online",
+        "disabled",
+        "down",
+        "unreach",
+        "dead",
+        "waiting",
+        "missing",
+        "unknown",
+    ]
+
+
+class PendingChangesSummary(TypedDict):
+    changeId: str
+    changeText: str
+    user: str
+    time: float
+    whichSites: list[str]
+
+
+class ActivationChangesSummary(TypedDict):
+    sites: list[ActivationSitesSummary]
+    pendingChanges: list[PendingChangesSummary]
+
+
 class ActivateChanges:
     def __init__(self) -> None:
-        self._repstatus: dict[SiteId, SiteReplicationStatus] = {}
-
         # Changes grouped by site
         self._changes_by_site: dict[SiteId, Sequence[ChangeSpec]] = {}
 
@@ -1049,19 +1117,13 @@ class ActivateChanges:
         self._pending_changes: list[tuple[str, ChangeSpec]] = []
         super().__init__()
 
-    def load(self) -> None:
-        self._repstatus = _load_replication_status()
-        self._load_changes()
-
-    def _load_changes(self):
+    def load(self, sites: Sequence[SiteId]) -> None:
         self._changes_by_site = {}
 
         active_changes: dict[str, ChangeSpec] = {}
         pending_changes: dict[str, ChangeSpec] = {}
 
-        # Astroid 2.x bug prevents us from using NewType https://github.com/PyCQA/pylint/issues/2296
-
-        for site_id in activation_sites():
+        for site_id in sites:
             site_changes = SiteChanges(site_id).read()
             self._changes_by_site[site_id] = site_changes
 
@@ -1100,15 +1162,17 @@ class ActivateChanges:
 
             self._changes_by_site_until[site_id] = changes
 
-    def confirm_site_changes(self, site_id):
+    @staticmethod
+    def confirm_site_changes(site_id: SiteId) -> None:
         SiteChanges(site_id).clear()
         cmk.gui.watolib.sidebar_reload.need_sidebar_reload()
 
     @staticmethod
-    def _get_number_of_pending_changes(count_limit: int | None = None) -> int:
+    def get_number_of_pending_changes(
+        sites: Sequence[SiteId], count_limit: int | None = None
+    ) -> int:
         changes_counter = 0
-        # Astroid 2.x bug prevents us from using NewType https://github.com/PyCQA/pylint/issues/2296
-        for site_id in activation_sites():
+        for site_id in sites:
             changes = SiteChanges(site_id).read()
             changes_counter += len(
                 list(change for change in changes if not has_been_activated(change))
@@ -1127,13 +1191,18 @@ class ActivateChanges:
             return _("%d changes") % number_of_changes
         return None
 
-    def get_pending_changes_info(self, count_limit: int | None = None) -> PendingChangesInfo:
-        number_of_changes = self._get_number_of_pending_changes(count_limit=count_limit)
-        message = self._make_changes_message(number_of_changes)
+    @staticmethod
+    def get_pending_changes_info(
+        sites: Sequence[SiteId], count_limit: int | None = None
+    ) -> PendingChangesInfo:
+        number_of_changes = ActivateChanges.get_number_of_pending_changes(
+            sites, count_limit=count_limit
+        )
+        message = ActivateChanges._make_changes_message(number_of_changes)
         return PendingChangesInfo(number=number_of_changes, message=message)
 
-    def discard_changes_forbidden(self):
-        for site_id in set(activation_sites()):
+    def discard_changes_forbidden(self, sites: Sequence[SiteId]) -> bool:
+        for site_id in sites:
             for change in SiteChanges(site_id).read():
                 if change.get("prevent_discard_changes", False):
                     return True
@@ -1142,37 +1211,41 @@ class ActivateChanges:
     def grouped_changes(self):
         return self._pending_changes
 
-    def _changes_of_site(self, site_id):
+    def changes_of_site(self, site_id: SiteId) -> Sequence[ChangeSpec]:
         return self._changes_by_site[site_id]
 
-    def dirty_and_active_activation_sites(self) -> list[SiteId]:
+    def dirty_and_active_activation_sites(
+        self, sites: Mapping[SiteId, SiteConfiguration]
+    ) -> list[SiteId]:
         """Returns the list of sites that should be used when activating all affected sites"""
-        return self.filter_not_activatable_sites(self.dirty_sites())
+        return self.filter_not_activatable_sites(self.dirty_sites(sites))
 
     def filter_not_activatable_sites(
         self, sites: list[tuple[SiteId, SiteConfiguration]]
     ) -> list[SiteId]:
         dirty = []
         for site_id, site in sites:
-            status = self._get_site_status(site_id, site)[1]
-            is_online = self._site_is_online(status)
-            is_logged_in = self._site_is_logged_in(site_id, site)
+            status = self.get_site_status(site_id, site)[1]
+            is_online = self.site_is_online(status)
+            is_logged_in = self.site_is_logged_in(site_id, site)
 
             if is_online and is_logged_in:
                 dirty.append(site_id)
         return dirty
 
-    def dirty_sites(self) -> list[tuple[SiteId, SiteConfiguration]]:
+    def dirty_sites(
+        self, sites: Mapping[SiteId, SiteConfiguration]
+    ) -> list[tuple[SiteId, SiteConfiguration]]:
         """Returns the list of sites that have changes (including offline sites)"""
-        return [s for s in activation_sites().items() if self._changes_of_site(s[0])]
+        return [s for s in sites.items() if self.changes_of_site(s[0])]
 
-    def _site_is_logged_in(self, site_id: SiteId, site: SiteConfiguration) -> bool:
-        return site_is_local(site, site_id) or "secret" in site
+    def site_is_logged_in(self, site_id: SiteId, site: SiteConfiguration) -> bool:
+        return site_is_local(site) or "secret" in site
 
-    def _site_is_online(self, status: str) -> bool:
+    def site_is_online(self, status: str) -> bool:
         return status in ["online", "disabled"]
 
-    def _get_site_status(self, site_id: SiteId, site: SiteConfiguration) -> tuple[SiteStatus, str]:
+    def get_site_status(self, site_id: SiteId, site: SiteConfiguration) -> tuple[SiteStatus, str]:
         if site.get("disabled"):
             site_status = SiteStatus({})
             status = "disabled"
@@ -1182,47 +1255,57 @@ class ActivateChanges:
 
         return site_status, status
 
-    def _site_has_foreign_changes(self, site_id: SiteId) -> bool:
-        changes = self._changes_of_site(site_id)
+    def site_has_foreign_changes(self, site_id: SiteId) -> bool:
+        changes = self.changes_of_site(site_id)
         return bool([c for c in changes if is_foreign_change(c) and not has_been_activated(c)])
 
     def _is_sync_needed_specific_changes(
-        self, site_id: SiteId, changes_to_check: Sequence[ChangeSpec]
+        self,
+        site_id: SiteId,
+        site_config: SiteConfiguration,
+        changes_to_check: Sequence[ChangeSpec],
     ) -> bool:
-        if site_is_local(active_config.sites[site_id], site_id):
+        if site_is_local(site_config):
             return False
 
         return any(c["need_sync"] for c in changes_to_check)
 
-    def is_sync_needed(self, site_id: SiteId) -> bool:
-        return self._is_sync_needed_specific_changes(site_id, self._changes_of_site(site_id))
-
-    def is_sync_needed_until(self, site_id: SiteId) -> bool:
-        return self._is_sync_needed_specific_changes(site_id, self._changes_by_site_until[site_id])
+    def is_sync_needed(self, site_id: SiteId, site_config: SiteConfiguration) -> bool:
+        return self._is_sync_needed_specific_changes(
+            site_id, site_config, self.changes_of_site(site_id)
+        )
 
     def _is_activate_needed_specific_changes(self, changes_to_check: Sequence[ChangeSpec]) -> bool:
         return any(c["need_restart"] for c in changes_to_check)
 
     def is_activate_needed(self, site_id: SiteId) -> bool:
-        return self._is_activate_needed_specific_changes(self._changes_of_site(site_id))
+        return self._is_activate_needed_specific_changes(self.changes_of_site(site_id))
 
     def is_activate_needed_until(self, site_id: SiteId) -> bool:
         return self._is_activate_needed_specific_changes(self._changes_by_site_until[site_id])
 
-    def _last_activation_state(self, site_id: SiteId) -> SiteActivationState:
+    def last_activation_state(self, site_id: SiteId) -> SiteActivationState:
         """This function returns the last known persisted activation state"""
         return store.load_object_from_file(
             Path(ActivateChangesManager.persisted_site_state_path(site_id)), default={}
         )
 
-    def _get_last_change_id(self) -> str:
+    def get_last_change_id(self) -> str:
         return self._pending_changes[-1][1]["id"]
 
     def has_changes(self) -> bool:
         return bool(self._all_changes)
 
+    @property
+    def changes(self) -> list[tuple[str, ChangeSpec]]:
+        return self._all_changes
+
     def has_pending_changes(self) -> bool:
         return bool(self._pending_changes)
+
+    @property
+    def pending_changes(self) -> list[tuple[str, ChangeSpec]]:
+        return self._pending_changes
 
     def has_foreign_changes(self) -> bool:
         return any(
@@ -1231,13 +1314,13 @@ class ActivateChanges:
             if is_foreign_change(change) and not has_been_activated(change)
         )
 
-    def _has_foreign_changes_on_any_site(self) -> bool:
+    def has_foreign_changes_on_any_site(self, activation_site_ids: Sequence[SiteId]) -> bool:
         return any(
             change
             for _change_id, change in self._pending_changes
             if is_foreign_change(change)
             and not has_been_activated(change)
-            and affects_all_sites(change)
+            and affects_all_sites(activation_site_ids, change)
         )
 
     def get_activation_time(self, site_id: SiteId, ty: str) -> float | None:
@@ -1245,6 +1328,57 @@ class ActivateChanges:
 
     def get_changes_to_activate(self, site_id: SiteId) -> Sequence[ChangeSpec]:
         return self._changes_by_site_until[site_id]
+
+    def get_all_data_required_for_activation_popout(
+        self, sites: SiteConfigurations
+    ) -> ActivationChangesSummary:
+        self.load(list(activation_sites(sites)))
+
+        def _get_site_version(site_id: SiteId) -> str:
+            site_status = sites_states().get(site_id, SiteStatus({}))
+            site_version = (
+                site_status.get("livestatus_version", "") if not site_status.get("disabled") else ""
+            )
+            if site_version and "-" in site_version:
+                site_version = site_version.split("-", 1)[0]
+            return site_version
+
+        site_change_counter: Counter = Counter()
+        pending_changes: list[PendingChangesSummary] = []
+        for _changeid, change in self._all_changes:
+            if not has_been_activated(change):
+                for site in change["affected_sites"]:
+                    site_change_counter[site] += 1
+
+                pending_changes.append(
+                    PendingChangesSummary(
+                        changeId=change["id"],
+                        changeText=unescape(change["text"]),
+                        user=change["user_id"],
+                        time=change["time"],
+                        whichSites=["All sites"]
+                        if affects_all_sites(list(activation_sites(sites)), change)
+                        else change["affected_sites"],
+                    )
+                )
+
+        return ActivationChangesSummary(
+            sites=[
+                ActivationSitesSummary(
+                    siteId=site["id"],
+                    siteName=site["alias"],
+                    version=_get_site_version(site_id),
+                    changes=0
+                    if site["id"] not in site_change_counter
+                    else site_change_counter[site["id"]],
+                    onlineStatus="disabled"
+                    if site.get("disabled")
+                    else sites_states().get(site_id, SiteStatus({})).get("state", "unknown"),
+                )
+                for site_id, site in activation_sites(sites).items()
+            ],
+            pendingChanges=pending_changes,
+        )
 
 
 def has_been_activated(change: ChangeSpec) -> bool:
@@ -1259,8 +1393,8 @@ def is_foreign_change(change: ChangeSpec) -> bool:
     return change["user_id"] and change["user_id"] != user.id
 
 
-def affects_all_sites(change: ChangeSpec) -> bool:
-    return not set(change["affected_sites"]).symmetric_difference(set(activation_sites()))
+def affects_all_sites(sites: Sequence[SiteId], change: ChangeSpec) -> bool:
+    return not set(change["affected_sites"]).symmetric_difference(set(sites))
 
 
 def _add_peer_to_peer_connections(
@@ -1291,19 +1425,20 @@ def _add_peer_to_peer_connections(
         )
 
 
-def get_all_replicated_sites() -> Mapping[SiteId, SiteConfiguration]:
+def get_all_replicated_sites(
+    activation_site_configs: SiteConfigurations,
+) -> Mapping[SiteId, SiteConfiguration]:
     return {
         site_id: site_config
-        for site_id, site_config in activation_sites().items()
+        for site_id, site_config in activation_site_configs.items()
         if site_config.get("replication")
     }
 
 
 def default_rabbitmq_definitions(
+    replicated_sites_configs: Mapping[SiteId, SiteConfiguration],
     peer_to_peer_connections: BrokerConnections,
 ) -> Mapping[str, rabbitmq.Definitions]:
-    replicated_sites_configs = get_all_replicated_sites()
-
     connection_info = [
         rabbitmq.Connection(
             connectee=rabbitmq.Connectee(
@@ -1332,7 +1467,7 @@ def _debug_log_message(msg: str) -> Iterator[None]:
     logger.debug(f"{msg} ... done (%ss)", round(time.time() - start, 2))
 
 
-class ActivateChangesManager(ActivateChanges):
+class ActivateChangesManager:
     """Manages the activation of pending configuration changes
 
     A single object cares about one activation for all affected sites.
@@ -1357,7 +1492,8 @@ class ActivateChangesManager(ActivateChanges):
     )
 
     def __init__(self) -> None:
-        self._sites: list[SiteId] = []
+        self.changes = ActivateChanges()
+        self._sites: Sequence[SiteId] = []
         self._site_snapshot_settings: dict[SiteId, SnapshotSettings] = {}
         self._activate_until: str | None = None
         self._comment: str | None = None
@@ -1411,8 +1547,13 @@ class ActivateChangesManager(ActivateChanges):
     @tracer.instrument("activate_changes")
     def start(
         self,
-        sites: list[SiteId],
+        sites: Sequence[SiteId],
         source: ActivationSource,
+        *,
+        all_site_configs: SiteConfigurations,
+        max_snapshots: int,
+        use_git: bool,
+        debug: bool,
         activate_until: str | None = None,
         comment: str | None = None,
         activate_foreign: bool = False,
@@ -1456,7 +1597,8 @@ class ActivateChangesManager(ActivateChanges):
 
         self._activate_foreign = activate_foreign
 
-        self._sites = self._get_sites(sites)
+        self._verify_requested_sites(sites, list(activation_sites(all_site_configs)))
+        self._sites = sites
 
         self._source = source
         self._activation_id = self._new_activation_id()
@@ -1466,15 +1608,18 @@ class ActivateChangesManager(ActivateChanges):
 
         with _debug_log_message("Compute rabbitmq definitions"):
             rabbitmq_definitions = activation_features.get_rabbitmq_definitions(
-                BrokerConnectionsConfigFile().load_for_reading()
+                get_all_replicated_sites(activation_sites(all_site_configs)),
+                BrokerConnectionsConfigFile().load_for_reading(),
             )
 
         with _debug_log_message("Preparing site snapshot settings"):
             self._site_snapshot_settings = self._get_site_snapshot_settings(
-                self._activation_id, self._sites, rabbitmq_definitions
+                self._activation_id,
+                {site_id: all_site_configs[site_id] for site_id in self._sites},
+                rabbitmq_definitions,
             )
         self._activate_until = (
-            self._get_last_change_id() if activate_until is None else activate_until
+            self.changes.get_last_change_id() if activate_until is None else activate_until
         )
         self._comment = comment
         self._time_started = time.time()
@@ -1486,14 +1631,19 @@ class ActivateChangesManager(ActivateChanges):
         self._save_activation()
 
         with _debug_log_message("Calling pre-activate changes"):
-            self._pre_activate_changes()
+            self._pre_activate_changes(debug=debug)
 
         with _debug_log_message("Creating snapshots"):
-            self._create_snapshots(activation_features.snapshot_manager_factory)
+            self._create_snapshots(
+                activation_features.snapshot_manager_factory,
+                max_snapshots=max_snapshots,
+                debug=debug,
+                use_git=use_git,
+            )
         self._save_activation()
 
         with _debug_log_message("Starting activation"):
-            self._start_activation()
+            self._start_activation(all_site_configs, debug=debug, use_git=use_git)
 
         with _debug_log_message("Update and activate central rabbitmq changes"):
             create_rabbitmq_new_definitions_file(paths.omd_root, rabbitmq_definitions[omd_site()])
@@ -1502,7 +1652,7 @@ class ActivateChangesManager(ActivateChanges):
         # rabbitmq must be running on the central site if one of the remote sites
         # has piggyback-hub running
         if rabbitmq.rabbitmqctl_running() and has_piggyback_hub_relevant_changes(
-            [change for _, change in self._pending_changes]
+            [change for _, change in self.changes.pending_changes]
         ):
             with (
                 tracer.span("distribute_piggyback_hub_configs"),
@@ -1510,8 +1660,13 @@ class ActivateChangesManager(ActivateChanges):
             ):
                 activation_features.distribute_piggyback_hub_configs(
                     load_configuration_settings(),
-                    configured_sites(),
-                    {site_id for site_id, _site_config in self.dirty_sites()},
+                    all_site_configs,
+                    {
+                        site_id
+                        for site_id, _site_config in self.changes.dirty_sites(
+                            activation_sites(all_site_configs)
+                        )
+                    },
                     {
                         host_name: host.site_id()
                         for host_name, host in folder_tree()
@@ -1587,13 +1742,12 @@ class ActivateChangesManager(ActivateChanges):
     def _new_activation_id(self) -> ActivationId:
         return cmk.gui.utils.gen_id()
 
-    def _get_sites(self, sites: list[SiteId]) -> list[SiteId]:
-        for site_id in sites:
-            # suppression needed because of pylint bug, see https://github.com/PyCQA/pylint/issues/2296
-            if site_id not in activation_sites():
+    def _verify_requested_sites(
+        self, requested_sites: Sequence[SiteId], activation_site_ids: Sequence[SiteId]
+    ) -> None:
+        for site_id in requested_sites:
+            if site_id not in activation_site_ids:
                 raise MKUserError("sites", _('The site "%s" does not exist.') % site_id)
-
-        return sites
 
     def _info_path(self, activation_id: str) -> str:
         if not re.match(r"^[\d\-a-fA-F]+$", activation_id):
@@ -1622,7 +1776,7 @@ class ActivateChangesManager(ActivateChanges):
     def _set_persisted_changes(self) -> None:
         """Sets the persisted_changes, which are a subset of self._changes."""
         if not self._persisted_changes:
-            for _activation_id, change in self._pending_changes:
+            for _activation_id, change in self.changes.pending_changes:
                 self._persisted_changes.append(
                     asdict(
                         ActivationChange(
@@ -1647,13 +1801,13 @@ class ActivateChangesManager(ActivateChanges):
 
     # Give hooks chance to do some pre-activation things (and maybe stop
     # the activation)
-    def _pre_activate_changes(self) -> None:
+    def _pre_activate_changes(self, *, debug: bool) -> None:
         try:
             if hooks.registered("pre-distribute-changes"):
                 hooks.call("pre-distribute-changes", collect_all_hosts())
         except Exception as e:
             logger.exception("error calling pre-distribute-changes hook")
-            if active_config.debug:
+            if debug:
                 raise
             raise MKUserError(None, _("Can not start activation: %s") % e)
 
@@ -1661,6 +1815,10 @@ class ActivateChangesManager(ActivateChanges):
     def _create_snapshots(
         self,
         snapshot_manager_factory: Callable[[str, dict[SiteId, SnapshotSettings]], SnapshotManager],
+        *,
+        max_snapshots: int,
+        debug: bool,
+        use_git: bool,
     ) -> None:
         """Creates the needed SyncSnapshots for each applicable site.
 
@@ -1669,10 +1827,10 @@ class ActivateChangesManager(ActivateChanges):
 
         """
         with store.lock_checkmk_configuration(configuration_lockfile):
-            if not self._pending_changes:
+            if not self.changes.pending_changes:
                 raise MKUserError(None, _("Currently there are no changes to activate."))
 
-            if self._get_last_change_id() != self._activate_until:
+            if self.changes.get_last_change_id() != self._activate_until:
                 raise MKUserError(
                     None,
                     _(
@@ -1689,9 +1847,9 @@ class ActivateChangesManager(ActivateChanges):
                 comment=self._comment,
                 created_by=user.id,
                 secret=backup_snapshots.snapshot_secret(),
-                max_snapshots=active_config.wato_max_snapshots,
-                use_git=active_config.wato_use_git,
-                debug=active_config.debug,
+                max_snapshots=max_snapshots,
+                use_git=use_git,
+                debug=debug,
                 parent_span_context=trace.get_current_span().get_span_context(),
             ) as future_backup_snapshot_creation:
                 logger.debug("Start creating config sync snapshots")
@@ -1724,15 +1882,14 @@ class ActivateChangesManager(ActivateChanges):
     def _get_site_snapshot_settings(
         self,
         activation_id: ActivationId,
-        sites: list[SiteId],
+        site_configs: Mapping[SiteId, SiteConfiguration],
         rabbitmq_definitions: Mapping[str, rabbitmq.Definitions],
     ) -> dict[SiteId, SnapshotSettings]:
         snapshot_settings = {}
 
-        for site_id in sites:
+        for site_id, site_config in site_configs.items():
             self._check_snapshot_creation_permissions(site_id)
 
-            site_config = active_config.sites[site_id]
             work_dir = cmk.utils.paths.site_config_dir / activation_id / site_id
 
             snapshot_components = _get_replication_components(site_config)
@@ -1752,7 +1909,7 @@ class ActivateChangesManager(ActivateChanges):
         return snapshot_settings
 
     def _check_snapshot_creation_permissions(self, site_id):
-        if self._site_has_foreign_changes(site_id) and not self._activate_foreign:
+        if self.changes.site_has_foreign_changes(site_id) and not self._activate_foreign:
             if not user.may("wato.activateforeign"):
                 raise MKUserError(
                     None,
@@ -1777,8 +1934,10 @@ class ActivateChangesManager(ActivateChanges):
             )
 
     @tracer.instrument("start_activation")
-    def _start_activation(self) -> None:
-        self._log_activation()
+    def _start_activation(
+        self, all_site_configs: SiteConfigurations, *, debug: bool, use_git: bool
+    ) -> None:
+        self._log_activation(use_git=use_git)
         assert self._activation_id is not None
         job = ActivateChangesSchedulerBackgroundJob(self._activation_id)
         result = job.start(
@@ -1789,6 +1948,9 @@ class ActivateChangesManager(ActivateChanges):
                     site_snapshot_settings=self._site_snapshot_settings,
                     prevent_activate=self._prevent_activate,
                     source=self._source,
+                    all_site_configs=all_site_configs,
+                    debug=debug,
+                    use_git=use_git,
                 ),
             ),
             InitialStatusArgs(
@@ -1801,13 +1963,13 @@ class ActivateChangesManager(ActivateChanges):
         if result.is_error():
             raise result.error
 
-    def _log_activation(self):
+    def _log_activation(self, *, use_git: bool) -> None:
         log_msg = "Starting activation (Sites: %s)" % ",".join(self._sites)
         log_audit(
             action="activate-changes",
             message=log_msg,
             user_id=user.id,
-            use_git=active_config.wato_use_git,
+            use_git=use_git,
         )
 
         if self._comment:
@@ -1815,7 +1977,7 @@ class ActivateChangesManager(ActivateChanges):
                 action="activate-changes",
                 message="Comment: %s" % self._comment,
                 user_id=user.id,
-                use_git=active_config.wato_use_git,
+                use_git=use_git,
             )
 
     def get_state(self) -> ActivationState:
@@ -1959,7 +2121,7 @@ class ActivationCleanupJob:
         return ids
 
 
-def execute_activation_cleanup_job() -> None:
+def execute_activation_cleanup_job(config: Config) -> None:
     """This function is called by the GUI cron job once a minute.
 
     Errors are logged to var/log/web.log."""
@@ -1990,6 +2152,7 @@ def _handle_distributed_sites_in_free(
 
 def _initialize_site_activation_state(
     site_id: SiteId,
+    site_config: SiteConfiguration,
     activation_id: ActivationId,
     activate_changes: ActivateChanges,
     time_started: float,
@@ -2005,7 +2168,7 @@ def _initialize_site_activation_state(
         "_time_started": time_started,
         "_time_updated": None,
         "_time_ended": None,
-        "_expected_duration": _load_expected_duration(site_id, activate_changes),
+        "_expected_duration": _load_expected_duration(site_id, site_config, activate_changes),
         "_pid": os.getpid(),
         "_user_id": user.id,
         "_source": source,
@@ -2073,30 +2236,47 @@ def _prepare_for_activation_tasks(
     site_snapshot_settings: Mapping[SiteId, SnapshotSettings],
     time_started: float,
     source: ActivationSource,
+    *,
+    use_git: bool,
 ) -> tuple[Mapping[SiteId, ConfigSyncFileInfos], Mapping[SiteId, SiteActivationState]]:
-    config_sync_file_infos_per_inode = _get_config_sync_file_infos_per_inode(
-        list(replication_path_registry.values())
-    )
+    # All activations need to fail if the initialization failed
+    initialization_failure: Exception | None = None
+    try:
+        config_sync_file_infos_per_inode = _get_config_sync_file_infos_per_inode(
+            list(replication_path_registry.values())
+        )
+    except Exception as e:
+        initialization_failure = e
+
     central_file_infos_per_site = {}
     site_activation_states_per_site = {}
     for site_id, snapshot_settings in sorted(site_snapshot_settings.items(), key=lambda e: e[0]):
         site_activation_state = _initialize_site_activation_state(
-            site_id, activation_id, activate_changes, time_started, source
+            site_id,
+            snapshot_settings.site_config,
+            activation_id,
+            activate_changes,
+            time_started,
+            source,
         )
         try:
             if not _lock_activation(site_activation_state):
                 continue
+
+            if initialization_failure:
+                raise initialization_failure
+
             _mark_running(site_activation_state)
 
             log_audit(
                 action="activate-changes",
                 message="Started activation of site %s" % site_id,
                 user_id=user.id,
-                use_git=active_config.wato_use_git,
+                use_git=use_git,
             )
             site_activation_states_per_site[site_id] = site_activation_state
 
-            if activate_changes.is_sync_needed(site_id):
+            if activate_changes.is_sync_needed(site_id, snapshot_settings.site_config):
                 central_file_infos_per_site[site_id] = _get_site_central_file_infos(
                     site_id, snapshot_settings, config_sync_file_infos_per_inode
                 )
@@ -2143,13 +2323,17 @@ def _error_callback(error: BaseException) -> None:
     logger.error(str(error))
 
 
-@tracer.instrument("sync_and_activate")
-def sync_and_activate(
+@tracer.instrument("_sync_and_activate")
+def _sync_and_activate(
     activation_id: str,
     site_snapshot_settings: Mapping[SiteId, SnapshotSettings],
     file_filter_func: FileFilterFunc,
     source: ActivationSource,
-    prevent_activate: bool = False,
+    all_site_configs: SiteConfigurations,
+    *,
+    debug: bool,
+    prevent_activate: bool,
+    use_git: bool,
 ) -> None:
     """
     Realizes the incremental config sync from the central to the remote site
@@ -2173,7 +2357,7 @@ def sync_and_activate(
         setthreadtitle("cmk-activate-changes")
 
         activate_changes = ActivateChanges()
-        activate_changes.load()
+        activate_changes.load(list(all_site_configs))
         activate_changes.load_changes_until(activation_id, site_snapshot_settings.keys())
 
         if is_free():
@@ -2181,7 +2365,12 @@ def sync_and_activate(
                 return
 
         (site_central_file_infos, site_activation_states) = _prepare_for_activation_tasks(
-            activate_changes, activation_id, site_snapshot_settings, time_started, source
+            activate_changes,
+            activation_id,
+            site_snapshot_settings,
+            time_started,
+            source,
+            use_git=use_git,
         )
 
         task_pool = ThreadPool(processes=len(site_snapshot_settings))
@@ -2192,9 +2381,11 @@ def sync_and_activate(
             site_snapshot_settings,
             task_pool,
             broker_certificate_sync_registry["broker_certificate_sync"],
-            debug=active_config.debug,
+            debug=debug,
         )
-        clean_remote_sites_certs(kept_sites=list(get_all_replicated_sites()))
+        clean_remote_sites_certs(
+            kept_sites=list(get_all_replicated_sites(activation_sites(all_site_configs)))
+        )
 
         active_tasks = ActiveTasks(
             fetch_sync_state={},
@@ -2203,31 +2394,46 @@ def sync_and_activate(
             activate_site_changes={},
         )
 
+        automation_configs = {
+            site_id: make_automation_config(settings.site_config)
+            for site_id, settings in site_snapshot_settings.items()
+        }
+
         for site_id, site_activation_state in site_activation_states.items():
-            if activate_changes.is_sync_needed(site_id):
-                async_result = task_pool.apply_async(
+            automation_config = automation_configs[site_id]
+
+            if activate_changes.is_sync_needed(
+                site_id, site_snapshot_settings[site_id].site_config
+            ):
+                assert isinstance(automation_config, RemoteAutomationConfig)
+                async_result_fetch_sync_state = task_pool.apply_async(
                     func=copy_request_context(fetch_sync_state),
                     args=(
                         site_snapshot_settings[site_id].snapshot_components,
                         site_activation_state,
                         site_central_file_infos[site_id],
                         trace.get_current_span(),
+                        automation_config,
+                        debug,
                     ),
                     error_callback=_error_callback,
                 )
-                active_tasks["fetch_sync_state"][site_id] = async_result
+                active_tasks["fetch_sync_state"][site_id] = async_result_fetch_sync_state
             else:
-                async_result = task_pool.apply_async(
+                async_result_activate_site_changes = task_pool.apply_async(
                     func=copy_request_context(activate_site_changes),
                     args=(
                         activate_changes,
                         prevent_activate,
                         site_activation_state,
                         trace.get_current_span(),
+                        automation_config,
+                        debug,
+                        is_distributed_setup_remote_site(all_site_configs),
                     ),
                     error_callback=_error_callback,
                 )
-                active_tasks["activate_site_changes"][site_id] = async_result
+                active_tasks["activate_site_changes"][site_id] = async_result_activate_site_changes
 
         remote_config_generation_per_site: dict[SiteId, int] = {}
         # we want to mostly parallelize the activation steps, but if one site takes longer,
@@ -2249,6 +2455,8 @@ def sync_and_activate(
                 remote_config_generation_per_site,
                 site_snapshot_settings,
                 task_pool,
+                automation_configs,
+                debug=debug,
             )
 
     except Exception:
@@ -2278,7 +2486,10 @@ def create_broker_certificates(
         try:
             _set_sync_state(site_activation_state, _("Syncing broker certificates"))
             broker_cert_sync.create_broker_certificates(
-                site_id, settings, central_ca_bundle, customer_ca_bundle, debug=debug
+                RemoteAutomationConfig.from_site_config(settings),
+                central_ca_bundle,
+                customer_ca_bundle,
+                debug=debug,
             )
             return site_activation_state
         except Exception as e:
@@ -2362,6 +2573,9 @@ def _handle_active_tasks(
     remote_config_generation_per_site: MutableMapping[SiteId, int],
     site_snapshot_settings: Mapping[SiteId, SnapshotSettings],
     task_pool: ThreadPool,
+    automation_configs: Mapping[SiteId, LocalAutomationConfig | RemoteAutomationConfig],
+    *,
+    debug: bool,
 ) -> None:
     for site_id, async_result in list(active_tasks["fetch_sync_state"].items()):
         if not async_result.ready():
@@ -2378,6 +2592,7 @@ def _handle_active_tasks(
             func=copy_request_context(calc_sync_delta),
             args=(
                 sync_state,
+                bool(site_snapshot_settings[site_id].site_config.get("sync_files")),
                 file_filter_func,
                 activation_state,
                 sync_start_time,
@@ -2394,6 +2609,9 @@ def _handle_active_tasks(
         if (calc_sync_delta_result := async_result.get()) is None:
             return  # exception handling happens in thread
 
+        automation_config = automation_configs[site_id]
+        assert isinstance(automation_config, RemoteAutomationConfig)
+
         sync_delta, activation_state, sync_start_time = calc_sync_delta_result
         active_tasks["synchronize_files"][site_id] = task_pool.apply_async(
             func=copy_request_context(synchronize_files),
@@ -2404,6 +2622,8 @@ def _handle_active_tasks(
                 activation_state,
                 sync_start_time,
                 trace.get_current_span(),
+                automation_config,
+                debug,
             ),
             error_callback=_error_callback,
         )
@@ -2416,6 +2636,7 @@ def _handle_active_tasks(
         if (activation_state := async_result.get()) is None:
             return  # exception handling happens in thread
 
+        # Sync finished, now start the activation
         active_tasks["activate_site_changes"][site_id] = task_pool.apply_async(
             func=copy_request_context(activate_site_changes),
             args=(
@@ -2423,6 +2644,9 @@ def _handle_active_tasks(
                 prevent_activate,
                 activation_state,
                 trace.get_current_span(),
+                automation_configs[site_id],
+                debug,
+                True,
             ),
             error_callback=_error_callback,
         )
@@ -2439,13 +2663,22 @@ class ActivateChangesSchedulerJobArgs(BaseModel, frozen=True):
     site_snapshot_settings: Mapping[SiteId, SnapshotSettings]
     prevent_activate: bool
     source: ActivationSource
+    all_site_configs: SiteConfigurations
+    debug: bool
+    use_git: bool
 
 
 def activate_changes_scheduler_job_entry_point(
     job_interface: BackgroundProcessInterface, args: ActivateChangesSchedulerJobArgs
 ) -> None:
     ActivateChangesSchedulerBackgroundJob(args.activation_id).schedule_sites(
-        job_interface, args.site_snapshot_settings, args.prevent_activate, args.source
+        job_interface,
+        args.site_snapshot_settings,
+        args.prevent_activate,
+        args.source,
+        args.all_site_configs,
+        args.debug,
+        args.use_git,
     )
 
 
@@ -2468,6 +2701,9 @@ class ActivateChangesSchedulerBackgroundJob(BackgroundJob):
         site_snapshot_settings: Mapping[SiteId, SnapshotSettings],
         prevent_activate: bool,
         source: ActivationSource,
+        all_site_configs: SiteConfigurations,
+        debug: bool,
+        use_git: bool,
     ) -> None:
         with job_interface.gui_context():
             job_interface.send_progress_update(
@@ -2479,14 +2715,17 @@ class ActivateChangesSchedulerBackgroundJob(BackgroundJob):
                 with_timestamp=True,
             )
 
-            sync_and_activate(
+            _sync_and_activate(
                 self._activation_id,
                 site_snapshot_settings,
                 activation_features_registry[
                     str(version.edition(paths.omd_root))
                 ].sync_file_filter_func,
                 source,
-                prevent_activate,
+                all_site_configs,
+                debug=debug,
+                prevent_activate=prevent_activate,
+                use_git=use_git,
             )
             job_interface.send_result_message(_("Activate changes finished"))
 
@@ -2510,7 +2749,9 @@ def _save_state(activation_id: ActivationId, site_id: SiteId, state: SiteActivat
 
 
 @tracer.instrument("execute_activate_changes")
-def execute_activate_changes(domain_requests: DomainRequests) -> ConfigWarnings:
+def execute_activate_changes(
+    domain_requests: DomainRequests, is_remote_site: bool
+) -> ConfigWarnings:
     domain_names = [x.name for x in domain_requests]
 
     all_domain_requests = [
@@ -2538,7 +2779,7 @@ def execute_activate_changes(domain_requests: DomainRequests) -> ConfigWarnings:
     # Only the remote sites are dealt with here, since the central site is dealt with separately.
     # The rabbitmq definition of the central site has to be updated anytime the definition of a
     # remote site is activated, not only when the central site is activated.
-    if is_wato_slave_site():
+    if is_remote_site:
         _activate_local_rabbitmq_changes()
 
     return results
@@ -2558,22 +2799,17 @@ def _add_extensions_for_license_usage():
 
 
 def _update_links_for_agent_receiver() -> None:
-    uuid_link_manager = agent_registration.get_uuid_link_manager()
+    uuid_link_manager = agent_registration.UUIDLinkManager(
+        received_outputs_dir=paths.received_outputs_dir,
+        data_source_dir=paths.data_source_push_agent_dir,
+        r4r_discoverable_dir=paths.r4r_discoverable_dir,
+        uuid_lookup_dir=paths.uuid_lookup_dir,
+    )
+
     uuid_link_manager.update_links(collect_all_hosts())
 
 
-def confirm_all_local_changes() -> None:
-    ActivateChanges().confirm_site_changes(omd_site())
-
-
-def has_pending_changes() -> bool:
-    return ActivateChanges().get_pending_changes_info().has_changes()
-
-
-def get_pending_changes_tooltip(changes_info: PendingChangesInfo | None = None) -> str:
-    if changes_info is None:
-        changes_info = ActivateChanges().get_pending_changes_info()
-
+def get_pending_changes_tooltip(changes_info: PendingChangesInfo) -> str:
     if changes_info.has_changes():
         n_changes = changes_info.number
         return (
@@ -2588,15 +2824,9 @@ def get_pending_changes_tooltip(changes_info: PendingChangesInfo | None = None) 
     return _("Click here to see the activation status per site.")
 
 
-def get_number_of_pending_changes() -> int:
+def get_pending_changes(sites: Sequence[SiteId]) -> dict[str, ActivationChange]:
     changes = ActivateChanges()
-    changes.load()
-    return len(changes.grouped_changes())
-
-
-def get_pending_changes() -> dict[str, ActivationChange]:
-    changes = ActivateChanges()
-    changes.load()
+    changes.load(sites)
     return {
         change_id: ActivationChange(
             id=ac["id"],
@@ -2635,43 +2865,52 @@ def _need_to_update_config_after_sync() -> bool:
 
 
 def _execute_update_mkps(
-    local_path: Path, addons_path: Path
+    path_config: mkp_tool.PathConfig,
 ) -> tuple[Sequence[mkp_tool.Manifest], Sequence[mkp_tool.Manifest]]:
     logger.debug("Updating active packages")
 
     uninstalled, installed = mkp_tool.update_active_packages(
         mkp_tool.Installer(paths.installed_packages_dir),
-        mkp_tool.PathConfig(
-            cmk_plugins_dir=local_path,
-            cmk_addons_plugins_dir=addons_path,
-            agent_based_plugins_dir=paths.local_agent_based_plugins_dir,
-            agents_dir=paths.local_agents_dir,
-            alert_handlers_dir=paths.local_alert_handlers_dir,
-            bin_dir=paths.local_bin_dir,
-            check_manpages_dir=paths.local_legacy_check_manpages_dir,
-            checks_dir=paths.local_checks_dir,
-            doc_dir=paths.local_doc_dir,
-            gui_plugins_dir=paths.local_gui_plugins_dir,
-            inventory_dir=paths.local_inventory_dir,
-            lib_dir=paths.local_lib_dir,
-            locale_dir=paths.local_locale_dir,
-            local_root=paths.local_root,
-            mib_dir=paths.local_mib_dir,
-            mkp_rule_pack_dir=ec.mkp_rule_pack_dir(),
-            notifications_dir=paths.local_notifications_dir,
-            pnp_templates_dir=paths.local_pnp_templates_dir,
-            web_dir=paths.local_web_dir,
-        ),
+        path_config,
         mkp_tool.PackageStore(
             enabled_dir=paths.local_enabled_packages_dir,
             local_dir=paths.local_optional_packages_dir,
             shipped_dir=paths.optional_packages_dir,
         ),
-        ec.mkp_callbacks(),
+        ec.mkp_callbacks(paths.omd_root),
         version.__version__,
         parse_version=version.parse_check_mk_version,
     )
     return uninstalled, installed
+
+
+def make_path_config() -> mkp_tool.PathConfig | None:
+    if (local_path := plugins_local_path()) is None:
+        return None
+    if (addons_path := addons_plugins_local_path()) is None:
+        return None
+    ec_paths = ec.create_paths(paths.omd_root)
+    return mkp_tool.PathConfig(
+        cmk_plugins_dir=local_path,
+        cmk_addons_plugins_dir=addons_path,
+        agent_based_plugins_dir=paths.local_agent_based_plugins_dir,
+        agents_dir=paths.local_agents_dir,
+        alert_handlers_dir=paths.local_alert_handlers_dir,
+        bin_dir=paths.local_bin_dir,
+        check_manpages_dir=paths.local_legacy_check_manpages_dir,
+        checks_dir=paths.local_checks_dir,
+        doc_dir=paths.local_doc_dir,
+        gui_plugins_dir=paths.local_gui_plugins_dir,
+        inventory_dir=paths.local_inventory_dir,
+        lib_dir=paths.local_lib_dir,
+        locale_dir=paths.local_locale_dir,
+        local_root=paths.local_root,
+        mib_dir=ec_paths.local_mibs_dir.value,
+        mkp_rule_pack_dir=ec_paths.mkp_rule_pack_dir.value,
+        notifications_dir=paths.local_notifications_dir,
+        pnp_templates_dir=paths.local_pnp_templates_dir,
+        web_dir=paths.local_web_dir,
+    )
 
 
 def _execute_changed_local_files_actions() -> None:
@@ -2723,17 +2962,15 @@ def _has_local_file_changes(sync_archive: bytes, to_delete: list[str]) -> bool:
         return any(m.name.startswith(f"{paths.LOCAL_SEGMENT}/") for m in archive.getmembers())
 
 
-def _execute_post_config_sync_actions(site_id: SiteId, *, local_files_changed: bool) -> None:
+def _execute_post_config_sync_actions(
+    site_id: SiteId, *, local_files_changed: bool, use_git: bool
+) -> None:
     try:
         # When receiving configuration from a central site that uses a previous major
         # version, the config migration logic has to be executed to make the local
         # configuration compatible with the local Checkmk version.
-        if (
-            _need_to_update_mkps_after_sync()
-            and (local_path := plugins_local_path())
-            and (addons_path := addons_plugins_local_path())
-        ):
-            uninstalled, installed = _execute_update_mkps(local_path, addons_path)
+        if _need_to_update_mkps_after_sync() and (path_config := make_path_config()):
+            uninstalled, installed = _execute_update_mkps(path_config)
             mkps_changed = bool(uninstalled or installed)
         else:
             installed = ()
@@ -2759,7 +2996,7 @@ def _execute_post_config_sync_actions(site_id: SiteId, *, local_files_changed: b
         # The local configuration has just been replaced. The pending changes are not
         # relevant anymore. Confirm all of them to cleanup the inconsistency.
         logger.debug("Confirming pending changes")
-        confirm_all_local_changes()
+        ActivateChanges.confirm_site_changes(omd_site())
 
         hooks.call("snapshot-pushed")
     except Exception:
@@ -2776,14 +3013,14 @@ def _execute_post_config_sync_actions(site_id: SiteId, *, local_files_changed: b
         action="replication",
         message="Synchronized configuration from central site (local site ID is %s.)" % site_id,
         user_id=user.id,
-        use_git=active_config.wato_use_git,
+        use_git=use_git,
     )
 
 
-def verify_remote_site_config(site_id: SiteId) -> None:
+def verify_remote_site_config(sites: Mapping[SiteId, SiteConfiguration], site_id: SiteId) -> None:
     our_id = omd_site()
 
-    if not is_single_local_site():
+    if not is_single_local_site(sites):
         raise MKGeneralException(
             _(
                 "Configuration error. You treat us as "
@@ -2799,7 +3036,7 @@ def verify_remote_site_config(site_id: SiteId) -> None:
 
     # Make sure there are no local changes we would lose!
     changes = cmk.gui.watolib.activate_changes.ActivateChanges()
-    changes.load()
+    changes.load(list(sites))
     pending = list(reversed(changes.grouped_changes()))
     if pending:
         message = _(
@@ -2850,7 +3087,7 @@ def _get_replication_components(site_config: SiteConfiguration) -> list[Replicat
 def get_file_names_to_sync(
     site_logger: logging.Logger,
     sync_state: SyncState,
-    ldap_sync_enabled: bool,
+    file_sync_enabled: bool,
     file_filter_func: FileFilterFunc,
 ) -> SyncDelta:
     """Compare the response with the site_config directory of the site
@@ -2881,7 +3118,7 @@ def get_file_names_to_sync(
 
     # Files to be deleted
     to_delete = list(
-        (_filter_remote_files(remote_files_set) if ldap_sync_enabled else remote_files_set)
+        (_filter_remote_files(remote_files_set) if file_sync_enabled else remote_files_set)
         - central_files
     )
 
@@ -2980,7 +3217,7 @@ def _unpack_sync_archive(sync_archive: bytes, base_dir: Path) -> None:
 
     if completed_process.returncode:
         raise MKGeneralException(
-            _("Failed to create sync archive [%d]: %s")
+            _("Failed to extract sync archive [%d]: %s")
             % (completed_process.returncode, completed_process.stderr.decode())
         )
 
@@ -3022,7 +3259,7 @@ class AutomationGetConfigSyncState(AutomationCommand[list[ReplicationPath]]):
     def command_name(self) -> str:
         return "get-config-sync-state"
 
-    def get_request(self) -> list[ReplicationPath]:
+    def get_request(self, config: Config, request: Request) -> list[ReplicationPath]:
         return [
             ReplicationPath.deserialize(e)
             for e in ast.literal_eval(_request.get_ascii_input_mandatory("replication_paths"))
@@ -3184,6 +3421,9 @@ class ReceiveConfigSyncRequest(NamedTuple):
     sync_archive: bytes
     to_delete: list[str]
     config_generation: int
+    use_git: bool
+    site_config: SiteConfiguration
+    user_attributes: Sequence[tuple[str, UserAttribute]]
 
 
 class AutomationReceiveConfigSync(AutomationCommand[ReceiveConfigSyncRequest]):
@@ -3197,15 +3437,18 @@ class AutomationReceiveConfigSync(AutomationCommand[ReceiveConfigSyncRequest]):
     def command_name(self) -> str:
         return "receive-config-sync"
 
-    def get_request(self) -> ReceiveConfigSyncRequest:
-        site_id = SiteId(_request.get_ascii_input_mandatory("site_id"))
-        verify_remote_site_config(site_id)
+    def get_request(self, config: Config, request: Request) -> ReceiveConfigSyncRequest:
+        site_id = SiteId(request.get_ascii_input_mandatory("site_id"))
+        verify_remote_site_config(config.sites, site_id)
 
         return ReceiveConfigSyncRequest(
             site_id,
-            _request.uploaded_file("sync_archive")[2],
-            ast.literal_eval(_request.get_str_input_mandatory("to_delete")),
-            _request.get_integer_input_mandatory("config_generation"),
+            request.uploaded_file("sync_archive")[2],
+            ast.literal_eval(request.get_str_input_mandatory("to_delete")),
+            request.get_integer_input_mandatory("config_generation"),
+            config.wato_use_git,
+            config.sites[site_id],
+            get_user_attributes(config.wato_user_attrs),
         )
 
     def execute(self, api_request: ReceiveConfigSyncRequest) -> bool:
@@ -3220,7 +3463,13 @@ class AutomationReceiveConfigSync(AutomationCommand[ReceiveConfigSyncRequest]):
                 )
 
             logger.debug("Updating configuration from sync snapshot")
-            self._update_config_on_remote_site(api_request.sync_archive, api_request.to_delete)
+            self._update_config_on_remote_site(
+                api_request.sync_archive,
+                api_request.to_delete,
+                api_request.site_id,
+                api_request.site_config,
+                api_request.user_attributes,
+            )
 
             logger.debug("Executing post sync actions")
             _execute_post_config_sync_actions(
@@ -3228,17 +3477,25 @@ class AutomationReceiveConfigSync(AutomationCommand[ReceiveConfigSyncRequest]):
                 local_files_changed=_has_local_file_changes(
                     api_request.sync_archive, api_request.to_delete
                 ),
+                use_git=api_request.use_git,
             )
 
             logger.debug("Done")
             return True
 
-    def _update_config_on_remote_site(self, sync_archive: bytes, to_delete: list[str]) -> None:
+    def _update_config_on_remote_site(
+        self,
+        sync_archive: bytes,
+        to_delete: list[str],
+        site_id: SiteId,
+        site_config: SiteConfiguration,
+        user_attributes: Sequence[tuple[str, UserAttribute]],
+    ) -> None:
         """Use the given tar archive and list of files to be deleted to update the local files"""
         base_dir = cmk.utils.paths.omd_root
         base_folder_path = str(cmk.utils.paths.check_mk_config_dir / "wato")
 
-        default_sync_config = user_sync_default_config(active_config.sites[omd_site()], omd_site())
+        default_sync_config = user_sync_default_config(site_config, site_id)
         current_users = {}
         keep_local_users = False
         active_connectors = []
@@ -3272,10 +3529,14 @@ class AutomationReceiveConfigSync(AutomationCommand[ReceiveConfigSyncRequest]):
             _unpack_sync_archive(sync_archive, base_dir)
         finally:
             if keep_local_users:
-                _reintegrate_site_local_users(current_users, active_connectors)
+                _reintegrate_site_local_users(current_users, active_connectors, user_attributes)
 
 
-def _reintegrate_site_local_users(old_users: Users, active_connectors: list[str]) -> None:
+def _reintegrate_site_local_users(
+    old_users: Users,
+    active_connectors: list[str],
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+) -> None:
     """
     Fixes missing user files after a new snapshot got applied
     The remote site already ignores ~/var/check_mk/web folders which are only known
@@ -3302,7 +3563,14 @@ def _reintegrate_site_local_users(old_users: Users, active_connectors: list[str]
             # This user is only known on the remote site, keep it
             local_site_users[username] = settings
     new_users.update(local_site_users)
-    save_users(new_users, datetime.now())
+    save_users(
+        new_users,
+        user_attributes,
+        active_config.user_connections,
+        now=datetime.now(),
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )
 
 
 @dataclass
@@ -3387,7 +3655,7 @@ def activation_attributes_for_rest_api_response(
                 phase=status_dict["_phase"],
                 state=status_dict["_state"],
                 status_text=status_dict["_status_text"],
-                status_details=status_dict["_status_details"],
+                status_details=re.sub(r"<.*?>", "", unescape(status_dict["_status_details"])),
                 start_time=status_dict["_time_started"],
                 end_time=status_dict["_time_ended"],
             )
@@ -3424,10 +3692,16 @@ def _raise_for_license_block() -> None:
 
 
 def activate_changes_start(
-    sites: list[SiteId],
+    *,
+    sites: Sequence[SiteId],
+    enabled_sites: Sequence[SiteId],
+    all_site_configs: SiteConfigurations,
     source: ActivationSource,
-    comment: str | None = None,
-    force_foreign_changes: bool = False,
+    comment: str | None,
+    max_snapshots: int,
+    force_foreign_changes: bool,
+    use_git: bool,
+    debug: bool,
 ) -> ActivationRestAPIResponseExtensions:
     """Start activation of configuration changes on specific or "dirty" sites.
 
@@ -3450,7 +3724,7 @@ def activate_changes_start(
     """
 
     changes = ActivateChanges()
-    changes.load()
+    changes.load(sites if sites else list(all_site_configs))
 
     _raise_for_license_block()
 
@@ -3465,28 +3739,27 @@ def activate_changes_start(
                 )
             )
 
-    known_sites = enabled_sites().keys()
     for site in sites:
-        if site not in known_sites:
+        if site not in enabled_sites:
             raise MKUserError(
                 None, _("Unknown site %s") % escaping.escape_attribute(site), status=400
             )
 
     manager = ActivateChangesManager()
-    manager.load()
+    manager.changes.load(sites if sites else list(all_site_configs))
 
     if manager.is_running():
         raise MKUserError(None, _("There is an activation already running."), status=423)
 
-    if not manager.has_pending_changes():
+    if not manager.changes.has_pending_changes():
         raise MKUserError(None, _("Currently there are no changes to activate."), status=422)
 
     if not sites:
-        dirty_sites = manager.dirty_sites()
+        dirty_sites = manager.changes.dirty_sites(activation_sites(all_site_configs))
         if not dirty_sites:
             raise MKUserError(None, _("Currently there are no changes to activate."), status=422)
 
-        sites = manager.filter_not_activatable_sites(dirty_sites)
+        sites = manager.changes.filter_not_activatable_sites(dirty_sites)
         if not sites:
             raise MKUserError(
                 None,
@@ -3499,7 +3772,16 @@ def activate_changes_start(
                 status=409,
             )
 
-    manager.start(sites, comment=comment, activate_foreign=force_foreign_changes, source=source)
+    manager.start(
+        sites=sites,
+        comment=comment,
+        activate_foreign=force_foreign_changes,
+        source=source,
+        all_site_configs=all_site_configs,
+        max_snapshots=max_snapshots,
+        use_git=use_git,
+        debug=debug,
+    )
     return activation_attributes_for_rest_api_response(manager)
 
 
@@ -3508,7 +3790,9 @@ class ActivationFeatures:
     edition: version.Edition
     sync_file_filter_func: Callable[[str], bool] | None
     snapshot_manager_factory: Callable[[str, dict[SiteId, SnapshotSettings]], SnapshotManager]
-    get_rabbitmq_definitions: Callable[[BrokerConnections], Mapping[str, rabbitmq.Definitions]]
+    get_rabbitmq_definitions: Callable[
+        [Mapping[SiteId, SiteConfiguration], BrokerConnections], Mapping[str, rabbitmq.Definitions]
+    ]
     distribute_piggyback_hub_configs: Callable[
         [
             GlobalSettings,

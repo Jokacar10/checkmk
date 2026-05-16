@@ -12,18 +12,15 @@ from pathlib import Path
 from typing import Any
 
 import cmk.ccc.debug
+import cmk.fetchers._snmpcache as snmp_cache  # pylint: disable=cmk-module-layer-violation
+import cmk.utils.paths
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.version import Edition, edition
-
-import cmk.utils.paths
-
-from cmk.snmplib import get_single_oid, OID, SNMPBackend, SNMPBackendEnum, SNMPHostConfig
-
-import cmk.fetchers._snmpcache as snmp_cache  # pylint: disable=cmk-module-layer-violation
 from cmk.fetchers.snmp_backend import (  # pylint: disable=cmk-module-layer-violation
     ClassicSNMPBackend,
     StoredWalkSNMPBackend,
 )
+from cmk.snmplib import get_single_oid, OID, SNMPBackend, SNMPBackendEnum, SNMPHostConfig
 
 if edition(cmk.utils.paths.omd_root) is not Edition.CRE:
     from cmk.fetchers.cee.snmp_backend.inline import (  # type: ignore[import, unused-ignore] # pylint: disable=cmk-module-layer-violation
@@ -42,9 +39,7 @@ backend_type = SNMPBackendEnum.deserialize(params[1])
 config = SNMPHostConfig.deserialize(params[2])
 cmk.utils.paths.snmpwalks_dir = Path(params[3])
 
-snmp_cache.initialize_single_oid_cache(
-    HostName("abc"), None, cache_dir=cmk.utils.paths.snmp_scan_cache_dir
-)
+snmp_cache.initialize_single_oid_cache(HostName("abc"), None)
 
 backend: Callable[[SNMPHostConfig, logging.Logger], SNMPBackend]
 match backend_type:

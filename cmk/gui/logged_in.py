@@ -13,28 +13,26 @@ import os
 import time
 from collections.abc import Container, Sequence
 from pathlib import Path
-from typing import Any, Final, Literal, NewType, TypedDict
+from typing import Any, Final, Literal, NewType, override, TypedDict
 
 from livestatus import SiteConfigurations
 
+import cmk.utils.paths
 from cmk.ccc import store
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
 from cmk.ccc.version import __version__, Edition, edition, Version
-
-import cmk.utils.paths
-
-from cmk.gui import hooks, permissions, site_config
+from cmk.gui import hooks, permissions
 from cmk.gui.config import active_config
 from cmk.gui.ctx_stack import session_attr
 from cmk.gui.exceptions import MKAuthException
 from cmk.gui.i18n import _
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import DismissableWarning, UserSpec
 from cmk.gui.utils.permission_verification import BasePerm
-from cmk.gui.utils.roles import may_with_roles, roles_of_user
+from cmk.gui.utils.roles import roles_of_user, UserPermissions
 from cmk.gui.utils.selection_id import SelectionId
 from cmk.gui.utils.transaction_manager import TransactionManager
-
 from cmk.shared_typing.user_frontend_config import UserFrontendConfig
 
 _logger = logging.getLogger(__name__)
@@ -75,6 +73,7 @@ UserFileName = Literal[
     "virtual_host_tree",
     "wato_folders_show_labels",
     "wato_folders_show_tags",
+    "welcome_completed_steps",
 ]
 
 # a str consisting of `rowselection/` and a SelectionId (uuid)
@@ -299,6 +298,14 @@ class LoggedInUser:
         self.save_file("bi_treestate", (value,))
 
     @property
+    def welcome_completed_steps(self) -> set[str]:
+        return self.load_file("welcome_completed_steps", set())
+
+    @welcome_completed_steps.setter
+    def welcome_completed_steps(self, value: set[str]) -> None:
+        self.save_file("welcome_completed_steps", value)
+
+    @property
     def stars(self) -> set[str]:
         if not self._stars:
             self._stars = set(self.load_file("favorites", []))
@@ -428,12 +435,7 @@ class LoggedInUser:
         if self.id:
             self.save_file("transids", transids)
 
-    def authorized_sites(
-        self, unfiltered_sites: SiteConfigurations | None = None
-    ) -> SiteConfigurations:
-        if unfiltered_sites is None:
-            unfiltered_sites = site_config.enabled_sites()
-
+    def authorized_sites(self, unfiltered_sites: SiteConfigurations) -> SiteConfigurations:
         authorized_sites = self.get_attribute("authorized_sites")
         if authorized_sites is None:
             return SiteConfigurations(dict(unfiltered_sites))
@@ -447,7 +449,9 @@ class LoggedInUser:
         )
 
     def may(self, pname: str) -> bool:
-        they_may = (pname in self.explicitly_given_permissions) or may_with_roles(
+        # TODO: Needs to be pulled up!
+        user_permissions = UserPermissions.from_config(active_config, permission_registry)
+        they_may = (pname in self.explicitly_given_permissions) or user_permissions.may_with_roles(
             self.role_ids, pname
         )
         hooks.call("permission-checked", pname)
@@ -460,7 +464,8 @@ class LoggedInUser:
             return
 
         if not self.may(permission):
-            perm = permissions.permission_registry[permission]
+            perm = permissions.permission_registry.get(permission)
+            title = permission if perm is None else perm.title
             raise MKAuthException(
                 _(
                     "We are sorry, but you lack the permission "
@@ -468,7 +473,7 @@ class LoggedInUser:
                     "then please ask your administrator to provide you with "
                     "the following permission: '<b>%s</b>'."
                 )
-                % perm.title
+                % title
             )
 
     def load_file(
@@ -479,16 +484,9 @@ class LoggedInUser:
     ) -> Any:
         if self.confdir is None:
             return deflt
-
-        path = self.confdir / (name + ".mk")
-
-        # The user files we load with this function are mostly some kind of persisted states.  In
-        # case a file is corrupted for some reason we rather start over with the default instead of
-        # failing at some random places.
-        try:
-            return store.load_object_from_file(path, default=deflt, lock=lock)
-        except (ValueError, SyntaxError):
+        if self.id is None:
             return deflt
+        return load_user_file(name, self.id, deflt, lock=lock)
 
     def save_file(
         self, name: UserFileName | _RowSelection | UserGraphDataRangeFileName, content: object
@@ -529,11 +527,18 @@ class LoggedInSuperUser(LoggedInUser):
         self.alias = "Superuser for internal use"
         self.email = "admin"
 
+    @override
     def _gather_roles(self, _user_id: UserId | None) -> list[str]:
         return ["admin"]
 
+    @override
     def save_file(self, name: str, content: Any) -> None:
         raise TypeError("The profiles of LoggedInSuperUser cannot be saved")
+
+    @override
+    def may(self, permission_name: str) -> bool:
+        hooks.call("permission-checked", permission_name)
+        return True
 
 
 class LoggedInRemoteSite(LoggedInUser):
@@ -543,9 +548,11 @@ class LoggedInRemoteSite(LoggedInUser):
         self.email = "?"
         self.site_name = site_name
 
+    @override
     def _gather_roles(self, _user_id: UserId | None) -> list[str]:
         return ["no_permissions"]
 
+    @override
     def save_file(self, name: str, content: Any) -> None:
         raise TypeError("The profiles of LoggedInRemoteSite cannot be saved")
 
@@ -556,11 +563,18 @@ class LoggedInNobody(LoggedInUser):
         self.alias = "Unauthenticated user"
         self.email = "nobody"
 
+    @override
     def _gather_roles(self, _user_id: UserId | None) -> list[str]:
         return []
 
+    @override
     def save_file(self, name: str, content: Any) -> None:
         raise TypeError("The profiles of LoggedInNobody cannot be saved")
+
+    @override
+    def may(self, permission_name: str) -> bool:
+        hooks.call("permission-checked", permission_name)
+        return False
 
 
 def _confdir_for_user_id(user_id: UserId | None) -> Path | None:
@@ -570,6 +584,25 @@ def _confdir_for_user_id(user_id: UserId | None) -> Path | None:
     confdir = cmk.utils.paths.profile_dir / user_id
     confdir.mkdir(mode=0o770, exist_ok=True)
     return confdir
+
+
+def load_user_file(
+    name: UserFileName | _RowSelection | UserGraphDataRangeFileName,
+    user_id: UserId,
+    deflt: object,
+    *,
+    lock: bool,
+) -> object:
+    path = cmk.utils.paths.profile_dir / user_id / (name + ".mk")
+    path.parent.mkdir(mode=0o770, exist_ok=True)
+
+    # The user files we load with this function are mostly some kind of persisted states.  In
+    # case a file is corrupted for some reason we rather start over with the default instead of
+    # failing at some random places.
+    try:
+        return store.load_object_from_file(path, default=deflt, lock=lock)
+    except (ValueError, SyntaxError):
+        return deflt
 
 
 def save_user_file(name: str, data: Any, user_id: UserId) -> None:

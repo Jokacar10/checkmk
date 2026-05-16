@@ -10,7 +10,6 @@ from functools import partial
 from typing import Any, override
 
 from cmk.ccc.exceptions import MKGeneralException
-
 from cmk.gui import utils
 from cmk.gui.config import active_config
 from cmk.gui.data_source import row_id
@@ -198,7 +197,7 @@ class GroupedBoxesLayout(Layout):
         if group_cells:
             self._show_group_header_table(group_cells, rows_with_ids[0][1])
 
-        html.open_table(class_="data")
+        html.open_table(class_="data table")
         odd = "odd"
 
         column_headers = view.get("column_headers")
@@ -575,7 +574,7 @@ class LayoutTiled(Layout):
             # We need at least five cells
             render_cells = list(cells)
             if len(render_cells) < 5:
-                render_cells += [EmptyCell(None, None, None)] * (5 - len(render_cells))
+                render_cells += [EmptyCell()] * (5 - len(render_cells))
 
             rendered = [cell.render(row, link_renderer, user) for cell in render_cells]
 

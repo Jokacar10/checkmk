@@ -7,22 +7,19 @@ import os
 import socket
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal
 
 import cmk.ccc.debug
+from cmk.automations.results import Gateway, GatewayResult
 from cmk.ccc import tty
 from cmk.ccc.exceptions import MKGeneralException, MKIPAddressLookupError
 from cmk.ccc.hostaddress import HostAddress, HostName, Hosts
-
-import cmk.utils.paths
 from cmk.utils.caching import cache_manager, DictCache
 from cmk.utils.ip_lookup import IPStackConfig
 from cmk.utils.log import console
-
-from cmk.automations.results import Gateway, GatewayResult
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -33,10 +30,10 @@ class ScanConfig:
     parents: Sequence[HostName]
 
 
-class _IpAddressLookup(Protocol):
-    def __call__(
-        self, hostname: HostName, *, family: socket.AddressFamily
-    ) -> HostAddress | None: ...
+type _IpAddressLookup = Callable[
+    [HostName, Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6]],
+    HostAddress | None,
+]
 
 
 def traceroute_available() -> str | None:
@@ -66,7 +63,7 @@ def scan_parents_of(
             monitoring_host is None
             or scan_config[monitoring_host].ip_stack_config is IPStackConfig.NO_IP
         )
-        else lookup_ip_address(monitoring_host, family=socket.AddressFamily.AF_INET)
+        else lookup_ip_address(monitoring_host, socket.AddressFamily.AF_INET)
     )
 
     os.putenv("LANG", "")
@@ -84,7 +81,7 @@ def scan_parents_of(
             ip = lookup_ip_address(
                 host,
                 # [IPv6] -- what about it?
-                family=socket.AddressFamily.AF_INET,
+                socket.AddressFamily.AF_INET,
             )
             if ip is None:
                 raise RuntimeError()
@@ -321,7 +318,7 @@ def _fill_ip_to_hostname_cache(
         if scan_config[host].ip_stack_config is IPStackConfig.NO_IP:
             continue
         try:
-            cache[lookup_ip_address(host, family=socket.AddressFamily.AF_INET)] = host
+            cache[lookup_ip_address(host, socket.AddressFamily.AF_INET)] = host
         except MKIPAddressLookupError:
             pass
 

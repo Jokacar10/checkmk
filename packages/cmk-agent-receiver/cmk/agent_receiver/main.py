@@ -5,24 +5,36 @@
 
 from fastapi import FastAPI
 
+from cmk.agent_receiver.relay.api.routers.base_router import RELAY_ROUTER
+
 # NOTE: The import below is a hack, we should register endpoints explicitly!
-# TODO: The "bazel lint ..." calls for run_check_format() and run_check_ruff() don't agree on their findings. Why??
-from . import endpoints  # noqa: F401, RUF100
+from . import endpoints as endpoints
 from .apps_and_routers import AGENT_RECEIVER_APP, UUID_VALIDATION_ROUTER
+from .config import get_config
 from .log import configure_logger
-from .site_context import log_path, site_name
+from .middleware import B3RequestIDMiddleware
 
 
 def main_app() -> FastAPI:
-    configure_logger(log_path())
-
-    # this must happen *after* registering the endpoints
-    AGENT_RECEIVER_APP.include_router(UUID_VALIDATION_ROUTER)
-
+    # Create main app first
     main_app_ = FastAPI(
         openapi_url=None,
         docs_url=None,
         redoc_url=None,
     )
-    main_app_.mount(f"/{site_name()}/agent-receiver", AGENT_RECEIVER_APP)
+
+    config = get_config()
+
+    # Configure logger on the main app level so it works with middleware
+    configure_logger(config.log_path)
+
+    # Add middleware to main app BEFORE mounting sub-apps
+    main_app_.add_middleware(B3RequestIDMiddleware)
+
+    # this must happen *after* registering the endpoints
+    AGENT_RECEIVER_APP.include_router(UUID_VALIDATION_ROUTER)
+    AGENT_RECEIVER_APP.include_router(RELAY_ROUTER)
+
+    # Mount the sub-app
+    main_app_.mount(f"/{config.site_name}/agent-receiver", AGENT_RECEIVER_APP)
     return main_app_

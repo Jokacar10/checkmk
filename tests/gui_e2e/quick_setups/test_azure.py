@@ -3,7 +3,6 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 import logging
-import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
@@ -11,7 +10,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.setup.cloud_quick_setups import (
     AzureAddNewConfiguration,
     AzureConfigurationList,
@@ -23,7 +22,7 @@ from tests.gui_e2e.testlib.playwright.pom.setup.passwords import Passwords
 from tests.gui_e2e.testlib.playwright.pom.setup.ruleset import Ruleset
 from tests.gui_e2e.testlib.playwright.timeouts import ANIMATION_TIMEOUT
 from tests.testlib.site import Site
-from tests.testlib.utils import run
+from tests.testlib.utils import is_cleanup_enabled, run
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +35,12 @@ def fixture_fake_azure_dump(test_site: Site) -> Iterator[None]:
     Faking the Azure agent bypasses such validations, which are 'out-of-scope' of UI tests.
     """
     fake_agent_azure = Path(__file__).parent / "fake_agent_azure.py"
-    azure_agent = test_site.path("lib/python3/cmk/plugins/azure/special_agents/agent_azure.py")
+    azure_agent = test_site.path("lib/python3/cmk/plugins/azure/special_agent/agent_azure.py")
     backup_agent = str(azure_agent).replace(".py", ".py.bck")
     run(["cp", str(azure_agent), backup_agent], sudo=True)
     run(["cp", str(fake_agent_azure), str(azure_agent)], sudo=True)
     yield
-    if os.getenv("CLEANUP", "1") == "1":
+    if is_cleanup_enabled():
         run(["cp", str(backup_agent), str(azure_agent)], sudo=True)
         run(["rm", str(backup_agent)], sudo=True)
 
@@ -49,7 +48,7 @@ def fixture_fake_azure_dump(test_site: Site) -> Iterator[None]:
 @pytest.fixture(name="azure_qs_config_page")
 def fixture_azure_qs_config_page(
     fake_azure_dump: None,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     test_site: Site,
 ) -> Iterator[AzureAddNewConfiguration]:
     """Navigate to the Azure Quick setup page and add new configuration page"""
@@ -82,7 +81,6 @@ def fixture_azure_qs_config_page(
         list_hosts_page.activate_changes(test_site)
 
 
-@pytest.mark.xfail(reason="CMK-23545; All quick-setup: CSP tests are failing.")
 def test_minimal_configuration(
     azure_qs_config_page: AzureAddNewConfiguration, test_site: Site
 ) -> None:
@@ -99,17 +97,8 @@ def test_minimal_configuration(
         client_id="my_client_id",
         secret="my_secret",
     )
-    azure_qs_config_page.button_proceed_from_stage_one.click()
-    # wait for stage transition animation
-    azure_qs_config_page.page.wait_for_timeout(ANIMATION_TIMEOUT)
-    expect(
-        azure_qs_config_page.button_proceed_from_stage_two,
-        message="Expected stage 2 button to be enabled after proceeding to stage 2!",
-    ).to_be_enabled()
-    expect(
-        azure_qs_config_page.button_proceed_from_stage_one,
-        message="Expected stage 1 button to be hidden after proceeding to stage 2!",
-    ).not_to_be_visible()
+
+    azure_qs_config_page.validate_button_text_and_goto_next_qs_stage(current_stage=1)
 
     # Stage 2
     azure_qs_config_page.specify_stage_two_details(
@@ -117,36 +106,17 @@ def test_minimal_configuration(
         site_name=test_site.id,
     )
 
-    azure_qs_config_page.button_proceed_from_stage_two.click()
-    # wait for stage transition animation
-    azure_qs_config_page.page.wait_for_timeout(ANIMATION_TIMEOUT)
-    expect(
-        azure_qs_config_page.button_proceed_from_stage_three,
-        message="Expected stage 3 button to be enabled after proceeding to stage 3!",
-    ).to_be_enabled()
-    expect(
-        azure_qs_config_page.button_proceed_from_stage_two,
-        message="Expected stage 2 button to be hidden after proceeding to stage 3!",
-    ).not_to_be_visible()
+    azure_qs_config_page.validate_button_text_and_goto_next_qs_stage(current_stage=2)
 
     # Stage 3
     azure_qs_config_page.specify_stage_three_details(
         services_to_monitor=QuickSetupMultiChoice([], ["Load Balancer"]),
     )
-    azure_qs_config_page.button_proceed_from_stage_three.click()
-    # wait for stage transition animation
-    azure_qs_config_page.page.wait_for_timeout(ANIMATION_TIMEOUT)
-    expect(
-        azure_qs_config_page.button_proceed_from_stage_four,
-        message="Expected stage 4 button to be enabled after proceeding to stage 4!",
-    ).to_be_enabled()
-    expect(
-        azure_qs_config_page.button_proceed_from_stage_three,
-        message="Expected stage 3 button to be hidden after proceeding to stage 4!",
-    ).not_to_be_visible()
+
+    azure_qs_config_page.validate_button_text_and_goto_next_qs_stage(current_stage=3)
 
     # Stage 4
-    azure_qs_config_page.button_proceed_from_stage_four.click()
+    azure_qs_config_page.click_test_configuration_button()
 
     # Save stage
     expect(

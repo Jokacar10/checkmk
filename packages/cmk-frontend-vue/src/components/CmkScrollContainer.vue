@@ -5,11 +5,12 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import { type VariantProps, cva } from 'class-variance-authority'
+
 const scrollContainerVariants = cva('', {
   variants: {
     type: {
       inner: '', // Inner style is default and defined in global css via cmk-vue-app class
-      outer: 'scroll-container--outer'
+      outer: 'cmk-scroll-container--outer'
     }
   },
   defaultVariants: {
@@ -21,34 +22,34 @@ export type ScrollContainerVariants = VariantProps<typeof scrollContainerVariant
 
 export interface ScrollContainerProps {
   maxHeight?: string
+  height?: string
   type?: ScrollContainerVariants['type']
 }
-const { type, maxHeight = '100%' } = defineProps<ScrollContainerProps>()
+const { type, maxHeight = '100%', height = '100%' } = defineProps<ScrollContainerProps>()
 </script>
 
 <template>
-  <div
-    :style="{ maxHeight, height: '100%', overflow: 'auto' }"
-    :class="scrollContainerVariants({ type })"
-  >
+  <div :style="{ maxHeight, height, overflow: 'auto' }" :class="scrollContainerVariants({ type })">
     <slot></slot>
   </div>
 </template>
 
 <style scoped>
-.scroll-container--outer::-webkit-scrollbar {
+.cmk-scroll-container--outer::-webkit-scrollbar {
   width: 10px;
 }
 
-.scroll-container--outer::-webkit-scrollbar-track {
+.cmk-scroll-container--outer::-webkit-scrollbar-track {
   background: transparent;
   border-top-right-radius: 4px;
   border-bottom-right-radius: 4px;
 }
 
-.scroll-container--outer::-webkit-scrollbar-thumb {
+.cmk-scroll-container--outer::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-color);
   border-radius: 16px;
-  border: 0;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  width: 8px;
 }
 </style>

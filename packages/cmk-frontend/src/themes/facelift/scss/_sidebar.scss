@@ -279,24 +279,52 @@ div.snapin {
     }
   }
 
-  div.snapin_buttons {
-    position: absolute;
-    right: 5px;
-    opacity: 0;
+  span.moresnapin,
+  div.closesnapin {
+    position: relative;
+    float: right;
+    display: block;
+    opacity: 1;
     transition: opacity 50ms ease-in 50ms;
+
+    img {
+      opacity: 0;
+    }
+
+    &.hidden {
+      display: none;
+    }
   }
 
-  &:hover div.snapin_buttons {
+  &:hover span.moresnapin,
+  &:hover div.closesnapin img {
     opacity: 1;
     transition: opacity 0s;
+  }
+
+  span.moresnapin a {
+    display: contents;
+  }
+
+  div.closesnapin {
+    opacity: 1;
+    width: 100%;
+    text-align: right;
+    border-bottom: 1px solid hsla(0, 0%, 100%, 0.2);
+    padding-bottom: $spacing-half;
+    margin-bottom: $spacing-half;
+    img {
+      width: 14px;
+      height: 14px;
+      margin: 0;
+    }
   }
 
   div.content {
     top: 64px;
     width: 100%;
-    padding: $spacing 0;
+    padding: $spacing 0 $spacing-half 0;
     color: $font-color;
-    border-bottom: 1px solid $snapin-heading-border-color;
     box-sizing: border-box;
 
     li.sidebar {

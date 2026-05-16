@@ -11,16 +11,13 @@ from typing import Literal
 import pytest
 
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils.paths import omd_root
-
-from cmk.gui.graphing_main import _load_graphing_plugins
-
 from cmk.discover_plugins import PluginLocation
 from cmk.graphing.v1 import graphs as graphs_api
 from cmk.graphing.v1 import metrics as metrics_api
 from cmk.graphing.v1 import perfometers as perfometers_api
 from cmk.graphing.v1 import translations as translations_api
+from cmk.gui.graphing_main import _load_graphing_plugins
+from cmk.utils.paths import omd_root
 
 
 def test_load_graphing_plugins() -> None:
@@ -326,6 +323,7 @@ _ALLOWED_BUNDLE_VIOLATIONS = (
         # we cannot have sub-modules below the cee folder, so we have to allow the following violations
         # in cmk.cee.robotmk, the module layout of the metric etc. defintions is correct
         "cmk.plugins.robotmk.graphing.cee",
+        "cmk.plugins.podman.graphing.cee",
     }
 )
 
@@ -343,6 +341,9 @@ _ALLOWED_DUPLICATES = {
     "Available capacity": {"emcvnx_avail_capacity", "capacity_perc"},
     "Average consumption": {"aws_dynamodb_consumed_wcu", "aws_dynamodb_consumed_rcu"},
     "Average usage": {"aws_dynamodb_consumed_rcu_perc", "aws_dynamodb_consumed_wcu_perc"},
+    "Cache hit ratio": {"azure_redis_cache_hit_ratio", "cache_hit_ratio"},
+    "Cache hits": {"azure_redis_cache_hits", "varnish_cache_hit_rate"},
+    "Cache misses": {"azure_redis_cache_misses", "varnish_cache_miss_rate"},
     "Cluster utilization": {
         "kube_cpu_cluster_allocatable_utilization",
         "kube_memory_cluster_allocatable_utilization",
@@ -362,6 +363,7 @@ _ALLOWED_DUPLICATES = {
         "aws_dynamodb_maximum_consumed_rcu",
     },
     "Memory used": {"memused_couchbase_bucket", "memory_used"},
+    "Memory utilization": {"azure_redis_memory_utilization", "memory_util"},
     "Minimum single-request consumption": {
         "aws_dynamodb_minimum_consumed_rcu",
         "aws_dynamodb_minimum_consumed_wcu",

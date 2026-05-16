@@ -18,7 +18,7 @@ from livestatus import SiteConfiguration
 from cmk.ccc import store
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.i18n import _
-
+from cmk.ccc.site import SiteId
 from cmk.gui.background_job import (
     BackgroundJob,
     BackgroundJobDefines,
@@ -26,12 +26,10 @@ from cmk.gui.background_job import (
     InitialStatusArgs,
     JobTarget,
 )
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.exceptions import MKInternalError, MKUserError
-from cmk.gui.form_specs.vue.form_spec_visitor import (
-    validate_value_from_frontend,
-)
-from cmk.gui.http import request
+from cmk.gui.form_specs.vue import get_visitor, RawFrontendData, VisitorOptions
+from cmk.gui.http import Request
 from cmk.gui.i18n import localize
 from cmk.gui.logged_in import user
 from cmk.gui.quick_setup.config_setups import register as register_config_setups
@@ -82,7 +80,6 @@ from cmk.gui.watolib.automations import (
     MKAutomationException,
     RemoteAutomationConfig,
 )
-
 from cmk.rulesets.v1.form_specs import FormSpec
 
 
@@ -114,7 +111,12 @@ def _form_spec_validate(
     return {
         form_spec_id: [QuickSetupValidationError(**asdict(error)) for error in errors]
         for form_spec_id, form_data in current_stage_form_data.items()
-        if (errors := validate_value_from_frontend(expected_formspecs_map[form_spec_id], form_data))
+        if (
+            errors := get_visitor(
+                expected_formspecs_map[form_spec_id],
+                VisitorOptions(migrate_values=True, mask_values=False),
+            ).validate(RawFrontendData(form_data))
+        )
     }
 
 
@@ -206,6 +208,7 @@ def recap_stage(
     stages_raw_formspecs: Sequence[RawFormData],
     quick_setup_formspec_map: FormspecMap,
     progress_logger: ProgressLogger,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     debug: bool,
 ) -> Sequence[Widget]:
     parsed_formspec = form_spec_parse(stages_raw_formspecs, quick_setup_formspec_map)
@@ -217,6 +220,7 @@ def recap_stage(
                 stage_index,
                 parsed_formspec,
                 progress_logger,
+                site_configs,
                 debug,
             )
         )
@@ -260,6 +264,7 @@ def verify_custom_validators_and_recap_stage(
     form_spec_map: FormspecMap,
     built_stages: Sequence[QuickSetupStage],
     progress_logger: ProgressLogger | None,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     debug: bool,
 ) -> StageActionResult:
     if progress_logger is None:
@@ -288,6 +293,7 @@ def verify_custom_validators_and_recap_stage(
         stages_raw_formspecs=[RawFormData(stage["form_data"]) for stage in input_stages],
         quick_setup_formspec_map=form_spec_map,
         progress_logger=progress_logger,
+        site_configs=site_configs,
         debug=debug,
     )
     return response
@@ -339,7 +345,11 @@ class QuickSetupStageActionBackgroundJob(BackgroundJob):
         with job_interface.gui_context():
             localize(self._language)
             try:
-                self._run_quick_setup_stage_action(job_interface, debug=active_config.debug)
+                self._run_quick_setup_stage_action(
+                    job_interface,
+                    site_configs=active_config.sites,
+                    debug=active_config.debug,
+                )
             except Exception as e:
                 job_interface.get_logger().debug(
                     "Exception raised while the Quick setup stage action: %s", e
@@ -353,7 +363,11 @@ class QuickSetupStageActionBackgroundJob(BackgroundJob):
                 ).save_to_file(Path(job_interface.get_work_dir()))
 
     def _run_quick_setup_stage_action(
-        self, job_interface: BackgroundProcessInterface, *, debug: bool
+        self,
+        job_interface: BackgroundProcessInterface,
+        *,
+        site_configs: Mapping[SiteId, SiteConfiguration],
+        debug: bool,
     ) -> None:
         job_interface.send_progress_update(_("Starting Quick stage action..."))
 
@@ -371,6 +385,7 @@ class QuickSetupStageActionBackgroundJob(BackgroundJob):
             form_spec_map=form_spec_map,
             built_stages=built_stages_up_to_index,
             progress_logger=JobBasedProgressLogger(job_interface),
+            site_configs=site_configs,
             debug=debug,
         )
 
@@ -478,8 +493,8 @@ def get_stage_structure(
 
 
 def start_quick_setup_stage_action_job_on_remote(
-    site_id: str,
-    site_config: SiteConfiguration,
+    site_id: SiteId,
+    automation_config: RemoteAutomationConfig,
     quick_setup_id: QuickSetupId,
     action_id: ActionId,
     stage_index: StageIndex,
@@ -500,7 +515,7 @@ def start_quick_setup_stage_action_job_on_remote(
     try:
         job_id = str(
             do_remote_automation(
-                RemoteAutomationConfig.from_site_config(site_config),
+                automation_config,
                 "start-quick-setup-stage-action",
                 [
                     ("args", args.model_dump_json()),
@@ -524,7 +539,7 @@ class AutomationQuickSetupStageAction(AutomationCommand[QuickSetupStageActionJob
         return "start-quick-setup-stage-action"
 
     @override
-    def get_request(self) -> QuickSetupStageActionJobArgs:
+    def get_request(self, config: Config, request: Request) -> QuickSetupStageActionJobArgs:
         api_request = request.get_request()
         return QuickSetupStageActionJobArgs.model_validate_json(api_request["args"])
 
@@ -548,7 +563,7 @@ class AutomationQuickSetupStageActionResult(AutomationCommand[str]):
         return "fetch-quick-setup-stage-action-result"
 
     @override
-    def get_request(self) -> str:
+    def get_request(self, config: Config, request: Request) -> str:
         job_id = request.get_request()["job_id"]
         assert isinstance(job_id, str)
         return job_id

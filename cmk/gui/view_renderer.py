@@ -10,11 +10,9 @@ from collections.abc import Callable, Iterator
 from typing import override
 
 import cmk.ccc.version as cmk_version
-
-import cmk.utils.paths
-
 import cmk.gui.pages
 import cmk.gui.view_utils
+import cmk.utils.paths
 from cmk.gui import sites, visuals, weblib
 from cmk.gui.alarm import play_alarm_sounds
 from cmk.gui.breadcrumb import Breadcrumb
@@ -47,6 +45,7 @@ from cmk.gui.type_defs import HTTPVariables, InfoName, Rows, ViewSpec
 from cmk.gui.utils.filter import check_if_non_default_filter_in_request
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.output_funnel import output_funnel
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.selection_id import SelectionId
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import DocReference, makeuri, makeuri_contextless
@@ -55,7 +54,6 @@ from cmk.gui.views.command import Command, do_actions, get_command_groups, shoul
 from cmk.gui.views.page_ajax_filters import AjaxInitialViewFilters
 from cmk.gui.visuals import view_title
 from cmk.gui.visuals.filter import Filter
-from cmk.gui.watolib.activate_changes import get_pending_changes_tooltip, has_pending_changes
 
 
 def _filter_selected_rows(view_spec: ViewSpec, rows: Rows, selected_ids: list[str]) -> Rows:
@@ -95,6 +93,7 @@ class ABCViewRenderer(abc.ABC):
         num_columns: int,
         show_filters: list[Filter],
         unfiltered_amount_of_rows: int,
+        user_permissions: UserPermissions,
         *,
         debug: bool,
     ) -> None:
@@ -120,6 +119,7 @@ class GUIViewRenderer(ABCViewRenderer):
         num_columns: int,
         show_filters: list[Filter],
         unfiltered_amount_of_rows: int,
+        user_permissions: UserPermissions,
         *,
         debug: bool,
     ) -> None:
@@ -139,7 +139,7 @@ class GUIViewRenderer(ABCViewRenderer):
                 request,
                 view_title(view_spec, self.view.context),
                 breadcrumb,
-                page_menu=self._page_menu(rows, show_filters),
+                page_menu=self._page_menu(rows, show_filters, user_permissions),
                 browser_reload=html.browser_reload,
                 debug=debug,
             )
@@ -348,7 +348,9 @@ class GUIViewRenderer(ABCViewRenderer):
 
         return False
 
-    def _page_menu(self, rows: Rows, show_filters: list[Filter]) -> PageMenu:
+    def _page_menu(
+        self, rows: Rows, show_filters: list[Filter], user_permissions: UserPermissions
+    ) -> PageMenu:
         breadcrumb: Breadcrumb = self.view.breadcrumb()
         if not display_options.enabled(display_options.B):
             return PageMenu()  # No buttons -> no menu
@@ -373,7 +375,7 @@ class GUIViewRenderer(ABCViewRenderer):
 
         page_menu_dropdowns = (
             self._page_menu_dropdown_commands()
-            + self._page_menu_dropdowns_context(rows)
+            + self._page_menu_dropdowns_context(rows, user_permissions)
             + export_dropdown
         )
 
@@ -382,8 +384,6 @@ class GUIViewRenderer(ABCViewRenderer):
         menu = PageMenu(
             dropdowns=page_menu_dropdowns,
             breadcrumb=breadcrumb,
-            has_pending_changes=has_pending_changes(),
-            pending_changes_tooltip=get_pending_changes_tooltip(),
         )
 
         self._extend_display_dropdown(menu, show_filters)
@@ -449,8 +449,10 @@ class GUIViewRenderer(ABCViewRenderer):
                     css_classes=["command"],
                 )
 
-    def _page_menu_dropdowns_context(self, rows: Rows) -> list[PageMenuDropdown]:
-        return get_context_page_menu_dropdowns(self.view, rows, mobile=False)
+    def _page_menu_dropdowns_context(
+        self, rows: Rows, user_permissions: UserPermissions
+    ) -> list[PageMenuDropdown]:
+        return get_context_page_menu_dropdowns(self.view, rows, user_permissions)
 
     def _page_menu_entries_export_data(self) -> Iterator[PageMenuEntry]:
         if not user.may("general.csv_export"):

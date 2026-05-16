@@ -3,24 +3,23 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Literal, NotRequired, TypedDict
 from uuid import uuid4
 
-from cmk.ccc import store
-from cmk.ccc.exceptions import MKGeneralException
-
 import cmk.utils.paths
-from cmk.utils.config_path import VersionedConfigPath
+from cmk.ccc import store
+from cmk.ccc.config_path import VersionedConfigPath
+from cmk.ccc.exceptions import MKGeneralException
+from cmk.crypto.symmetric import aes_gcm_decrypt, aes_gcm_encrypt, TaggedCiphertext
 from cmk.utils.global_ident_type import GlobalIdent
 from cmk.utils.local_secrets import PasswordStoreSecret
 
-from cmk.crypto.symmetric import aes_gcm_decrypt, aes_gcm_encrypt, TaggedCiphertext
-
 PasswordLookupType = Literal["password", "store"]
 PasswordId = str | tuple[PasswordLookupType, str]
+
 
 # CMK-16660
 # _PASSWORD_ID_PREFIX = ":uuid:"  # cannot collide with user defined id.
@@ -46,11 +45,14 @@ def password_store_path() -> Path:
     return cmk.utils.paths.var_dir / "stored_passwords"
 
 
-def core_password_store_path(config_path: Path = VersionedConfigPath.LATEST_CONFIG) -> Path:
+def core_password_store_path(config_path: Path | None = None) -> Path:
     """file where the passwords for use by the helpers are stored
 
     This is "frozen" in the state at config generation.
     """
+    if config_path is None:
+        # TODO: Make non-optional
+        config_path = VersionedConfigPath.make_latest_path(cmk.utils.paths.omd_root)
     return config_path / "stored_passwords"
 
 
@@ -108,6 +110,26 @@ def ad_hoc_password_id() -> str:
     return f"{_PASSWORD_ID_PREFIX}{uuid4()}"
 
 
+def extract_formspec_password(
+    password: tuple[Literal["cmk_postprocessed"], Literal["stored_password"], tuple[str, str]]
+    | tuple[Literal["cmk_postprocessed"], Literal["explicit_password"], tuple[str, str]],
+) -> str:
+    match password:
+        case ("cmk_postprocessed", "explicit_password", (password_id, password_value)):
+            # This is a password that was entered in the GUI, so we can return it directly.
+            return password_value
+        case ("cmk_postprocessed", "stored_password", (password_id, str())):
+            if (pw := load(pending_password_store_path()).get(password_id)) is None:
+                raise MKGeneralException(
+                    "Password not found in pending password store. Please check the password store."
+                )
+            return pw
+        case _:
+            raise MKGeneralException(
+                f"Unknown password type {password}. Expected 'cmk_postprocessed'."
+            )
+
+
 def extract(password_id: PasswordId) -> str:
     """Translate the password store reference to the actual password. This function is likely
     to be used by third party plugins and should not be moved / changed in behaviour."""
@@ -130,6 +152,15 @@ def extract(password_id: PasswordId) -> str:
             return pw
         case _:
             raise MKGeneralException("Unknown password type.")
+
+
+def make_staged_passwords_lookup() -> Callable[[str], str | None]:
+    """Returns something similar to `extract`. Intended for internal use only."""
+    staging_path = (
+        pending_password_store_path()
+    )  # maybe we should pass this, but lets be consistent for now.
+    store = load(staging_path)
+    return store.get
 
 
 def lookup(pw_file: Path, pw_id: str) -> str:

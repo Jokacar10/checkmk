@@ -17,8 +17,12 @@ from typing import Any, Literal, Self, TypedDict, TypeVar
 from cmk.ccc import version as cmk_version
 from cmk.ccc.hostaddress import HostAddress, HostName
 from cmk.ccc.plugin_registry import Registry
-
-from cmk.utils.agentdatatype import AgentRawData
+from cmk.checkengine.discovery import CheckPreviewEntry, DiscoveryReport, TransitionCounter
+from cmk.checkengine.legacy import LegacyCheckParameters
+from cmk.checkengine.parameters import TimespecificParameters
+from cmk.checkengine.plugins import AutocheckEntry
+from cmk.checkengine.submitters import ServiceDetails, ServiceState
+from cmk.helper_interface import AgentRawData
 from cmk.utils.check_utils import ParametersTypeAlias
 from cmk.utils.config_warnings import ConfigurationWarnings
 from cmk.utils.ip_lookup import IPStackConfig
@@ -26,12 +30,6 @@ from cmk.utils.labels import HostLabel, HostLabelValueDict, Labels, LabelSources
 from cmk.utils.notify_types import NotifyAnalysisInfo, NotifyBulks
 from cmk.utils.rulesets.ruleset_matcher import RulesetName
 from cmk.utils.servicename import Item, ServiceName
-
-from cmk.checkengine.discovery import CheckPreviewEntry, DiscoveryReport, TransitionCounter
-from cmk.checkengine.legacy import LegacyCheckParameters
-from cmk.checkengine.parameters import TimespecificParameters
-from cmk.checkengine.plugins import AutocheckEntry
-from cmk.checkengine.submitters import ServiceDetails, ServiceState
 
 DiscoveredHostLabelsDict = dict[str, HostLabelValueDict]
 

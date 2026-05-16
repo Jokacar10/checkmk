@@ -8,22 +8,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, NamedTuple, TypeVar
 
 import cmk.ccc.version as cmk_version
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.site import omd_site, SiteId
-
-from cmk.utils.diagnostics import DiagnosticsCLParameters
-from cmk.utils.labels import HostLabel, Labels
-from cmk.utils.notify import NotificationContext
-from cmk.utils.rulesets.ruleset_matcher import RuleSpec
-from cmk.utils.servicename import Item, ServiceName
-
 from cmk.automations import results
 from cmk.automations.results import SetAutochecksInput
-
+from cmk.ccc.hostaddress import HostName
 from cmk.checkengine.discovery import DiscoverySettings
 from cmk.checkengine.plugins import CheckPluginName
-
-from cmk.gui.config import active_config
 from cmk.gui.hooks import request_memoize
 from cmk.gui.i18n import _
 from cmk.gui.watolib.activate_changes import sync_changes_before_remote_automation
@@ -32,11 +21,15 @@ from cmk.gui.watolib.automations import (
     check_mk_remote_automation_serialized,
     get_local_automation_failure_message,
     LocalAutomationConfig,
-    make_automation_config,
     MKAutomationException,
     RemoteAutomationConfig,
 )
 from cmk.gui.watolib.hosts_and_folders import collect_all_hosts
+from cmk.utils.diagnostics import DiagnosticsCLParameters
+from cmk.utils.labels import HostLabel, Labels
+from cmk.utils.notify import NotificationContext
+from cmk.utils.rulesets.ruleset_matcher import RuleSpec
+from cmk.utils.servicename import Item, ServiceName
 
 
 class AutomationResponse(NamedTuple):
@@ -89,7 +82,7 @@ def _automation_serialized(
             indata=indata,
             stdin_data=stdin_data,
             timeout=timeout,
-            sync=sync_changes_before_remote_automation if sync else lambda site_id: None,
+            sync=sync_changes_before_remote_automation if sync else lambda site_id, debug: None,
             non_blocking_http=non_blocking_http,
             debug=debug,
         ),
@@ -151,7 +144,7 @@ def local_discovery(
     debug: bool,
 ) -> results.ServiceDiscoveryResult:
     return discovery(
-        site_id=omd_site(),
+        automation_config=LocalAutomationConfig(),
         mode=mode,
         host_names=host_names,
         scan=scan,
@@ -163,7 +156,7 @@ def local_discovery(
 
 
 def discovery(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     mode: DiscoverySettings,
     host_names: Iterable[HostName],
     *,
@@ -176,7 +169,7 @@ def discovery(
     return _deserialize(
         _automation_serialized(
             "service-discovery",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=[
                 *(("@scan",) if scan else ()),
                 *(("@raiseerrors",) if raise_errors else ()),
@@ -193,7 +186,7 @@ def discovery(
 
 
 def special_agent_discovery_preview(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     special_agent_preview_input: results.DiagSpecialAgentInput,
     *,
     debug: bool,
@@ -201,7 +194,7 @@ def special_agent_discovery_preview(
     return _deserialize(
         _automation_serialized(
             "special-agent-discovery-preview",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=None,
             stdin_data=special_agent_preview_input.serialize(
                 cmk_version.Version.from_str(cmk_version.__version__)
@@ -240,11 +233,11 @@ def local_discovery_preview(
     )
 
 
-def autodiscovery(site_id: SiteId, *, debug: bool) -> results.AutodiscoveryResult:
+def autodiscovery(*, debug: bool) -> results.AutodiscoveryResult:
     return _deserialize(
         _automation_serialized(
             "autodiscovery",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=LocalAutomationConfig(),
             debug=debug,
         ),
         results.AutodiscoveryResult,
@@ -253,7 +246,7 @@ def autodiscovery(site_id: SiteId, *, debug: bool) -> results.AutodiscoveryResul
 
 
 def set_autochecks_v2(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     checks: SetAutochecksInput,
     *,
     debug: bool,
@@ -261,7 +254,7 @@ def set_autochecks_v2(
     return _deserialize(
         _automation_serialized(
             "set-autochecks-v2",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=None,
             stdin_data=checks.serialize(),
             debug=debug,
@@ -272,7 +265,7 @@ def set_autochecks_v2(
 
 
 def update_host_labels(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     host_name: HostName,
     host_labels: Sequence[HostLabel],
     *,
@@ -281,7 +274,7 @@ def update_host_labels(
     return _deserialize(
         _automation_serialized(
             "update-host-labels",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=[host_name],
             indata={label.name: label.to_dict() for label in host_labels},
             debug=debug,
@@ -292,7 +285,7 @@ def update_host_labels(
 
 
 def rename_hosts(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     name_pairs: Sequence[tuple[HostName, HostName]],
     *,
     debug: bool,
@@ -300,7 +293,7 @@ def rename_hosts(
     return _deserialize(
         _automation_serialized(
             "rename-hosts",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             indata=name_pairs,
             non_blocking_http=True,
             debug=debug,
@@ -311,7 +304,7 @@ def rename_hosts(
 
 
 def get_services_labels(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     host_name: HostName,
     service_names: Iterable[ServiceName],
     *,
@@ -320,7 +313,7 @@ def get_services_labels(
     return _deserialize(
         _automation_serialized(
             "get-services-labels",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=[host_name, *service_names],
             debug=debug,
         ),
@@ -345,7 +338,7 @@ def get_service_name(
 
 
 def analyse_service(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     host_name: HostName,
     service_name: ServiceName,
     *,
@@ -354,7 +347,7 @@ def analyse_service(
     return _deserialize(
         _automation_serialized(
             "analyse-service",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=[host_name, service_name],
             debug=debug,
         ),
@@ -364,7 +357,7 @@ def analyse_service(
 
 
 def analyse_host(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     host_name: HostName,
     *,
     debug: bool,
@@ -372,7 +365,7 @@ def analyse_host(
     return _deserialize(
         _automation_serialized(
             "analyse-host",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=[host_name],
             debug=debug,
         ),
@@ -438,14 +431,14 @@ def analyze_host_rule_effectiveness(
 
 
 def delete_hosts(
-    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     host_names: Sequence[HostName],
     debug: bool,
 ) -> results.DeleteHostsResult:
     return _deserialize(
         _automation_serialized(
             "delete-hosts",
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=automation_config,
             args=host_names,
             debug=debug,
         ),
@@ -530,7 +523,7 @@ def get_check_information_cached(*, debug: bool) -> Mapping[CheckPluginName, Map
     return {CheckPluginName(name): info for name, info in sorted(raw_check_dict.items())}
 
 
-def get_section_information(*, debug: bool) -> results.GetSectionInformationResult:
+def _get_section_information(*, debug: bool) -> results.GetSectionInformationResult:
     return _deserialize(
         _automation_serialized(
             "get-section-information",
@@ -544,7 +537,7 @@ def get_section_information(*, debug: bool) -> results.GetSectionInformationResu
 
 @request_memoize()
 def get_section_information_cached(*, debug: bool) -> Mapping[str, Mapping[str, str]]:
-    return get_section_information(debug=debug).section_infos
+    return _get_section_information(debug=debug).section_infos
 
 
 def scan_parents(
@@ -599,6 +592,8 @@ def diag_special_agent(
 def ping_host(
     automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     ping_host_input: results.PingHostInput,
+    *,
+    debug: bool,
 ) -> results.PingHostResult:
     return _deserialize(
         _automation_serialized(
@@ -608,10 +603,10 @@ def ping_host(
             stdin_data=ping_host_input.serialize(
                 cmk_version.Version.from_str(cmk_version.__version__)
             ),
-            debug=active_config.debug,
+            debug=debug,
         ),
         results.PingHostResult,
-        debug=active_config.debug,
+        debug=debug,
     )
 
 
@@ -637,6 +632,8 @@ def diag_host(
 def diag_cmk_agent(
     automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     diag_cmk_agent_input: results.DiagCmkAgentInput,
+    *,
+    debug: bool,
 ) -> results.DiagCmkAgentResult:
     return _deserialize(
         _automation_serialized(
@@ -646,10 +643,10 @@ def diag_cmk_agent(
             stdin_data=diag_cmk_agent_input.serialize(
                 cmk_version.Version.from_str(cmk_version.__version__)
             ),
-            debug=active_config.debug,
+            debug=debug,
         ),
         results.DiagCmkAgentResult,
-        debug=active_config.debug,
+        debug=debug,
     )
 
 

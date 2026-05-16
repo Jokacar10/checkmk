@@ -12,20 +12,15 @@ from typing import override
 from urllib.parse import unquote
 
 import cmk.ccc.version as cmk_version
+import cmk.gui.mobile
+import cmk.utils.paths
 from cmk.ccc.site import omd_site, url_prefix
 from cmk.ccc.user import UserId
-
-import cmk.utils.paths
-from cmk.utils.licensing.handler import LicenseStateError, RemainingTrialTime
-from cmk.utils.licensing.registry import get_remaining_trial_time_rounded
-from cmk.utils.log.security_event import log_security_event
-from cmk.utils.urls import is_allowed_url
-
-import cmk.gui.mobile
+from cmk.crypto.password import Password
 from cmk.gui import userdb
 from cmk.gui.auth import is_site_login
 from cmk.gui.breadcrumb import Breadcrumb
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import FinalizeRequest, HTTPRedirect, MKAuthException, MKUserError
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.header import make_header
@@ -40,31 +35,35 @@ from cmk.gui.logged_in import (
     user,
 )
 from cmk.gui.main import get_page_heading
-from cmk.gui.pages import Page, PageRegistry
+from cmk.gui.pages import Page, PageEndpoint, PageRegistry
+from cmk.gui.permissions import permission_registry
 from cmk.gui.session import session, UserContext
 from cmk.gui.theme.current_theme import theme
-from cmk.gui.userdb import get_active_saml_connections
+from cmk.gui.userdb import get_active_saml_connections, get_user_attributes
 from cmk.gui.userdb.session import auth_cookie_name
 from cmk.gui.utils import roles
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.login import show_saml2_login, show_user_errors
 from cmk.gui.utils.mobile import is_mobile
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.security_log_events import AuthenticationFailureEvent, AuthenticationSuccessEvent
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import makeuri, requested_file_name, urlencode
 from cmk.gui.utils.user_errors import user_errors
-
-from cmk.crypto.password import Password
+from cmk.utils.licensing.handler import LicenseStateError, RemainingTrialTime
+from cmk.utils.licensing.registry import get_remaining_trial_time_rounded
+from cmk.utils.log.security_event import log_security_event
+from cmk.utils.urls import is_allowed_url
 
 
 def register(page_registry: PageRegistry) -> None:
     # TODO: only overwrite this in cse specific files
     if cmk_version.edition(cmk.utils.paths.omd_root) == cmk_version.Edition.CSE:
-        page_registry.register_page("login")(SaasLoginPage)
-        page_registry.register_page("logout")(SaasLogoutPage)
+        page_registry.register(PageEndpoint("login", SaasLoginPage))
+        page_registry.register(PageEndpoint("logout", SaasLogoutPage))
     else:
-        page_registry.register_page("login")(LoginPage)
-        page_registry.register_page("logout")(LogoutPage)
+        page_registry.register(PageEndpoint("login", LoginPage))
+        page_registry.register(PageEndpoint("logout", LogoutPage))
 
 
 @contextlib.contextmanager
@@ -119,13 +118,13 @@ def del_auth_cookie() -> None:
 
 class SaasLoginPage(Page):
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         raise HTTPRedirect("cognito_sso.py")
 
 
 class SaasLogoutPage(Page):
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         raise HTTPRedirect("cognito_logout.py")
 
 
@@ -150,23 +149,23 @@ class LoginPage(Page):
         self._no_html_output = no_html_output
 
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         # Initialize the cmk.gui.i18n for the login dialog. This might be
         # overridden later after user login
-        cmk.gui.i18n.localize(request.var("lang", active_config.default_language))
+        cmk.gui.i18n.localize(request.var("lang", config.default_language))
 
-        self._do_login()
+        self._do_login(config)
 
         if self._no_html_output:
             raise MKAuthException(_("Invalid login credentials."))
 
         if is_mobile(request, response):
-            cmk.gui.mobile.page_login()
+            cmk.gui.mobile.page_login(config)
             return
 
-        self._show_login_page()
+        self._show_login_page(config)
 
-    def _do_login(self) -> None:
+    def _do_login(self, config: Config) -> None:
         """handle the login form"""
         if not request.var("_login"):
             return
@@ -174,14 +173,14 @@ class LoginPage(Page):
         try:
             username: UserId | None = None  # make sure it's defined in the except block
 
-            if not active_config.user_login and not is_site_login():
+            if not config.user_login and not is_site_login():
                 raise MKUserError(None, _("Login is not allowed on this site."))
 
             # Login via the GET method is allowed only after manually
             # enabling the property "Enable login via GET" in the
             # Global Settings. Please refer to the Werk 14261 for
             # more details.
-            if request.request_method != "POST" and not active_config.enable_login_via_get:
+            if request.request_method != "POST" and not config.enable_login_via_get:
                 raise MKUserError(None, _("Method not allowed"))
 
             username_var = request.get_str_input(self._username_varname, "")
@@ -213,7 +212,13 @@ class LoginPage(Page):
                 origtarget = default_origtarget
 
             now = datetime.now()
-            if result := userdb.check_credentials(username, password, now):
+            if result := userdb.check_credentials(
+                username,
+                password,
+                (user_attributes := get_user_attributes(config.wato_user_attrs)),
+                now,
+                config.default_user_profile,
+            ):
                 # use the username provided by the successful login function, this function
                 # might have transformed the username provided by the user. e.g. switched
                 # from mixed case to lower case.
@@ -226,7 +231,7 @@ class LoginPage(Page):
                 # a) Set the auth cookie
                 # b) Unset the login vars in further processing
                 # c) Redirect to really requested page
-                session.login(LoggedInUser(username))
+                session.login(LoggedInUser(username), request.is_secure)
 
                 # This must happen before the enforced password change is
                 # checked in order to have the redirects correct...
@@ -236,7 +241,9 @@ class LoginPage(Page):
                     )
 
                 # Having this before password updating to prevent redirect access issues
-                if session.two_factor_enforced():
+                if session.two_factor_enforced(
+                    UserPermissions.from_config(config, permission_registry)
+                ):
                     session.session_info.two_factor_required = True
                     raise HTTPRedirect(
                         "user_two_factor_enforce.py?_origtarget=%s"
@@ -266,7 +273,13 @@ class LoginPage(Page):
 
                 raise HTTPRedirect(origtarget)
 
-            userdb.on_failed_login(username, now)
+            userdb.on_failed_login(
+                username,
+                user_attributes,
+                now=now,
+                lock_on_logon_failures=config.lock_on_logon_failures,
+                log_logon_failures=config.log_logon_failures,
+            )
             raise MKUserError(self._password_varname, self._default_login_error_msg)
 
         except MKUserError as e:
@@ -280,10 +293,10 @@ class LoginPage(Page):
             )
             user_errors.add(e)
 
-    def _show_login_page(self) -> None:
+    def _show_login_page(self, config: Config) -> None:
         html.render_headfoot = False
         html.add_body_css_class("login")
-        make_header(html, get_page_heading(), Breadcrumb())
+        make_header(html, get_page_heading(config), Breadcrumb())
 
         default_origtarget = (
             "index.py"
@@ -377,16 +390,16 @@ class LoginPage(Page):
 
             html.open_div(id_="foot")
 
-            if active_config.login_screen.get("login_message"):
+            if config.login_screen.get("login_message"):
                 html.open_div(id_="login_message")
-                html.show_message(active_config.login_screen["login_message"])
+                html.show_message(config.login_screen["login_message"])
                 html.close_div()
 
             footer: list[HTML] = []
-            for title, url, target in active_config.login_screen.get("footer_links", []):
+            for title, url, target in config.login_screen.get("footer_links", []):
                 footer.append(HTMLWriter.render_a(title, href=url, target=target))
 
-            if "hide_version" not in active_config.login_screen:
+            if "hide_version" not in config.login_screen:
                 footer.append(HTML.with_escaping("Version: %s" % cmk_version.__version__))
 
             footer.append(
@@ -449,7 +462,7 @@ def _show_remaining_trial_time(remaining_trial_time: RemainingTrialTime) -> None
 
 class LogoutPage(Page):
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         assert user.id is not None
 
         session.invalidate()

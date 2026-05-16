@@ -5,6 +5,7 @@
  */
 import { render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
 import FormReadonly from '@/form/components/FormReadonly.vue'
 
 function getSpec(specType: 'integer' | 'float'): FormSpec.Integer | FormSpec.Float {
@@ -12,7 +13,6 @@ function getSpec(specType: 'integer' | 'float'): FormSpec.Integer | FormSpec.Flo
     type: specType,
     title: 'fooTitle',
     help: 'fooHelp',
-    i18n_base: { required: 'required' },
     label: 'fooLabel',
     unit: 'fooUnit',
     validators: [],
@@ -62,7 +62,6 @@ const stringFormSpec: FormSpec.String = {
   title: 'barTitle',
   help: 'barHelp',
   label: null,
-  i18n_base: { required: 'required' },
   validators: [],
   input_hint: '',
   autocompleter: null,
@@ -82,10 +81,8 @@ test('FormReadonly renders string', () => {
 
 const dictionaryFormSpec: FormSpec.Dictionary = {
   type: 'dictionary',
-  layout: 'one_column',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   validators: [],
   groups: [],
   no_elements_text: 'no_text',
@@ -130,7 +127,6 @@ const singleChoiceFormSpec: FormSpec.SingleChoice = {
   title: 'fooTitle',
   input_hint: '',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   no_elements_text: 'no_text',
   elements: [
     { name: 'choice1', title: 'Choice 1' },
@@ -184,7 +180,6 @@ const cascadingSingleChoiceFormSpec: FormSpec.CascadingSingleChoice = {
   label: 'fooLabel',
   layout: 'horizontal',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   validators: [],
   input_hint: null,
   no_elements_text: '',

@@ -5,7 +5,7 @@
 
 
 from collections.abc import Iterable
-from typing import Literal
+from typing import assert_never, Literal
 
 from pydantic import BaseModel
 
@@ -13,6 +13,7 @@ from cmk.server_side_calls.v1 import (
     EnvProxy,
     HostConfig,
     NoProxy,
+    replace_macros,
     Secret,
     SpecialAgentCommand,
     SpecialAgentConfig,
@@ -37,27 +38,39 @@ class Config(BaseModel):
 
 class AzureParams(BaseModel):
     authority: str
-    subscription: str | None = None
+    subscription: (
+        tuple[Literal["no_subscriptions"], None]
+        | tuple[Literal["explicit_subscriptions"], list[str]]
+        | tuple[Literal["all_subscriptions"], None]
+        | tuple[Literal["tag_matching_subscriptions"], list[TagBased]]
+    )
     tenant: str
     client: str
     secret: Secret
     proxy: URLProxy | NoProxy | EnvProxy | None = None
     services: list[str]
     config: Config
-    piggyback_vms: str | None = None
     filter_tags: (
         tuple[Literal["filter_tags"], str] | tuple[Literal["dont_import_tags"], None] | None
     ) = None
     connection_test: bool = False  # only used by quick setup
+    safe_hostnames: bool = False
 
 
-def _tag_based_args(tag_based: list[TagBased]) -> list[str]:
+def _tag_based_args(tag_based: list[TagBased], is_subscription: bool = False) -> list[str]:
     args = []
     for tag_config in tag_based:
         if tag_config.condition[0] == "exists":
-            args += ["--require-tag", tag_config.tag]
+            args += [
+                "--subscriptions-require-tag" if is_subscription else "--require-tag",
+                tag_config.tag,
+            ]
         if isinstance(tag_config.condition, tuple) and tag_config.condition[0] == "equals":
-            args += ["--require-tag-value", tag_config.tag, tag_config.condition[1]]
+            args += [
+                "--subscriptions-require-tag-value" if is_subscription else "--require-tag-value",
+                tag_config.tag,
+                tag_config.condition[1],
+            ]
     return args
 
 
@@ -86,10 +99,21 @@ def agent_azure_arguments(
             "--authority",
             params.authority if params.authority != "global_" else "global",
         ]
-    if params.subscription:
-        args += ["--subscription", params.subscription]
-    if params.piggyback_vms:
-        args += ["--piggyback_vms", params.piggyback_vms]
+
+    if params.subscription[0] == "no_subscriptions":
+        args += ["--no-subscriptions"]
+    elif params.subscription[0] == "explicit_subscriptions":
+        args += [
+            replace_macros(item, host_config.macros)
+            for subscription in params.subscription[1]
+            for item in ("--subscription", subscription)
+        ]
+    elif params.subscription[0] == "all_subscriptions":
+        args += ["--all-subscriptions"]
+    elif params.subscription[0] == "tag_matching_subscriptions":
+        args += _tag_based_args(params.subscription[1], is_subscription=True)
+    else:
+        assert_never(params.subscription[0])
 
     if params.proxy:
         match params.proxy:
@@ -100,6 +124,11 @@ def agent_azure_arguments(
             case NoProxy():
                 args += ["--proxy", "NO_PROXY"]
 
+    if params.connection_test:
+        args += ["--connection-test"]
+        yield SpecialAgentCommand(command_arguments=args)
+        return
+
     if params.services:
         args += [
             "--services",
@@ -109,15 +138,15 @@ def agent_azure_arguments(
             ],
         ]
 
+    if params.safe_hostnames:
+        args += ["--safe-hostnames"]
+
     config = params.config
 
     if config.explicit:
         args += _explicit_args(config.explicit)
     if config.tag_based:
         args += _tag_based_args(config.tag_based)
-
-    if params.connection_test:
-        args += ["--connection-test"]
 
     args += [
         "--cache-id",

@@ -4,19 +4,19 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import base64
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from datetime import datetime
 
 from cmk.ccc.user import UserId
-
 from cmk.gui import userdb
 from cmk.gui.breadcrumb import Breadcrumb, BreadcrumbItem, make_simple_page_breadcrumb
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
 from cmk.gui.i18n import _, ungettext
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.page_menu import (
     make_confirmed_form_submit_link,
     make_simple_link,
@@ -25,8 +25,15 @@ from cmk.gui.page_menu import (
     PageMenuEntry,
     PageMenuTopic,
 )
-from cmk.gui.type_defs import ActionResult, PermissionName, Users
-from cmk.gui.userdb import connections_by_type, ConnectorType, get_connection, get_user_attributes
+from cmk.gui.type_defs import ActionResult, PermissionName
+from cmk.gui.user_connection_config_types import UserConnectionConfig
+from cmk.gui.userdb import (
+    connections_by_type,
+    ConnectorType,
+    get_connection,
+    get_user_attributes,
+    UserAttribute,
+)
 from cmk.gui.utils.csrf_token import check_csrf_token
 from cmk.gui.utils.flashed_messages import flash
 from cmk.gui.utils.selection_id import SelectionId
@@ -53,7 +60,7 @@ class ModeUserMigrate(WatoMode):
         return _("Migrate users to another connection")
 
     def breadcrumb(self) -> Breadcrumb:
-        breadcrumb = make_simple_page_breadcrumb(mega_menu_registry.menu_setup(), self.title())
+        breadcrumb = make_simple_page_breadcrumb(main_menu_registry.menu_setup(), self.title())
         breadcrumb.insert(
             -1,
             BreadcrumbItem(
@@ -63,7 +70,7 @@ class ModeUserMigrate(WatoMode):
         )
         return breadcrumb
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         menu = PageMenu(
             dropdowns=[
                 PageMenuDropdown(
@@ -126,13 +133,13 @@ class ModeUserMigrate(WatoMode):
 
         return menu
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         if request.var("selection"):
-            self._show_form_page()
+            self._show_form_page(get_user_attributes(config.wato_user_attrs))
         else:
             self._show_result_page()
 
-    def _show_form_page(self) -> None:
+    def _show_form_page(self, user_attributes: Sequence[tuple[str, UserAttribute]]) -> None:
         if not (selected_users := _get_selected_users()):
             raise MKUserError("users", _("You have to select at least one user."))
 
@@ -146,7 +153,7 @@ class ModeUserMigrate(WatoMode):
         )
 
         with html.form_context("user_migrate", method="POST"):
-            self._valuespec().render_input_as_form("_user_migrate", {})
+            self._valuespec(user_attributes).render_input_as_form("_user_migrate", {})
 
             html.hidden_fields()
         html.footer()
@@ -163,20 +170,27 @@ class ModeUserMigrate(WatoMode):
             _("Back to users page"),
         )
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         check_csrf_token()
 
         if not transactions.check_transaction():
             return None
 
-        vs_user_migrate = self._valuespec()
-        migration_params = self._valuespec().from_html_vars("_user_migrate")
+        user_attributes = get_user_attributes(config.wato_user_attrs)
+        vs_user_migrate = self._valuespec(user_attributes)
+        migration_params = self._valuespec(user_attributes).from_html_vars("_user_migrate")
         vs_user_migrate.validate_value(migration_params, "_user_migrate")
         if not (connector := migration_params.get("connector")):
             raise MKUserError("_user_migrate", _("You have to specify a connector to migrate to."))
 
         attributes: list[str] = migration_params.get("attributes", [])
-        users_with_warning, users_migrated = self._migrate_users(connector, attributes)
+        users_with_warning, users_migrated = self._migrate_users(
+            connector,
+            attributes,
+            user_attributes,
+            config.user_connections,
+            pprint_value=config.wato_pprint_config,
+        )
 
         flashed_msg: str = _("Migrated %d %s to connector '%s': %s") % (
             len(users_migrated),
@@ -204,7 +218,7 @@ class ModeUserMigrate(WatoMode):
 
         return redirect(mode_url("user_migrate", connector=connector))
 
-    def _valuespec(self) -> Dictionary:
+    def _valuespec(self, user_attributes: Sequence[tuple[str, UserAttribute]]) -> Dictionary:
         return Dictionary(
             elements=[
                 (
@@ -219,7 +233,7 @@ class ModeUserMigrate(WatoMode):
                     "attributes",
                     ListChoice(
                         title=_("Unset user attributes on migration"),
-                        choices=_get_attribute_choices(),
+                        choices=_get_attribute_choices(user_attributes),
                     ),
                 ),
             ],
@@ -230,10 +244,14 @@ class ModeUserMigrate(WatoMode):
         self,
         connector: str,
         attributes: list[str],
+        user_attributes: Sequence[tuple[str, UserAttribute]],
+        user_connections: Sequence[UserConnectionConfig],
+        *,
+        pprint_value: bool,
     ) -> tuple[list[str], list[str]]:
         users_with_warning: list[str] = []
         users_migrated: list[str] = []
-        all_users: Users = userdb.load_users()
+        all_users = userdb.load_users()
         for username in _get_selected_users():
             user_id = UserId(username)
             if username not in all_users:
@@ -257,12 +275,21 @@ class ModeUserMigrate(WatoMode):
 
             users_migrated.append(username)
 
-        userdb.save_users(all_users, datetime.now())
+        userdb.save_users(
+            all_users,
+            user_attributes,
+            user_connections,
+            now=datetime.now(),
+            pprint_value=pprint_value,
+            call_users_saved_hook=True,
+        )
 
         return users_with_warning, users_migrated
 
 
-def _get_attribute_choices() -> list[tuple[str, str]]:
+def _get_attribute_choices(
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+) -> list[tuple[str, str]]:
     # TODO can we collect all together somehow?
     default_choices: list[tuple[str, str]] = [
         ("email", "Email address"),
@@ -273,7 +300,7 @@ def _get_attribute_choices() -> list[tuple[str, str]]:
     ]
 
     builtin_attribute_choices: list[tuple[str, str]] = []
-    for name, attr in get_user_attributes():
+    for name, attr in user_attributes:
         builtin_attribute_choices.append((name, attr.valuespec().title() or attr.name()))
 
     return default_choices + builtin_attribute_choices
@@ -294,11 +321,10 @@ def _get_selected_users() -> list[str]:
 def _get_connector_choices() -> list[tuple[str, str, None]]:
     connector_choices = [("htpasswd", "Local user (htpasswd)", None)]
 
-    for connector_type in [ConnectorType.LDAP, ConnectorType.SAML2]:
-        connector_choices += [
-            (connection["id"], f"{connector_type.upper()}: {connection['id']}", None)
-            for connection in connections_by_type(connector_type)
-        ]
+    connector_choices += [
+        (connection["id"], f"{connection['type'].upper()}: {connection['id']}", None)
+        for connection in connections_by_type("ldap") + connections_by_type("saml2")
+    ]
     return connector_choices
 
 

@@ -9,6 +9,7 @@ import tarfile
 from io import BytesIO
 from pathlib import Path
 from typing import NoReturn
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +21,7 @@ from cmk.mkp_tool import (
     Installer,
     Manifest,
     PackageError,
+    PackageID,
     PackageName,
     PackagePart,
     PackageStore,
@@ -409,3 +411,41 @@ def test_get_optional_manifests_none(package_store: PackageStore) -> None:
     stored = get_stored_manifests(package_store)
     assert not stored.local
     assert not stored.shipped
+
+
+def test_create_package_with_folder_fails(
+    installer: Installer, path_config: PathConfig, package_store: PackageStore
+) -> None:
+    folder = "invalid_mkp"
+    path_config.agent_based_plugins_dir.joinpath(folder).mkdir()
+
+    with pytest.raises(PackageError, match="is not a file"):
+        create(
+            installer,
+            mkp.manifest_template(
+                name=PackageName("my_mkp"),
+                version_packaged="3.14.0p15",
+                version_required="3.14.0p1",
+                files={PackagePart.AGENT_BASED: [Path(folder)]},
+            ),
+            path_config,
+            package_store,
+            persisting_function=lambda _a, _b: 0,
+            version_packaged="3.14.0p15",
+        )
+
+
+def test_remove(installer: Installer, path_config: PathConfig, package_store: PackageStore) -> None:
+    name = PackageName("foo")
+    installed_ver = PackageVersion("1.0.0")
+    missing_ver = PackageVersion("1.3.3.7")
+    _create_simple_test_package(installer, name, path_config, package_store)
+
+    with pytest.raises(PackageError, match="Package foo 1.3.3.7 not found"):
+        pkg_id = PackageID(name=name, version=missing_ver)
+        package_store.remove(pkg_id)
+
+    with patch("cmk.mkp_tool._unsorted.Path.unlink") as unlink:
+        pkg_id = PackageID(name=name, version=installed_ver)
+        package_store.remove(pkg_id)
+        unlink.assert_called_once()

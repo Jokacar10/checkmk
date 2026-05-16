@@ -6,7 +6,6 @@
 import math
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
 from itertools import zip_longest
@@ -16,14 +15,13 @@ from dateutil.relativedelta import relativedelta
 from pydantic import BaseModel
 
 import cmk.utils.render
-
+from cmk.gui.color import fade_color, parse_color, render_color
 from cmk.gui.config import active_config
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
+from cmk.gui.unit_formatter import Label, NegativeYRange, NotationFormatter, PositiveYRange
 
-from ._color import fade_color, parse_color, render_color
-from ._formatter import Label, NotationFormatter
 from ._from_api import RegisteredMetric
 from ._graph_specification import (
     FixedVerticalRange,
@@ -586,70 +584,60 @@ def _compute_labels_from_api(
     min_y: float,
     max_y: float,
 ) -> Sequence[Label]:
-    abs_min_y = abs(min_y)
-    abs_max_y = abs(max_y)
-
     # min_y / max_y might be of type np.floating (or similar), which is a sub-type of float.
     # If this is the case, eg. min_y >= 0 is of type np.bool, which does *not* match bool 😱.
     match bool(min_y >= 0), bool(max_y >= 0):
         case True, True:
-            return ([Label(0, "0")] if abs_min_y == 0 else []) + list(
-                formatter.render_y_labels(
-                    min_y=min(abs_min_y, abs_max_y),
-                    max_y=max(abs_min_y, abs_max_y),
-                    mean_num_labels=height_ex / 4.0 + 1,
-                )
+            return formatter.render_y_labels(
+                y_range=PositiveYRange(start=min_y, end=max_y),
+                target_number_of_labels=height_ex / 4.0 + 1,
             )
         case False, True:
-            if mirrored or abs_min_y == abs_max_y:
+            abs_min_y = abs(min_y)
+            abs_max_y = abs(max_y)
+
+            if mirrored:
                 labels = formatter.render_y_labels(
-                    min_y=0,
-                    max_y=max(abs_min_y, abs_max_y),
-                    mean_num_labels=height_ex / 8.0 + 1,
+                    y_range=PositiveYRange(start=0, end=max(abs_min_y, abs_max_y)),
+                    target_number_of_labels=height_ex / 8.0 + 1,
                 )
-                return (
-                    [Label(-1 * l.position, l.text) for l in labels]
-                    + [Label(0, "0")]
-                    + list(labels)
-                )
-            mean_num_labels = height_ex / 4.0 + 1
-            min_mean_num_labels = round(mean_num_labels * abs_min_y / (abs_min_y + abs_max_y))
-            max_mean_num_labels = mean_num_labels - min_mean_num_labels
-            return (
-                [
-                    Label(-1 * l.position, f"-{l.text}")
-                    for l in formatter.render_y_labels(
-                        min_y=0,
-                        max_y=abs_min_y,
-                        mean_num_labels=abs(min_mean_num_labels),
-                    )
-                ]
-                + [Label(0, "0")]
-                + list(
-                    formatter.render_y_labels(
-                        min_y=0,
-                        max_y=abs_max_y,
-                        mean_num_labels=abs(max_mean_num_labels),
-                    )
-                )
-            )
-        case False, False:
+                return [
+                    *(
+                        Label(
+                            -l.position,
+                            l.text,
+                        )
+                        for l in labels[
+                            1:  # exclude zero label
+                        ]
+                    ),
+                    *labels,
+                ] or [Label(0, "0")]
+
+            # Computing labels for the negative and positive range separately is a product decision,
+            # not a workaround.
+            target_num_labels = height_ex / 4.0 + 1
+            target_num_labels_neg = target_num_labels * abs_min_y / (abs_min_y + abs_max_y)
+            target_num_labels_pos = target_num_labels - target_num_labels_neg
             return [
-                Label(-1 * l.position, l.text)
-                for l in formatter.render_y_labels(
-                    min_y=min(abs_min_y, abs_max_y),
-                    max_y=max(abs_min_y, abs_max_y),
-                    mean_num_labels=height_ex / 4.0 + 1,
-                )
-            ] + ([Label(0, "0")] if abs_max_y == 0 else [])
+                *formatter.render_y_labels(
+                    y_range=NegativeYRange(start=min_y, end=0),
+                    target_number_of_labels=target_num_labels_neg,
+                )[
+                    1:  # exclude zero label
+                ],
+                *formatter.render_y_labels(
+                    y_range=PositiveYRange(start=0, end=max_y),
+                    target_number_of_labels=target_num_labels_pos,
+                ),
+            ] or [Label(0, "0")]
+        case False, False:
+            return formatter.render_y_labels(
+                y_range=NegativeYRange(start=min_y, end=max_y),
+                target_number_of_labels=height_ex / 4.0 + 1,
+            )
         case _:
             raise ValueError((min_y, max_y))
-
-
-@dataclass(frozen=True)
-class _VAxisMinMax:
-    distance: float
-    label_range: tuple[float, float]
 
 
 # Compute the displayed vertical range and the labelling
@@ -671,7 +659,7 @@ def _compute_graph_v_axis(
     # distance   -> amount of values visible in vaxis (max_value - min_value)
     # min_value  -> value of lowest v axis label (taking extra margin and zooming into account)
     # max_value  -> value of highest v axis label (taking extra margin and zooming into account)
-    v_axis_min_max = _compute_v_axis_min_max(
+    v_axis_min, v_axis_max = _compute_v_axis_min_max(
         explicit_vertical_range,
         layouted_curves,
         graph_data_range.vertical_range,
@@ -682,13 +670,13 @@ def _compute_graph_v_axis(
         unit_spec.formatter,
         height_ex,
         mirrored,
-        min_y=v_axis_min_max.label_range[0],
-        max_y=v_axis_min_max.label_range[1],
+        min_y=v_axis_min,
+        max_y=v_axis_max,
     )
     label_positions = [l.position for l in labels]
     label_range = (
-        min([v_axis_min_max.label_range[0]] + label_positions),
-        max([v_axis_min_max.label_range[1]] + label_positions),
+        min([v_axis_min, *label_positions]),
+        max([v_axis_max, *label_positions]),
     )
     rendered_labels = [
         VerticalAxisLabel(position=label.position, text=label.text, line_width=2)
@@ -752,7 +740,7 @@ def _compute_min_max(
                 if (lc_values := list(_extract_lc_values(True)))
                 else (None, None)
             )
-            min_values = [lc_min_value, 0]
+            min_values = [lc_min_value]
             max_values = [lc_max_value]
         case _:
             assert_never(explicit_vertical_range)
@@ -769,7 +757,7 @@ def _compute_v_axis_min_max(
     graph_data_vrange: tuple[float, float] | None,
     mirrored: bool,
     height: SizeEx,
-) -> _VAxisMinMax:
+) -> tuple[float, float]:
     # An explizit range set by user zoom has always precedence!
     min_value, max_value = graph_data_vrange or _compute_min_max(
         explicit_vertical_range, layouted_curves
@@ -790,12 +778,10 @@ def _compute_v_axis_min_max(
         else:
             max_value = min_value + 1
 
-    distance = max_value - min_value
-
     # Make range a little bit larger, approx by 0.5 ex. But only if no zooming
     # is being done.
     if not graph_data_vrange:
-        distance_per_ex = distance / height
+        distance_per_ex = (max_value - min_value) / height
 
         # Let displayed range have a small border
         if min_value != 0:
@@ -803,24 +789,7 @@ def _compute_v_axis_min_max(
         if max_value != 0:
             max_value += 0.5 * distance_per_ex
 
-    return _VAxisMinMax(distance, (min_value, max_value))
-
-
-def _label_spec(
-    *,
-    position: float,
-    label_distance: float,
-    mirrored: bool,
-) -> tuple[float, float, int] | None:
-    f = math.modf(position / label_distance)[0]
-    if abs(f) <= 0.00000000001 or abs(f) >= 0.99999999999:
-        if mirrored:
-            label_value = abs(position)
-        else:
-            label_value = position
-
-        return (position, label_value, 2)
-    return None
+    return min_value, max_value
 
 
 def render_labels(

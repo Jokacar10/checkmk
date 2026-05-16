@@ -4,11 +4,9 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 
-from cmk.snmplib import BackendSNMPTree, SNMPDetectSpec
-
-from cmk.fetchers.snmp import SNMPPluginStore, SNMPPluginStoreItem
-
 from cmk.checkengine.plugins import AgentBasedPlugins
+from cmk.fetchers.snmp import SNMPPluginStore, SNMPPluginStoreItem
+from cmk.snmplib import BackendSNMPTree, SNMPDetectSpec, SNMPSectionName
 
 __all__ = ["make_plugin_store"]
 
@@ -21,7 +19,7 @@ def make_plugin_store(plugins: AgentBasedPlugins) -> SNMPPluginStore:
     }
     return SNMPPluginStore(
         {
-            s.name: SNMPPluginStoreItem(
+            SNMPSectionName(s.name): SNMPPluginStoreItem(
                 [BackendSNMPTree.from_frontend(base=t.base, oids=t.oids) for t in s.trees],
                 SNMPDetectSpec(s.detect_spec),
                 s.parsed_section_name in parsed_sections_relevant_for_inventory,

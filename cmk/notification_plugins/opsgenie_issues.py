@@ -30,6 +30,8 @@ from requests.utils import get_environ_proxies
 from tenacity import RetryError
 from urllib3.util import parse_url
 
+from cmk.notification_plugins import utils
+from cmk.notification_plugins.utils import get_password_from_env_or_context
 from cmk.utils.http_proxy_config import (
     deserialize_http_proxy_config,
     EnvironmentProxyConfig,
@@ -39,9 +41,6 @@ from cmk.utils.http_proxy_config import (
 from cmk.utils.macros import replace_macros_in_str
 from cmk.utils.notify_types import PluginNotificationContext
 from cmk.utils.paths import trusted_ca_file
-
-from cmk.notification_plugins import utils
-from cmk.notification_plugins.utils import get_password_from_env_or_context
 
 
 @contextmanager
@@ -75,7 +74,7 @@ class Connector:
         if ignore_ssl:
             sys.stdout.write("Ignoring SSL certificate verification\n")
             conf.verify_ssl = False
-            urllib3.disable_warnings(urllib3.connectionpool.InsecureRequestWarning)
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         else:
             sys.stdout.write(f"Using trust store: {trusted_ca_file}\n")
             conf.ssl_ca_cert = trusted_ca_file

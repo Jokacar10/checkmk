@@ -4,47 +4,53 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import time
+from collections.abc import Sequence
 from datetime import datetime
 
-from cmk.utils.log.security_event import log_security_event
-
+from cmk.crypto.password import Password, PasswordPolicy
 from cmk.gui import forms, userdb
+from cmk.gui.breadcrumb import make_simple_page_breadcrumb
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
+from cmk.gui.htmllib.header import make_header
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
-from cmk.gui.pages import PageRegistry
+from cmk.gui.main_menu import main_menu_registry
+from cmk.gui.pages import Page, PageEndpoint, PageRegistry
+from cmk.gui.permissions import permission_registry
 from cmk.gui.session import session
+from cmk.gui.userdb import get_user_attributes, UserAttribute
 from cmk.gui.userdb._connections import get_connection
 from cmk.gui.userdb.htpasswd import hash_password
-from cmk.gui.utils.flashed_messages import flash
+from cmk.gui.utils.flashed_messages import flash, get_flashed_messages
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.security_log_events import UserManagementEvent
+from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import makeuri_contextless
+from cmk.gui.utils.user_errors import user_errors
 from cmk.gui.utils.user_security_message import SecurityNotificationEvent, send_security_message
 from cmk.gui.watolib.mode import redirect
 from cmk.gui.watolib.users import (
     get_enabled_remote_sites_for_logged_in_user,
     verify_password_policy,
 )
+from cmk.utils.log.security_event import log_security_event
 
-from cmk.crypto.password import Password
-
-from .abstract_page import ABCUserProfilePage
+from .page_menu import user_profile_page_menu
+from .verify_requirements import verify_requirements
 
 
 def register(page_registry: PageRegistry) -> None:
-    page_registry.register_page("user_change_pw")(UserChangePasswordPage)
+    page_registry.register(PageEndpoint("user_change_pw", UserChangePasswordPage))
 
 
-class UserChangePasswordPage(ABCUserProfilePage):
+class UserChangePasswordPage(Page):
     def _page_title(self) -> str:
         return _("Change password")
 
-    def __init__(self) -> None:
-        super().__init__("general.change_password")
-
-    def _action(self) -> None:
+    def _action(self, config: Config) -> None:
         assert user.id is not None
 
         users = userdb.load_users(lock=True)
@@ -67,13 +73,29 @@ class UserChangePasswordPage(ABCUserProfilePage):
             raise MKUserError("password", _("The new password must differ from your current one."))
 
         now = datetime.now()
-        if userdb.check_credentials(user.id, cur_password, now) is False:
+        if (
+            userdb.check_credentials(
+                user.id,
+                cur_password,
+                (user_attributes := get_user_attributes(config.wato_user_attrs)),
+                now,
+                config.default_user_profile,
+            )
+            is False
+        ):
             raise MKUserError("cur_password", _("Your old password is wrong."))
 
         if password2 and password != password2:
             raise MKUserError("password2", _("New passwords don't match."))
 
-        verify_password_policy(password)
+        verify_password_policy(
+            password,
+            "password",
+            PasswordPolicy(
+                config.password_policy.get("min_length"),
+                config.password_policy.get("num_groups"),
+            ),
+        )
         user_spec["password"] = hash_password(password)
         user_spec["last_pw_change"] = int(time.time())
         send_security_message(user.id, SecurityNotificationEvent.password_change)
@@ -90,7 +112,14 @@ class UserChangePasswordPage(ABCUserProfilePage):
         else:
             user_spec["serial"] += 1
 
-        userdb.save_users(users, now)
+        userdb.save_users(
+            users,
+            user_attributes,
+            config.user_connections,
+            now=now,
+            pprint_value=config.wato_pprint_config,
+            call_users_saved_hook=True,
+        )
         connection_id = user_spec.get("connector", None)
         connection = get_connection(connection_id)
         log_security_event(
@@ -112,7 +141,7 @@ class UserChangePasswordPage(ABCUserProfilePage):
         # user profile replication now which will redirect the user to the destination
         # page after completion. Otherwise directly open up the destination page.
         origtarget = request.get_str_input_mandatory("_origtarget", "user_change_pw.py")
-        if get_enabled_remote_sites_for_logged_in_user(user):
+        if get_enabled_remote_sites_for_logged_in_user(user, config.sites):
             raise redirect(
                 makeuri_contextless(
                     request, [("back", origtarget)], filename="user_profile_replicate.py"
@@ -120,7 +149,30 @@ class UserChangePasswordPage(ABCUserProfilePage):
             )
         raise redirect(origtarget)
 
-    def _show_form(self) -> None:
+    def page(self, config: Config) -> None:
+        verify_requirements(
+            UserPermissions.from_config(config, permission_registry),
+            "general.change_password",
+            config.wato_enabled,
+        )
+        title = self._page_title()
+        breadcrumb = make_simple_page_breadcrumb(main_menu_registry.menu_user(), self._page_title())
+        make_header(html, title, breadcrumb, user_profile_page_menu(breadcrumb))
+
+        if transactions.check_transaction():
+            try:
+                self._action(config)
+            except MKUserError as e:
+                user_errors.add(e)
+
+        for message in get_flashed_messages():
+            html.show_message(message.msg)
+
+        html.show_user_errors()
+
+        self._show_form(get_user_attributes(config.wato_user_attrs))
+
+    def _show_form(self, user_attributes: Sequence[tuple[str, UserAttribute]]) -> None:
         assert user.id is not None
 
         users = userdb.load_users()
@@ -138,7 +190,7 @@ class UserChangePasswordPage(ABCUserProfilePage):
             html.footer()
             return
 
-        locked_attributes = userdb.locked_attributes(user_spec.get("connector"))
+        locked_attributes = userdb.locked_attributes(user_spec.get("connector"), user_attributes)
         if "password" in locked_attributes:
             raise MKUserError(
                 "cur_password",

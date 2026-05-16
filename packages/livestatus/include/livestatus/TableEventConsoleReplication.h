@@ -9,11 +9,10 @@
 #include <string>
 
 #include "livestatus/Table.h"
-class ICore;
 
 class TableEventConsoleReplication : public Table {
 public:
-    explicit TableEventConsoleReplication(ICore *mc);
+    TableEventConsoleReplication();
     [[nodiscard]] std::string name() const override;
     [[nodiscard]] std::string namePrefix() const override;
     void answerQuery(Query &query, const User &user,

@@ -13,16 +13,14 @@ from typing import Any
 
 from livestatus import MKLivestatusNotFoundError
 
+import cmk.utils.render
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
-
-import cmk.utils.render
-from cmk.utils.jsontype import JsonSerializable
-from cmk.utils.paths import profile_dir
-from cmk.utils.servicename import ServiceName
-
-from cmk.gui.config import active_config
+from cmk.ccc.user import UserId
+from cmk.graphing.v1 import graphs as graphs_api
+from cmk.gui.color import render_color_icon
+from cmk.gui.config import active_config, Config
 from cmk.gui.exceptions import MKMissingDataError
 from cmk.gui.graphing._graph_templates import (
     get_template_graph_specification,
@@ -34,7 +32,7 @@ from cmk.gui.htmllib.html import html
 from cmk.gui.http import request, response
 from cmk.gui.i18n import _, _u
 from cmk.gui.log import logger
-from cmk.gui.logged_in import LoggedInUser, user, UserGraphDataRangeFileName
+from cmk.gui.logged_in import load_user_file, save_user_file, user, UserGraphDataRangeFileName
 from cmk.gui.pages import AjaxPage, PageResult
 from cmk.gui.sites import get_alias_of_host
 from cmk.gui.theme.current_theme import theme
@@ -43,10 +41,12 @@ from cmk.gui.utils.html import HTML
 from cmk.gui.utils.output_funnel import output_funnel
 from cmk.gui.utils.popups import MethodAjax
 from cmk.gui.utils.rendering import text_with_links_to_user_translated_html
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.valuespec import Timerange, TimerangeValue
-
-from cmk.graphing.v1 import graphs as graphs_api
+from cmk.utils.jsontype import JsonSerializable
+from cmk.utils.paths import profile_dir
+from cmk.utils.servicename import ServiceName
 
 from ._artwork import (
     compute_curve_values_at_timestamp,
@@ -57,7 +57,6 @@ from ._artwork import (
     order_graph_curves_for_legend_and_mouse_hover,
     save_graph_pin,
 )
-from ._color import render_color_icon
 from ._from_api import metrics_from_api, RegisteredMetric
 from ._graph_render_config import (
     GraphRenderConfig,
@@ -105,6 +104,7 @@ def host_service_graph_popup_cmk(
     service_description: ServiceName,
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
 ) -> None:
     graph_render_config = GraphRenderConfig.from_user_context_and_options(
         user,
@@ -136,6 +136,7 @@ def host_service_graph_popup_cmk(
             graph_render_config,
             registered_metrics,
             registered_graphs,
+            user_permissions,
             render_async=False,
         )
     )
@@ -554,11 +555,7 @@ def _graph_margin_ex(
 # of things, we keep it.
 # TODO: Migrate this to a real AjaxPage
 class AjaxGraph(cmk.gui.pages.Page):
-    @classmethod
-    def ident(cls) -> str:
-        return "ajax_graph"
-
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         """Registered as `ajax_graph`."""
         response.set_content_type("application/json")
         try:
@@ -568,7 +565,7 @@ class AjaxGraph(cmk.gui.pages.Page):
             response.set_data(json.dumps(response_data))
         except Exception as e:
             logger.error("Ajax call ajax_graph.py failed: %s\n%s", e, traceback.format_exc())
-            if active_config.debug:
+            if config.debug:
                 raise
             response.set_data("ERROR: %s" % e)
         return None
@@ -629,7 +626,8 @@ def render_ajax_graph(
     if graph_render_config.editing and (
         specification_id := context.get("definition", {}).get("specification", {}).get("id")
     ):
-        UserGraphDataRangeStore(user).save(specification_id, graph_data_range)
+        assert user.id is not None
+        UserGraphDataRangeStore(user.id).save(specification_id, graph_data_range)
 
     graph_artwork = compute_graph_artwork(
         graph_recipe,
@@ -661,21 +659,25 @@ def _user_graph_data_range_file_name(custom_graph_id: str) -> UserGraphDataRange
 
 
 class UserGraphDataRangeStore:
-    def __init__(self, user_: LoggedInUser) -> None:
-        self.user = user_
+    def __init__(self, user_id: UserId) -> None:
+        self.user_id = user_id
 
     def save(self, custom_graph_id: str, graph_data_range: GraphDataRange) -> None:
-        self.user.save_file(
+        save_user_file(
             _user_graph_data_range_file_name(custom_graph_id),
             graph_data_range.model_dump(),
+            self.user_id,
         )
 
     def load(self, custom_graph_id: str) -> GraphDataRange | None:
         return (
             GraphDataRange.model_validate(raw_range)
             if (
-                raw_range := self.user.load_file(
-                    _user_graph_data_range_file_name(custom_graph_id), None
+                raw_range := load_user_file(
+                    _user_graph_data_range_file_name(custom_graph_id),
+                    self.user_id,
+                    deflt=None,
+                    lock=False,
                 )
             )
             else None
@@ -683,9 +685,7 @@ class UserGraphDataRangeStore:
 
     def remove(self, custom_graph_id: str) -> None:
         (
-            profile_dir
-            / self.user.ident
-            / f"{_user_graph_data_range_file_name(custom_graph_id)}.mk"
+            profile_dir / self.user_id / f"{_user_graph_data_range_file_name(custom_graph_id)}.mk"
         ).unlink(missing_ok=True)
 
 
@@ -695,12 +695,15 @@ def render_graphs_from_specification_html(
     graph_render_config: GraphRenderConfig,
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
     *,
     render_async: bool = True,
     graph_display_id: str = "",
 ) -> HTML:
     try:
-        graph_recipes = graph_specification.recipes(registered_metrics, registered_graphs)
+        graph_recipes = graph_specification.recipes(
+            registered_metrics, registered_graphs, user_permissions
+        )
     except MKLivestatusNotFoundError:
         return render_graph_error_html(
             title=_("Cannot calculate graph recipes"),
@@ -802,11 +805,7 @@ def _render_graph_container_html(
 
 
 class AjaxRenderGraphContent(AjaxPage):
-    @classmethod
-    def ident(cls) -> str:
-        return "ajax_render_graph_content"
-
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         # Called from javascript code via JSON to initially render a graph
         """Registered as `ajax_render_graph_content`."""
         api_request = request.get_request()
@@ -953,28 +952,25 @@ def estimate_graph_step_for_html(
 # of things, we keep it.
 # TODO: Migrate this to a real AjaxPage
 class AjaxGraphHover(cmk.gui.pages.Page):
-    @classmethod
-    def ident(cls) -> str:
-        return "ajax_graph_hover"
-
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         """Registered as `ajax_graph_hover`."""
         response.set_content_type("application/json")
         try:
             context_var = request.get_str_input_mandatory("context")
             context = json.loads(context_var)
             hover_time = request.get_integer_input_mandatory("hover_time")
-            response_data = _render_ajax_graph_hover(context, hover_time, metrics_from_api)
+            response_data = _render_ajax_graph_hover(config, context, hover_time, metrics_from_api)
             response.set_data(json.dumps(response_data))
         except Exception as e:
             logger.error("Ajax call ajax_graph_hover.py failed: %s\n%s", e, traceback.format_exc())
-            if active_config.debug:
+            if config.debug:
                 raise
             response.set_data("ERROR: %s" % e)
         return None
 
 
 def _render_ajax_graph_hover(
+    config: Config,
     context: Mapping[str, Any],
     hover_time: int,
     registered_metrics: Mapping[str, RegisteredMetric],
@@ -996,7 +992,7 @@ def _render_ajax_graph_hover(
                 user_specific_unit(
                     graph_recipe.unit_spec,
                     user,
-                    active_config,
+                    config,
                 ).formatter.render,
                 hover_time,
             )
@@ -1057,8 +1053,10 @@ def host_service_graph_dashlet_cmk(
     graph_render_config: GraphRenderConfig,
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
     *,
     graph_display_id: str = "",
+    time_range: TimerangeValue = None,
 ) -> HTML:
     width_var = request.get_float_input_mandatory("width", 0.0)
     width = int(width_var / html_size_per_ex)
@@ -1073,14 +1071,18 @@ def host_service_graph_dashlet_cmk(
 
     graph_render_config.size = (width, height)
 
-    time_range: TimerangeValue = json.loads(request.get_str_input_mandatory("timerange"))
+    time_range = (
+        json.loads(request.get_str_input_mandatory("timerange"))
+        if time_range is None
+        else time_range
+    )
 
     end_time: float
     start_time: float
     # Age and Range like ["age", 300] and ['date', [1661896800, 1661896800]]
     if isinstance(time_range, list):
         # compute_range needs tuple for computation
-        timerange_tuple: tuple[str, Any] = (time_range[0], time_range[1])
+        timerange_tuple: TimerangeValue = (time_range[0], time_range[1])
         start_time, end_time = Timerange.compute_range(timerange_tuple).range
     # Age like 14400 and y1, d1,...
     else:
@@ -1089,7 +1091,9 @@ def host_service_graph_dashlet_cmk(
     graph_data_range = make_graph_data_range((start_time, end_time), graph_render_config.size[1])
 
     try:
-        graph_recipes = graph_specification.recipes(registered_metrics, registered_graphs)
+        graph_recipes = graph_specification.recipes(
+            registered_metrics, registered_graphs, user_permissions
+        )
     except MKLivestatusNotFoundError:
         return render_graph_error_html(
             title=_("Cannot calculate graph recipes"),
@@ -1102,13 +1106,20 @@ def host_service_graph_dashlet_cmk(
                 )
             ),
         )
+    except MKMissingDataError as e:
+        # In case of missing data, the according message is rendered without a traceback. This
+        # specific exception handling is needed for the Vue dashboard rendering.
+        return html.render_message(str(e))
     except Exception as e:
         return render_graph_error_html(title=_("Cannot calculate graph recipes"), msg_or_exc=e)
 
     if graph_recipes:
         graph_recipe = graph_recipes[0]
     else:
-        raise MKGeneralException(_("Failed to calculate a graph recipe."))
+        return render_graph_error_html(
+            title=_("No graph recipe found"),
+            msg_or_exc=_("Failed to calculate a graph recipe."),
+        )
 
     # When the legend is enabled, we need to reduce the height by the height of the legend to
     # make the graph fit into the dashlet area.

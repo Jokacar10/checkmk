@@ -6,23 +6,23 @@
 
 import abc
 import copy
-from collections.abc import Collection, Iterator
+from collections.abc import Collection, Iterator, Sequence
 from dataclasses import asdict
-from typing import Final, overload
+from typing import Final, Literal, overload
 from urllib.parse import unquote
 
-from cmk.ccc.exceptions import MKGeneralException
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.site import omd_site
-
-import cmk.utils.tags
-
-from cmk.automations.results import DiagCmkAgentInput, PingHostCmd, PingHostInput
+from livestatus import SiteConfigurations
 
 import cmk.gui.watolib.sites as watolib_sites
+import cmk.utils.tags
+from cmk.automations.results import DiagCmkAgentInput, PingHostCmd, PingHostInput
+from cmk.ccc.exceptions import MKGeneralException
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.site import get_omd_config, omd_site, SiteId
+from cmk.ccc.version import omd_version
 from cmk.gui import forms, user_sites
 from cmk.gui.breadcrumb import Breadcrumb
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKAuthException, MKUserError
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
@@ -37,14 +37,21 @@ from cmk.gui.page_menu import (
     PageMenuEntry,
     PageMenuTopic,
 )
-from cmk.gui.pages import AjaxPage, PageRegistry, PageResult
+from cmk.gui.pages import AjaxPage, PageEndpoint, PageRegistry, PageResult
 from cmk.gui.quick_setup.html import quick_setup_duplication_warning, quick_setup_locked_warning
-from cmk.gui.site_config import is_wato_slave_site
+from cmk.gui.site_config import is_distributed_setup_remote_site
 from cmk.gui.type_defs import ActionResult, PermissionName
+from cmk.gui.utils.agent_commands import (
+    agent_commands_registry,
+)
 from cmk.gui.utils.agent_registration import remove_tls_registration_help
 from cmk.gui.utils.flashed_messages import flash
 from cmk.gui.utils.transaction_manager import transactions
-from cmk.gui.utils.urls import make_confirm_delete_link, makeactionuri, makeuri_contextless
+from cmk.gui.utils.urls import (
+    make_confirm_delete_link,
+    makeactionuri,
+    makeuri_contextless,
+)
 from cmk.gui.valuespec import DropdownChoice, FixedValue, Hostname, ListOfStrings, ValueSpec
 from cmk.gui.wato.pages.folders import ModeFolder
 from cmk.gui.watolib import bakery
@@ -64,7 +71,11 @@ from cmk.gui.watolib.check_mk_automations import (
 )
 from cmk.gui.watolib.config_hostname import ConfigHostname
 from cmk.gui.watolib.configuration_bundle_store import is_locked_by_quick_setup
-from cmk.gui.watolib.host_attributes import collect_attributes
+from cmk.gui.watolib.host_attributes import (
+    all_host_attributes,
+    collect_attributes,
+    HostAttributes,
+)
 from cmk.gui.watolib.hosts_and_folders import (
     folder_from_request,
     folder_preserving_link,
@@ -73,8 +84,18 @@ from cmk.gui.watolib.hosts_and_folders import (
     validate_all_hosts,
 )
 from cmk.gui.watolib.mode import mode_url, ModeRegistry, redirect, WatoMode
-
-from cmk.shared_typing.mode_host import ModeHost, ModeHostFormKeys, ModeHostI18n
+from cmk.shared_typing.mode_host import (
+    AgentInstallCmds,
+    AgentRegistrationCmds,
+    AgentSlideout,
+    I18nPingHost,
+    ModeHost,
+    ModeHostAgentConnectionMode,
+    ModeHostFormKeys,
+    ModeHostSite,
+)
+from cmk.utils.agent_registration import HostAgentConnectionMode
+from cmk.utils.paths import omd_root
 
 from ._host_attributes import configure_attributes
 from ._status_links import make_host_status_link
@@ -84,8 +105,8 @@ def register(mode_registry: ModeRegistry, page_registry: PageRegistry) -> None:
     mode_registry.register(ModeEditHost)
     mode_registry.register(ModeCreateHost)
     mode_registry.register(ModeCreateCluster)
-    page_registry.register_page("ajax_ping_host")(PageAjaxPingHost)
-    page_registry.register_page("wato_ajax_diag_cmk_agent")(PageAjaxDiagCmkAgent)
+    page_registry.register(PageEndpoint("ajax_ping_host", PageAjaxPingHost))
+    page_registry.register(PageEndpoint("wato_ajax_diag_cmk_agent", PageAjaxDiagCmkAgent))
 
 
 class ABCHostMode(WatoMode, abc.ABC):
@@ -100,10 +121,10 @@ class ABCHostMode(WatoMode, abc.ABC):
 
     def __init__(self) -> None:
         self._host = self._init_host()
-        self._mode = "edit"
+        self._mode: Literal["edit", "new", "clone", "prefill"] = "edit"
         super().__init__()
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         menu = make_simple_form_page_menu(_("Host"), breadcrumb)
         menu.dropdowns.insert(
             0,
@@ -135,6 +156,12 @@ class ABCHostMode(WatoMode, abc.ABC):
             return
 
         yield PageMenuEntry(
+            title=_("Save & edit"),
+            icon_name="save",
+            item=make_form_submit_link(form_name="edit_host", button_name="save_and_edit"),
+        )
+
+        yield PageMenuEntry(
             title=_("Save & run service discovery"),
             shortcut_title=_("Save & run service discovery"),
             icon_name="save_to_services",
@@ -164,7 +191,7 @@ class ABCHostMode(WatoMode, abc.ABC):
     def _is_cluster(self) -> bool:
         return self._host.is_cluster()
 
-    def _get_cluster_nodes(self):
+    def _get_cluster_nodes(self, attributes: HostAttributes) -> Sequence[HostName] | None:
         if not self._is_cluster():
             return None
 
@@ -178,7 +205,7 @@ class ABCHostMode(WatoMode, abc.ABC):
             Host(
                 folder_from_request(request.var("folder"), request.get_ascii_input(self.VAR_HOST)),
                 self._host.name(),
-                collect_attributes("cluster", new=False),
+                attributes,
                 [],
             ).tag_groups()
         )
@@ -237,7 +264,7 @@ class ABCHostMode(WatoMode, abc.ABC):
         )
 
     # TODO: Extract cluster specific parts from this method
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         # Show outcome of host validation. Do not validate new hosts
         errors = None
         if self._mode == "edit":
@@ -291,11 +318,15 @@ class ABCHostMode(WatoMode, abc.ABC):
 
         host_name_attribute_key: Final[str] = "host"
         form_name: Final[str] = "edit_host"
+        omd_config = get_omd_config(omd_root)
+        site = omd_site()
+        ip_address = omd_config["CONFIG_APACHE_TCP_ADDR"]
+        version = ".".join(omd_version(omd_root).split(".")[:-1])
         html.vue_component(
             component_name="cmk-mode-host",
             data=asdict(
                 ModeHost(
-                    i18n=ModeHostI18n(
+                    i18n_ping_host=I18nPingHost(
                         loading=_("Loading"),
                         error_host_not_dns_resolvable=_(
                             "Cannot resolve DNS. Enter a DNS-resolvable host name, an IP address "
@@ -315,10 +346,50 @@ class ABCHostMode(WatoMode, abc.ABC):
                         ipv6_address=HostAttributeIPv6Address().name(),
                         site=HostAttributeSite().name(),
                         ip_address_family="tag_address_family",
+                        cmk_agent_connection="cmk_agent_connection",
+                        tag_agent="tag_agent",
                         cb_change="cb_host_change"
                         if not self._is_cluster()
                         else "cb_cluster_change",
                     ),
+                    sites=[
+                        ModeHostSite(
+                            id_hash=DropdownChoice.option_id(site_id),
+                            site_id=site_id,
+                        )
+                        for site_id, _site_name in user_sites.get_activation_site_choices()
+                    ],
+                    agent_connection_modes=[
+                        ModeHostAgentConnectionMode(
+                            id_hash=DropdownChoice.option_id(mode.value),
+                            mode=mode.value,
+                        )
+                        for mode in HostAgentConnectionMode
+                    ],
+                    agent_slideout=AgentSlideout(
+                        all_agents_url=folder_preserving_link([("mode", "agents")]),
+                        host_name=self._host.name(),
+                        agent_install_cmds=AgentInstallCmds(
+                            **asdict(
+                                agent_commands_registry["agent_commands"].install_cmds(
+                                    site, ip_address, version
+                                )
+                            )
+                        ),
+                        agent_registration_cmds=AgentRegistrationCmds(
+                            **asdict(
+                                agent_commands_registry["agent_commands"].registration_cmds(
+                                    site, ip_address
+                                )
+                            )
+                        ),
+                        legacy_agent_url=agent_commands_registry[
+                            "agent_commands"
+                        ].legacy_agent_url(),
+                        save_host=self._mode in ["new", "prefill", "clone"],
+                        host_exists=Host.host_exists(self._host.name()),
+                    ),
+                    host_name=self._host.name(),
                 )
             ),
         )
@@ -343,11 +414,14 @@ class ABCHostMode(WatoMode, abc.ABC):
             except MKUserError:
                 host_name = None
             configure_attributes(
+                all_host_attributes(config.wato_host_attrs, config.tags.get_tag_groups_by_topic()),
                 new=self._mode != "edit",
                 hosts={self._host.name(): self._host} if self._mode != "new" else {},
                 for_what="host" if not self._is_cluster() else "cluster",
                 parent=folder_from_request(request.var("folder"), host_name),
                 basic_attributes=basic_attributes,
+                aux_tags_by_tag=config.tags.get_aux_tags_by_tag(),
+                config=config,
             )
 
             if self._mode != "edit":
@@ -431,7 +505,7 @@ class ModeEditHost(ABCHostMode):
     def title(self) -> str:
         return _("Properties of host") + " " + self._host.name()
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return PageMenu(
             dropdowns=[
                 PageMenuDropdown(
@@ -445,7 +519,11 @@ class ModeEditHost(ABCHostMode):
                         ),
                         PageMenuTopic(
                             title=_("For all hosts on site %s") % self._host.site_id(),
-                            entries=list(page_menu_all_hosts_entries(self._should_use_dns_cache())),
+                            entries=list(
+                                page_menu_all_hosts_entries(
+                                    self._should_use_dns_cache(config.sites)
+                                )
+                            ),
                         ),
                     ],
                 ),
@@ -453,16 +531,16 @@ class ModeEditHost(ABCHostMode):
             breadcrumb=breadcrumb,
         )
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         folder = folder_from_request(request.var("folder"), request.get_ascii_input(self.VAR_HOST))
         if not transactions.check_transaction():
             return redirect(mode_url("folder", folder=folder.path()))
 
-        if request.var("_update_dns_cache") and self._should_use_dns_cache():
+        if request.var("_update_dns_cache") and self._should_use_dns_cache(config.sites):
             user.need_permission("wato.update_dns_cache")
             update_dns_cache_result = update_dns_cache(
-                automation_config=make_automation_config(active_config.sites[self._host.site_id()]),
-                debug=active_config.debug,
+                automation_config=make_automation_config(config.sites[self._host.site_id()]),
+                debug=config.debug,
             )
             infotext = (
                 _("Successfully updated IP addresses of %d hosts.")
@@ -479,25 +557,39 @@ class ModeEditHost(ABCHostMode):
             folder.delete_hosts(
                 [self._host.name()],
                 automation=delete_hosts,
-                pprint_value=active_config.wato_pprint_config,
-                debug=active_config.debug,
+                pprint_value=config.wato_pprint_config,
+                debug=config.debug,
+                use_git=config.wato_use_git,
             )
             return redirect(mode_url("folder", folder=folder.path()))
 
         if request.var("_remove_tls_registration"):
             remove_tls_registration(
-                {self._host.site_id(): [self._host.name()]}, debug=active_config.debug
+                [
+                    (
+                        make_automation_config(config.sites[self._host.site_id()]),
+                        [self._host.name()],
+                    )
+                ],
+                debug=config.debug,
             )
             return None
 
-        attributes = collect_attributes("host" if not self._is_cluster() else "cluster", new=False)
+        attributes = collect_attributes(
+            all_host_attributes(config.wato_host_attrs, config.tags.get_tag_groups_by_topic()),
+            "host" if not self._is_cluster() else "cluster",
+            new=False,
+        )
         host = Host.host(self._host.name())
         if host is None:
             flash(f"Host {self._host.name()} could not be found.")
             return None
 
         host.edit(
-            attributes, self._get_cluster_nodes(), pprint_value=active_config.wato_pprint_config
+            attributes,
+            self._get_cluster_nodes(attributes),
+            pprint_value=config.wato_pprint_config,
+            use_git=config.wato_use_git,
         )
         self._host = folder.load_host(self._host.name())
 
@@ -509,13 +601,16 @@ class ModeEditHost(ABCHostMode):
                     "diag_host", folder=folder.path(), host=self._host.name(), _start_on_load="1"
                 )
             )
-        return redirect(mode_url("folder", folder=folder.path()))
+        if request.var("go_to_folder"):
+            return redirect(mode_url("folder", folder=folder.path()))
 
-    def _should_use_dns_cache(self) -> bool:
+        return redirect(mode_url("edit_host", folder=folder.path(), host=self._host.name()))
+
+    def _should_use_dns_cache(self, site_configs: SiteConfigurations) -> bool:
         site = self._host.effective_attributes()["site"]
         return watolib_sites.get_effective_global_setting(
             site,
-            is_wato_slave_site(),
+            is_distributed_setup_remote_site(site_configs),
             "use_dns_cache",
         )
 
@@ -719,6 +814,8 @@ class CreateHostMode(ABCHostMode):
     def _from_vars(self) -> None:
         if request.var("clone"):
             self._mode = "clone"
+        elif request.var("prefill"):
+            self._mode = "prefill"
         else:
             self._mode = "new"
 
@@ -745,12 +842,16 @@ class CreateHostMode(ABCHostMode):
         self._verify_host_type(host)
         return host
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         if not transactions.transaction_valid():
             return redirect(mode_url("folder"))
 
-        attributes = collect_attributes(self._host_type_name(), new=True)
-        cluster_nodes = self._get_cluster_nodes()
+        attributes = collect_attributes(
+            all_host_attributes(config.wato_host_attrs, config.tags.get_tag_groups_by_topic()),
+            self._host_type_name(),
+            new=True,
+        )
+        cluster_nodes = self._get_cluster_nodes(attributes)
         try:
             hostname = request.get_validated_type_input_mandatory(HostName, self.VAR_HOST)
         except MKUserError:
@@ -762,11 +863,12 @@ class CreateHostMode(ABCHostMode):
         if transactions.check_transaction():
             folder.create_hosts(
                 [(hostname, attributes, cluster_nodes)],
-                pprint_value=active_config.wato_pprint_config,
+                pprint_value=config.wato_pprint_config,
+                use_git=config.wato_use_git,
             )
 
         self._host = folder.load_host(hostname)
-        bakery.try_bake_agents_for_hosts([hostname], debug=active_config.debug)
+        bakery.try_bake_agents_for_hosts([hostname], debug=config.debug)
 
         inventory_url = folder_preserving_link(
             [
@@ -800,7 +902,10 @@ class CreateHostMode(ABCHostMode):
                 mode_url("diag_host", folder=folder.path(), host=self._host.name(), _try="1")
             )
 
-        return redirect(mode_url("folder", folder=folder.path()))
+        if request.var("go_to_folder"):
+            return redirect(mode_url("folder", folder=folder.path()))
+
+        return redirect(mode_url("edit_host", folder=folder.path(), host=self._host.name()))
 
     def _page_form_quick_setup_warning(self) -> None:
         if (
@@ -834,6 +939,19 @@ class ModeCreateHost(CreateHostMode):
             )
         except MKUserError:
             host_name = HostName("")
+        if prefill := request.get_ascii_input("prefill"):
+            match prefill:
+                case "snmp":
+                    return Host(
+                        folder=folder_from_request(request.var("folder"), host_name),
+                        host_name=host_name,
+                        attributes=HostAttributes(
+                            tag_snmp_ds="snmp-v2",
+                            tag_agent="no-agent",
+                            snmp_community="",
+                        ),
+                        cluster_nodes=None,
+                    )
         return Host(
             folder=folder_from_request(request.var("folder"), host_name),
             host_name=host_name,
@@ -890,23 +1008,18 @@ class ModeCreateCluster(CreateHostMode):
 
 
 class PageAjaxPingHost(AjaxPage):
-    def page(self) -> PageResult:
-        site_mapping = {
-            DropdownChoice.option_id(site_id): site_id
-            for site_id, _ in user_sites.get_activation_site_choices()
-        }
-        site_id = site_mapping[
-            request.get_str_input_mandatory("site_id", deflt=DropdownChoice.option_id(omd_site()))
-        ]
+    def page(self, config: Config) -> PageResult:
+        site_id = request.get_validated_type_input(SiteId, "site_id", deflt=omd_site())
         ip_or_dns_name = request.get_ascii_input_mandatory("ip_or_dns_name")
         cmd = request.get_validated_type_input(PingHostCmd, "cmd", PingHostCmd.PING)
 
         result = ping_host(
-            automation_config=make_automation_config(active_config.sites[site_id]),
+            automation_config=make_automation_config(config.sites[site_id]),
             ping_host_input=PingHostInput(
                 ip_or_dns_name=unquote(ip_or_dns_name),
                 base_cmd=cmd,
             ),
+            debug=config.debug,
         )
         return {
             "status_code": result.return_code,
@@ -915,10 +1028,10 @@ class PageAjaxPingHost(AjaxPage):
 
 
 class PageAjaxDiagCmkAgent(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         api_request = self.webapi_request()
         result = diag_cmk_agent(
-            automation_config=make_automation_config(active_config.sites[api_request["site_id"]]),
+            automation_config=make_automation_config(config.sites[api_request["site_id"]]),
             diag_cmk_agent_input=DiagCmkAgentInput(
                 host_name=api_request["host_name"],
                 ip_address=api_request["ipaddress"],
@@ -926,6 +1039,7 @@ class PageAjaxDiagCmkAgent(AjaxPage):
                 agent_port=api_request["agent_port"],
                 timeout=api_request["timeout"],
             ),
+            debug=config.debug,
         )
 
         return {

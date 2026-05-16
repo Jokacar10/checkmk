@@ -7,28 +7,20 @@
     "npm": ">=10.9.0 <11.0.0",
     "node": ">=22.0.0 <=23.0.0"
   },
-  "scripts": {
-    "build": "vite build",
-    "dev": "vite",
-    "demo": "vite --config vite.config.demo.ts",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "test-eslint": "eslint --max-warnings 0 .",
-    "test-tsc": "vue-tsc --build --force",
-    "test-prettier": "prettier  --check tests/ src/ *.json *.ts *.html",
-    "prettier": "prettier --write tests/ src/ *.json *.ts *.html"
-  },
   "dependencies": {
     "axios": "^1.8.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "grid-layout-plus": "^1.1.0",
     "lucide-vue-next": "^0.487.0",
     "radix-vue": "^1.9.17",
     "sanitize-html": "^2.15.0",
     "tailwindcss": "^3.0.0",
     "tailwindcss-animate": "^1.0.7",
     "vue": "^3.5.13",
-    "vue-router": "^4.5.0"
+    "vue-component-type-helpers": "^3.0.6",
+    "vue-router": "^4.5.0",
+    "vue3-gettext": "4.0.0-alpha.8"
   },
   "devDependencies": {
     "@eslint/js": "^9.24.0",
@@ -36,6 +28,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/user-event": "^14.6.1",
     "@testing-library/vue": "^8.1.0",
+    "@trivago/prettier-plugin-sort-imports": "^5.2.2",
     "@tsconfig/node22": "^22.0.1",
     "@types/node": "^22.14.0",
     "@types/sanitize-html": "^2.15.0",
@@ -53,19 +46,23 @@
     "jsdom": "^26.0.0",
     "msw": "^2.7.3",
     "npm-run-all2": "^7.0.2",
+    "postcss-html": "^1.8.0",
     "prettier": "^3.5.3",
     "rollup": "*",
     "sass-embedded": "^1.86.3",
+    "stylelint": "^16.23.1",
+    "stylelint-config-standard": "^39.0.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.30",
     "vite": "^6.2.5",
+    "vite-plugin-vue-devtools": "^7.7.7",
     "vitest": "^3.1.1",
     "vitest-fail-on-console": "^0.7.1",
     "vue-tsc": "^2.2.8"
   },
   "msw": {
     "workerDirectory": [
-      "src/components/_demo/public/"
+      "demo/public/"
     ]
   }
 }

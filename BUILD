@@ -1,8 +1,8 @@
 load("@bazel_skylib//rules:common_settings.bzl", "string_flag")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@com_google_protobuf//:protobuf_version.bzl", "PROTOBUF_PYTHON_VERSION")
 load("@gazelle//:def.bzl", "gazelle")
 load("@hedron_compile_commands//:refresh_compile_commands.bzl", "refresh_compile_commands")
+load("@protobuf//:protobuf_version.bzl", "PROTOBUF_PYTHON_VERSION")
 load("@repo_license//:license.bzl", "REPO_LICENSE")
 load("@rules_multirun//:defs.bzl", "multirun")
 load("@rules_uv//uv:pip.bzl", "pip_compile")
@@ -16,6 +16,7 @@ exports_files(
     [
         "pyproject.toml",
         "requirements.txt",
+        ".clang-tidy",
     ],
 )
 
@@ -24,12 +25,6 @@ copy_to_directory(
     srcs = glob([".werks/*"]),
     out_dir = "werks_dir",
     visibility = ["//:__subpackages__"],
-)
-
-alias(
-    # Remove this target after the next rebuild of our docker images.
-    name = "filesystem_layout",
-    actual = "//bazel/cmk/filesystem_layout",
 )
 
 string_flag(
@@ -41,12 +36,14 @@ string_flag(
 config_setting(
     name = "gpl_repo",
     flag_values = {":repo_license": "gpl"},
+    visibility = ["//:__subpackages__"],
 )
 
 config_setting(
     # We really mean the license here, editions are handled differently!
     name = "gpl+enterprise_repo",
     flag_values = {":repo_license": "gpl+enterprise"},
+    visibility = ["//:__subpackages__"],
 )
 
 # Generate `compile_commands.json` with `bazel run //:refresh_compile_commands`.
@@ -56,7 +53,7 @@ refresh_compile_commands(
     # exclude_headers = "all",
     targets = {
         # target: build-flags
-        "//packages/cmc:all": "",
+        "//non-free/packages/cmc:all": "",
         "//packages/livestatus:all": "",
         "//packages/neb:all": "",
         "//packages/unixcat:all": "",
@@ -80,11 +77,15 @@ compile_requirements_in(
     ],
     requirements = [
         "//cmk:requirements.in",
+        "//tests:dev-requirements.in",
         "//packages:python_requirements",
-        "//:dev-requirements.in",
+        "//packages:dev_python_requirements",
     ] + select({
         "@//:gpl_repo": [],
-        "@//:gpl+enterprise_repo": ["//non-free/packages:python_requirements"],
+        "@//:gpl+enterprise_repo": [
+            "//non-free/packages:python_requirements",
+            "//non-free/packages:dev_python_requirements",
+        ],
     }),
 )
 
@@ -105,8 +106,8 @@ compile_requirements_in(
     ],
     requirements = [
         "//cmk:requirements.in",
+        "//tests:dev-requirements.in",
         "//packages:python_requirements",
-        "//:dev-requirements.in",
     ],
 )
 
@@ -234,8 +235,8 @@ proto_library_as(
     visibility = ["//visibility:public"],
     deps = [
         ":cycletime_proto",
-        "@com_google_protobuf//:duration_proto",
-        "@com_google_protobuf//:timestamp_proto",
+        "@protobuf//:duration_proto",
+        "@protobuf//:timestamp_proto",
     ],
 )
 
@@ -246,8 +247,8 @@ proto_library_as(
     visibility = ["//visibility:public"],
     deps = [
         ":cycletime_proto",
-        "@com_google_protobuf//:duration_proto",
-        "@com_google_protobuf//:timestamp_proto",
+        "@protobuf//:duration_proto",
+        "@protobuf//:timestamp_proto",
     ],
 )
 
@@ -266,6 +267,7 @@ gazelle(
 alias(
     name = "format",
     actual = "//bazel/tools:format",
+    visibility = ["//visibility:public"],
 )
 
 alias(

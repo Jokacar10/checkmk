@@ -5,9 +5,10 @@
 
 from collections.abc import Callable, Mapping, Sequence
 
-from cmk.utils.rulesets.definition import RuleGroup
+from livestatus import SiteConfiguration
 
-from cmk.gui.form_specs.private.dictionary_extended import DictionaryExtended
+from cmk.ccc.site import SiteId
+from cmk.gui.form_specs.private.two_column_dictionary import TwoColumnDictionary
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.i18n import _
 from cmk.gui.quick_setup.v0_unstable.predefined import (
@@ -45,11 +46,10 @@ from cmk.gui.quick_setup.v0_unstable.widgets import (
     Widget,
 )
 from cmk.gui.utils.urls import doc_reference_url, DocReference
-
 from cmk.plugins.gcp.rulesets import gcp  # pylint: disable=cmk-module-layer-violation
 from cmk.rulesets.v1 import Title
 from cmk.rulesets.v1.form_specs import Dictionary
-from cmk.shared_typing.vue_formspec_components import DictionaryLayout
+from cmk.utils.rulesets.definition import RuleGroup
 
 NEXT_BUTTON_ARIA_LABEL = _("Go to the next stage")
 PREV_BUTTON_ARIA_LABEL = _("Go to the previous stage")
@@ -106,9 +106,8 @@ def configure_authentication() -> QuickSetupStage:
             ),
             FormSpecWrapper(
                 id=FormSpecId("credentials"),
-                form_spec=DictionaryExtended(
+                form_spec=TwoColumnDictionary(
                     elements=gcp.configuration_authentication(),
-                    layout=DictionaryLayout.two_columns,
                 ),
             ),
         ],
@@ -161,9 +160,8 @@ def _configure() -> Sequence[Widget]:
     return [
         FormSpecWrapper(
             id=FormSpecId("configure_services_to_monitor"),
-            form_spec=DictionaryExtended(
+            form_spec=TwoColumnDictionary(
                 elements=gcp.configuration_services(),
-                layout=DictionaryLayout.two_columns,
             ),
         ),
         Collapsible(
@@ -171,9 +169,8 @@ def _configure() -> Sequence[Widget]:
             items=[
                 FormSpecWrapper(
                     id=FormSpecId("configure_advanced"),
-                    form_spec=DictionaryExtended(
+                    form_spec=TwoColumnDictionary(
                         elements=gcp.configuration_services_advanced(),
-                        layout=DictionaryLayout.two_columns,
                     ),
                 ),
             ],
@@ -235,6 +232,7 @@ def recap_found_services(
     _stage_index: StageIndex,
     parsed_data: ParsedFormData,
     progress_logger: ProgressLogger,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     debug: bool,
 ) -> Sequence[Widget]:
     service_discovery_result = utils.get_service_discovery_preview(
@@ -243,6 +241,7 @@ def recap_found_services(
         parameter_form=gcp.form_spec(),
         collect_params=gcp_collect_params,
         progress_logger=progress_logger,
+        site_configs=site_configs,
         debug=debug,
     )
     gcp_service_interest = ServiceInterest("gcp_.*", "services")
@@ -279,7 +278,7 @@ def review_and_run_preview_service_discovery() -> QuickSetupStage:
                 id=ActionId("skip_configuration_test"),
                 custom_validators=[],
                 recap=[
-                    lambda __, ___, parsed_data, ____, _____: _save_and_activate_recap(
+                    lambda _a, _b, parsed_data, *args, **kargs: _save_and_activate_recap(
                         _("Skipped the configuration test."), parsed_data
                     )
                 ],
@@ -295,6 +294,8 @@ def action(
     mode: QuickSetupActionMode,
     progress_logger: ProgressLogger,
     _object_id: str | None,
+    use_git: bool,
+    pprint_value: bool,
 ) -> str:
     match mode:
         case QuickSetupActionMode.SAVE:

@@ -13,21 +13,18 @@ from cmk.ccc.plugin_registry import Registry
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils import paths
-from cmk.utils.log.security_event import log_security_event
-from cmk.utils.object_diff import make_diff_text
-
-from cmk.gui import hooks, site_config, userdb
+from cmk.crypto.password import Password, PasswordPolicy
+from cmk.gui import site_config, userdb
 from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.i18n import _, _l
 from cmk.gui.logged_in import LoggedInUser, user
-from cmk.gui.type_defs import AnnotatedUserId, UserContactDetails, UserObject, Users, UserSpec
-from cmk.gui.userdb import add_internal_attributes, get_user_attributes
+from cmk.gui.type_defs import AnnotatedUserId, UserContactDetails, Users, UserSpec
+from cmk.gui.user_connection_config_types import UserConnectionConfig
+from cmk.gui.userdb import add_internal_attributes, UserAttribute
 from cmk.gui.userdb._connections import get_connection
 from cmk.gui.utils.security_log_events import UserManagementEvent
-from cmk.gui.valuespec import Age, Alternative, EmailAddress, FixedValue, UserID
+from cmk.gui.valuespec import Age, Alternative, EmailAddress, FixedValue
 from cmk.gui.watolib.audit_log import log_audit
 from cmk.gui.watolib.changes import add_change
 from cmk.gui.watolib.objref import ObjectRef, ObjectRefType
@@ -38,8 +35,9 @@ from cmk.gui.watolib.user_scripts import (
     user_script_title,
 )
 from cmk.gui.watolib.utils import multisite_dir, wato_root_dir
-
-from cmk.crypto.password import Password, PasswordPolicy
+from cmk.utils import paths
+from cmk.utils.log.security_event import log_security_event
+from cmk.utils.object_diff import make_diff_text
 
 _UserAssociatedSitesFn: TypeAlias = Callable[[UserSpec], Sequence[SiteId] | None]
 
@@ -66,9 +64,16 @@ def _update_affected_sites(
     return affected_sites | set(user_sites)
 
 
-def delete_users(users_to_delete: Sequence[UserId], sites: _UserAssociatedSitesFn) -> None:
-    user.need_permission("wato.users")
-    user.need_permission("wato.edit")
+def delete_users(
+    users_to_delete: Sequence[UserId],
+    sites: _UserAssociatedSitesFn,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    *,
+    use_git: bool,
+    acting_user: LoggedInUser,
+) -> None:
+    acting_user.need_permission("wato.users")
+    acting_user.need_permission("wato.edit")
     if user.id in users_to_delete:
         raise MKUserError(None, _("You cannot delete your own account!"))
 
@@ -86,7 +91,7 @@ def delete_users(users_to_delete: Sequence[UserId], sites: _UserAssociatedSitesF
                 UserManagementEvent(
                     event="user deleted",
                     affected_user=entry,
-                    acting_user=user.id,
+                    acting_user=acting_user.id,
                     connector=connection.type() if connection else None,
                     connection_id=connection_id,
                 )
@@ -100,103 +105,187 @@ def delete_users(users_to_delete: Sequence[UserId], sites: _UserAssociatedSitesF
             log_audit(
                 action="edit-user",
                 message="Deleted user: %s" % user_id,
-                user_id=user.id,
-                use_git=active_config.wato_use_git,
+                user_id=acting_user.id,
+                use_git=use_git,
                 object_ref=make_user_object_ref(user_id),
             )
         add_change(
             action_name="edit-users",
             text=_l("Deleted user: %s") % ", ".join(deleted_users),
-            user_id=user.id,
+            user_id=acting_user.id,
             sites=None if affected_sites == "all" else list(affected_sites),
-            use_git=active_config.wato_use_git,
+            use_git=use_git,
         )
-        userdb.save_users(all_users, datetime.now())
+        userdb.save_users(
+            all_users,
+            user_attributes,
+            active_config.user_connections,
+            now=datetime.now(),
+            pprint_value=active_config.wato_pprint_config,
+            call_users_saved_hook=True,
+        )
 
 
-def edit_users(changed_users: UserObject, sites: _UserAssociatedSitesFn) -> None:
-    user.need_permission("wato.users")
-    user.need_permission("wato.edit")
+def edit_users(
+    changed_users: dict[UserId, UserSpec],
+    sites: _UserAssociatedSitesFn,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    *,
+    use_git: bool,
+    acting_user: LoggedInUser,
+) -> None:
+    acting_user.need_permission("wato.users")
+    acting_user.need_permission("wato.edit")
+
     all_users = userdb.load_users(lock=True)
-    new_users_info = []
     modified_users_info = []
     affected_sites: _AffectedSites = set()
-    for user_id, settings in changed_users.items():
-        user_attrs: UserSpec = settings.get("attributes", {})
-        is_new_user = settings.get("is_new_user", True)
-        _validate_user_attributes(all_users, user_id, user_attrs, is_new_user=is_new_user)
 
-        affected_sites = _update_affected_sites(affected_sites, sites(user_attrs))
-        if is_new_user:
-            new_users_info.append(user_id)
-            add_internal_attributes(user_attrs)
-        else:
-            modified_users_info.append(user_id)
-            old_user_attrs = all_users[user_id]
-            affected_sites = _update_affected_sites(affected_sites, sites(old_user_attrs))
+    for user_id, changed_user_attrs in changed_users.items():
+        # TODO: we could also abort early and avoid creating wrong log entries
+        if (old_user_attrs := all_users.get(user_id)) is None:
+            raise MKUserError(None, _("The user you are trying to edit does not exist."))
 
-        old_object = make_user_audit_log_object(all_users.get(user_id, {}))
+        _validate_user_attributes(user_id, changed_user_attrs, user_attributes, user)
+
+        affected_sites = _update_affected_sites(affected_sites, sites(changed_user_attrs))
+        affected_sites = _update_affected_sites(affected_sites, sites(old_user_attrs))
+
+        modified_users_info.append(user_id)
+
         log_audit(
             action="edit-user",
-            message=(
-                "Created new user: %s" % user_id if is_new_user else "Modified user: %s" % user_id
+            message="Modified user: %s" % user_id,
+            user_id=acting_user.id,
+            use_git=use_git,
+            diff_text=make_diff_text(
+                make_user_audit_log_object(old_user_attrs),
+                make_user_audit_log_object(changed_user_attrs),
             ),
-            user_id=user.id,
-            use_git=active_config.wato_use_git,
-            diff_text=make_diff_text(old_object, make_user_audit_log_object(user_attrs)),
             object_ref=make_user_object_ref(user_id),
         )
-        connection_id = user_attrs.get("connector", None)
-        connection = get_connection(connection_id)
 
+        connection_id = changed_user_attrs.get("connector", None)
+        connection = get_connection(connection_id)
         log_security_event(
             UserManagementEvent(
-                event="user created" if is_new_user else "user modified",
+                event="user modified",
                 affected_user=user_id,
-                acting_user=user.id,
+                acting_user=acting_user.id,
                 connector=connection.type() if connection else None,
                 connection_id=connection_id,
             )
         )
 
-        all_users[user_id] = user_attrs
+        all_users[user_id] = changed_user_attrs
 
-    if new_users_info:
-        add_change(
-            action_name="edit-users",
-            text=_l("Created new users: %s") % ", ".join(new_users_info),
-            user_id=user.id,
-            sites=None if affected_sites == "all" else list(affected_sites),
-            use_git=active_config.wato_use_git,
-        )
     if modified_users_info:
         add_change(
             action_name="edit-users",
             text=_l("Modified users: %s") % ", ".join(modified_users_info),
-            user_id=user.id,
+            user_id=acting_user.id,
             sites=None if affected_sites == "all" else list(affected_sites),
-            use_git=active_config.wato_use_git,
+            use_git=use_git,
         )
-        hooks.call("users-changed", modified_users_info)
 
-    userdb.save_users(all_users, datetime.now())
+    userdb.save_users(
+        all_users,
+        user_attributes,
+        active_config.user_connections,
+        now=datetime.now(),
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )
+
+
+def create_user(
+    user_id: UserId,
+    new_user: UserSpec,
+    sites: _UserAssociatedSitesFn,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    *,
+    use_git: bool,
+    acting_user: LoggedInUser,
+    # TODO: Make this a mandatory parameter in the next commit
+    user_connections: Sequence[UserConnectionConfig] | None = None,
+) -> None:
+    if user_connections is None:
+        user_connections = active_config.user_connections
+
+    acting_user.need_permission("wato.users")
+    acting_user.need_permission("wato.edit")
+
+    if user_id == "":  # reserved for UserId.builtin()
+        raise ValueError("UserId cannot be empty")
+
+    all_users = userdb.load_users(lock=True)
+
+    if user_id in all_users:
+        raise MKUserError("user_id", _("This username is already being used by another user."))
+
+    _validate_user_attributes(user_id, new_user, user_attributes, acting_user)
+
+    add_internal_attributes(new_user)
+
+    log_audit(
+        action="edit-user",
+        message="Created new user: %s" % user_id,
+        user_id=acting_user.id,
+        use_git=use_git,
+        diff_text=make_diff_text({}, make_user_audit_log_object(new_user)),
+        object_ref=make_user_object_ref(user_id),
+    )
+
+    connection_id = new_user.get("connector", None)
+    connection = get_connection(connection_id)
+    log_security_event(
+        UserManagementEvent(
+            event="user created",
+            affected_user=user_id,
+            acting_user=acting_user.id,
+            connector=connection.type() if connection else None,
+            connection_id=connection_id,
+        )
+    )
+
+    affected_sites = _update_affected_sites(set(), sites(new_user))
+    add_change(
+        action_name="edit-users",
+        text=_l("Created new users: %s") % new_user,
+        user_id=acting_user.id,
+        sites=None if affected_sites == "all" else list(affected_sites),
+        use_git=use_git,
+    )
+
+    all_users[user_id] = new_user
+    userdb.save_users(
+        all_users,
+        user_attributes,
+        user_connections,
+        now=datetime.now(),
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )
 
 
 def remove_custom_attribute_from_all_users(
-    custom_attribute_name: str, sites: _UserAssociatedSitesFn
+    custom_attribute_name: str,
+    sites: _UserAssociatedSitesFn,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    *,
+    use_git: bool,
 ) -> None:
     edit_users(
         {
-            user_id: {
-                "attributes": cast(
-                    UserSpec,
-                    {k: v for k, v in settings.items() if k != custom_attribute_name},
-                ),
-                "is_new_user": False,
-            }
+            user_id: cast(
+                UserSpec, {k: v for k, v in settings.items() if k != custom_attribute_name}
+            )
             for user_id, settings in userdb.load_users(lock=True).items()
         },
         sites,
+        user_attributes,
+        use_git=use_git,
+        acting_user=user,
     )
 
 
@@ -227,20 +316,11 @@ def make_user_object_ref(user_id: UserId) -> ObjectRef:
 
 
 def _validate_user_attributes(
-    all_users: Users,
     user_id: UserId,
     user_attrs: UserSpec,
-    is_new_user: bool = True,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    acting_user: LoggedInUser,
 ) -> None:
-    # Check user_id
-    if is_new_user:
-        if user_id in all_users:
-            raise MKUserError("user_id", _("This username is already being used by another user."))
-        vs_user_id = UserID(allow_empty=False)
-        vs_user_id.validate_value(user_id, "user_id")
-    elif user_id not in all_users:
-        raise MKUserError(None, _("The user you are trying to edit does not exist."))
-
     # Full name
     alias = user_attrs.get("alias")
     if not alias:
@@ -250,7 +330,7 @@ def _validate_user_attributes(
 
     # Locking
     locked = user_attrs["locked"]
-    if user_id == user.id and locked:
+    if user_id == acting_user.id and locked:
         raise MKUserError("locked", _("You cannot lock your own account!"))
 
     # Automation Secret
@@ -285,7 +365,7 @@ def _validate_user_attributes(
         )
 
     # Custom user attributes
-    for name, attr in get_user_attributes():
+    for name, attr in user_attributes:
         value = user_attrs.get(name)
         attr.valuespec().validate_value(value, "ua_" + name)
 
@@ -344,15 +424,15 @@ def notification_script_choices() -> list[tuple[str, str]]:
     return choices
 
 
-def verify_password_policy(password: Password, varname: str = "password") -> None:
-    min_len = active_config.password_policy.get("min_length")
-    num_groups = active_config.password_policy.get("num_groups")
-
-    result = password.verify_policy(PasswordPolicy(min_len, num_groups))
+def verify_password_policy(
+    password: Password, varname: str, password_policy: PasswordPolicy
+) -> None:
+    result = password.verify_policy(password_policy)
     if result == PasswordPolicy.Result.TooShort:
         raise MKUserError(
             varname,
-            _("The given password is too short. It must have at least %d characters.") % min_len,
+            _("The given password is too short. It must have at least %d characters.")
+            % password_policy.min_length,
         )
     if result == PasswordPolicy.Result.TooSimple:
         raise MKUserError(
@@ -361,7 +441,7 @@ def verify_password_policy(password: Password, varname: str = "password") -> Non
                 "The password does not use enough character groups. You need to "
                 "set a password which uses at least %d of them."
             )
-            % num_groups,
+            % password_policy.min_groups,
         )
 
 
@@ -404,8 +484,10 @@ class UserFeaturesRegistry(Registry[UserFeatures]):
 user_features_registry = UserFeaturesRegistry()
 
 
-def get_enabled_remote_sites_for_logged_in_user(logged_in_user: LoggedInUser) -> SiteConfigurations:
-    all_enabled_slave_sites = site_config.wato_slave_sites()
+def get_enabled_remote_sites_for_logged_in_user(
+    logged_in_user: LoggedInUser, site_configs: SiteConfigurations
+) -> SiteConfigurations:
+    all_enabled_slave_sites = site_config.distributed_setup_remote_sites(site_configs)
     if (
         site_ids_for_user := user_features_registry.features().sites(logged_in_user.attributes)
     ) is None:

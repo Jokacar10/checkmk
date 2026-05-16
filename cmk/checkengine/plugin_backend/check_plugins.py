@@ -8,20 +8,18 @@ import functools
 from collections.abc import Callable, Generator, Mapping
 from typing import Any
 
-from cmk.utils.rulesets import RuleSetName
-
+from cmk.agent_based.v1 import IgnoreResults, Metric, Result, Service
+from cmk.agent_based.v1.register import RuleSetType
 from cmk.checkengine.plugins import (
     CheckFunction,
     CheckPlugin,
     CheckPluginName,
     DiscoveryFunction,
     LegacyPluginLocation,
+    ParsedSectionName,
 )
-from cmk.checkengine.sectionparser import ParsedSectionName
-
-from cmk.agent_based.v1 import IgnoreResults, Metric, Result, Service
-from cmk.agent_based.v1.register import RuleSetType
 from cmk.discover_plugins import PluginLocation
+from cmk.utils.rulesets import RuleSetName
 
 from .utils import (
     create_subscribed_sections,

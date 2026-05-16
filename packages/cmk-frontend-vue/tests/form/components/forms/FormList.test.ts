@@ -5,11 +5,13 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import { mount } from '@vue/test-utils'
-import FormList from '@/form/components/forms/FormList.vue'
-import FormEdit from '@/form/components/FormEdit.vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { renderFormWithData } from '../cmk-form-helper'
+
+import FormEdit from '@/form/components/FormEdit.vue'
+import FormList from '@/form/components/forms/FormList.vue'
+
 import FormDataVisualizer from '../FormDataVisualizer.vue'
+import { renderFormWithData } from '../cmk-form-helper'
 
 const stringValidators: FormSpec.Validator[] = [
   {
@@ -25,7 +27,6 @@ const stringFormSpec: FormSpec.String = {
   title: 'barTitle',
   help: 'barHelp',
   label: null,
-  i18n_base: { required: 'required' },
   validators: stringValidators,
   input_hint: '',
   autocompleter: null,
@@ -71,7 +72,7 @@ test.skip('List elements are draggable', async () => {
   await draggables[0]!.trigger('dragend')
 
   wrapper.vm.$nextTick(() => {
-    expect(wrapper.find('[data-testid="test-data"]').text()).toBe('["second_value","first_value"]')
+    expect(wrapper.find('[id="test-data"]').text()).toBe('["second_value","first_value"]')
   })
 })
 
@@ -148,8 +149,6 @@ const dictSpec: FormSpec.Dictionary = {
   type: 'dictionary',
   title: 'dictTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
-  layout: 'one_column',
   validators: [],
   groups: [],
   no_elements_text: 'no_text',

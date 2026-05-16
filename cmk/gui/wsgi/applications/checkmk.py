@@ -16,13 +16,13 @@ from werkzeug.exceptions import RequestEntityTooLarge
 import livestatus
 
 import cmk.ccc.store
-from cmk.ccc.exceptions import MKException
-
 import cmk.utils.paths
-
+from cmk import trace
+from cmk.ccc.exceptions import MKException, MKGeneralException
+from cmk.crypto import MKCryptoException
 from cmk.gui import pages, sites
 from cmk.gui.breadcrumb import Breadcrumb, BreadcrumbItem
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.exceptions import (
     FinalizeRequest,
     HTTPRedirect,
@@ -47,16 +47,13 @@ from cmk.gui.wsgi.applications.utils import (
 )
 from cmk.gui.wsgi.type_defs import WSGIResponse
 
-from cmk import trace
-from cmk.crypto import MKCryptoException
-
 tracer = trace.get_tracer()
 
 # TODO
 #  * derive all exceptions from werkzeug's http exceptions.
 
 
-def _noauth(func: pages.PageHandlerFunc) -> Callable[[], Response]:
+def _noauth(handler: pages.PageHandlerFunc | type[pages.Page]) -> Callable[[Config], Response]:
     #
     # We don't have to set up anything because we assume this is only used for special calls. We
     # however have to make sure all errors get written out in plaintext, without HTML.
@@ -65,15 +62,18 @@ def _noauth(func: pages.PageHandlerFunc) -> Callable[[], Response]:
     #  * noauth:deploy_agent
     #  * noauth:automation
     #
-    @functools.wraps(func)
-    def _call_noauth():
+    @functools.wraps(handler)
+    def _call_noauth(config: Config) -> Response:
         try:
-            func()
+            if isinstance(handler, type):
+                handler().handle_page(config)
+            else:
+                handler(config)
         except HTTPRedirect:
             raise
         except Exception as e:
             html.write_text_permissive(str(e))
-            if active_config.debug:
+            if config.debug:
                 html.write_text_permissive(traceback.format_exc())
 
         return response
@@ -81,7 +81,7 @@ def _noauth(func: pages.PageHandlerFunc) -> Callable[[], Response]:
     return _call_noauth
 
 
-def _page_not_found() -> Response:
+def _page_not_found(config: Config) -> Response:
     # TODO: This is a page handler. It should not be located in generic application
     # object. Move it to another place
     if request.has_var("_plain_error"):
@@ -172,10 +172,28 @@ class CheckmkApp(AbstractWSGIApp):
     def wsgi_app(self, environ: WSGIEnvironment, start_response: StartResponse) -> WSGIResponse:
         """Is called by the WSGI server to serve the current page"""
         with cmk.ccc.store.cleanup_locks(), sites.cleanup_connections():
-            return _process_request(environ, start_response, debug=self.debug, testing=self.testing)
+            # The configuration is currently loaded in the FileBasedSession.open_session() method,
+            # because we need the configuration for the session management. Need to figure out
+            # whether we can directly hand it over to get rid of the proxy object.
+            # Flask.__call__()
+            #     Flask.wsgi_app()
+            #         self.request_context()
+            #         RequestContext.push()
+            #             FileBasedSession.open_session(app, request)
+            #     	        config.initialize()
+            #         Flask.full_dispatch_request()
+            #             Flask.finalize_request()
+            #                 Flask.make_response()
+            #                     AbstractWSGIApp.__call__()
+            #                         CheckmkApp.wsgi_app()
+            config = active_config
+            return _process_request(
+                config, environ, start_response, debug=self.debug, testing=self.testing
+            )
 
 
 def _process_request(
+    config: Config,
     environ: WSGIEnvironment,
     start_response: StartResponse,
     debug: bool = False,
@@ -194,10 +212,10 @@ def _process_request(
         else:
             page_handler = _page_not_found
 
-        resp = page_handler()
+        resp = page_handler(config)
 
     except MKNotFound:
-        resp = _page_not_found()
+        resp = _page_not_found(config)
 
     except HTTPRedirect as exc:
         return flask.redirect(exc.url)(environ, start_response)
@@ -230,7 +248,8 @@ def _process_request(
         resp = _render_exception(e, title=_("Configuration error"))
         logger.error("MKConfigError: %s", e)
 
-    except (MKException, MKCryptoException) as e:
+    # I added MKGeneralException during a refactoring, but I did not check if it is needed.
+    except (MKException, MKCryptoException, MKGeneralException) as e:
         resp = _render_exception(e, title=_("General error"))
         logger.error("%s: %s", e.__class__.__name__, e)
 

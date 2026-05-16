@@ -6,6 +6,7 @@
 
 import dataclasses
 import logging
+import socket
 from collections.abc import Sequence
 from functools import partial
 from typing import NoReturn
@@ -13,15 +14,10 @@ from typing import NoReturn
 import pytest
 from pytest import MonkeyPatch
 
-from tests.testlib.unit.base_configuration_scenario import Scenario
-
-from cmk.ccc.exceptions import MKSNMPError
-from cmk.ccc.hostaddress import HostAddress, HostName
-
-from cmk.utils.log import logger
-from cmk.utils.sectionname import SectionName
-
 import cmk.snmplib._table as _snmp_table
+from cmk.base.config import ConfigCache
+from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.helper_interface import SourceType
 from cmk.snmplib import (
     BackendOIDSpec,
     BackendSNMPTree,
@@ -29,17 +25,17 @@ from cmk.snmplib import (
     get_snmp_table,
     SNMPBackend,
     SNMPBackendEnum,
+    SNMPContext,
     SNMPContextConfig,
-    SNMPContextTimeout,
     SNMPHostConfig,
+    SNMPSectionName,
     SNMPTable,
+    SNMPTimeout,
     SNMPVersion,
     SpecialColumn,
 )
-
-from cmk.checkengine.fetcher import SourceType
-
-from cmk.base.config import ConfigCache
+from cmk.utils.log import logger
+from tests.testlib.unit.base_configuration_scenario import Scenario
 
 SNMPConfig = SNMPHostConfig(
     is_ipv6_primary=False,
@@ -92,7 +88,7 @@ def test_get_snmp_table(
         backend = SNMPTestBackend(SNMPConfig, logger)
         if not isinstance(info, list):
             return get_snmp_table(
-                section_name=SectionName("unit_test"),
+                section_name=SNMPSectionName("unit_test"),
                 tree=info,
                 walk_cache={},
                 backend=backend,
@@ -100,7 +96,7 @@ def test_get_snmp_table(
             )
         return [
             get_snmp_table(
-                section_name=SectionName("unit_test"),
+                section_name=SNMPSectionName("unit_test"),
                 tree=i,
                 walk_cache={},
                 backend=backend,
@@ -146,6 +142,7 @@ def test_use_advanced_snmp_version(monkeypatch: MonkeyPatch) -> None:
     assert (
         config_cache.make_snmp_config(
             HostName("abc"),
+            socket.AddressFamily.AF_INET,
             HostAddress("1.2.3.4"),
             SourceType.HOST,
             backend_override=None,
@@ -155,6 +152,7 @@ def test_use_advanced_snmp_version(monkeypatch: MonkeyPatch) -> None:
     assert (
         config_cache.make_snmp_config(
             HostName("localhost"),
+            socket.AddressFamily.AF_INET,
             HostAddress("1.2.3.4"),
             SourceType.HOST,
             backend_override=None,
@@ -196,11 +194,20 @@ def test_walk_passes_on_timeout_with_snmpv3_context_continue_on_timeout() -> Non
         def get(self, /, *args: object, **kw: object) -> NoReturn:
             assert False
 
-        def walk(self, /, *args: object, **kw: object) -> NoReturn:
-            raise SNMPContextTimeout
+        def walk(
+            self,
+            /,
+            oid: object,
+            *,
+            context: SNMPContext,
+            **kw: object,
+        ) -> NoReturn:
+            # return timeout on first context, error on second context.
+            # we do expect to reach the second context here.
+            raise SNMPTimeout() if context != "two" else RuntimeError()
 
-    section_name = SectionName("section")
-    with pytest.raises(MKSNMPError) as excinfo:
+    section_name = SNMPSectionName("section")
+    with pytest.raises(RuntimeError):
         _snmp_table.get_snmpwalk(
             section_name,
             ".1.2.3",
@@ -214,7 +221,7 @@ def test_walk_passes_on_timeout_with_snmpv3_context_continue_on_timeout() -> Non
                     snmpv3_contexts=[
                         SNMPContextConfig(
                             section=section_name,
-                            contexts=[""],
+                            contexts=["one", "two"],
                             timeout_policy="continue",
                         )
                     ],
@@ -224,19 +231,26 @@ def test_walk_passes_on_timeout_with_snmpv3_context_continue_on_timeout() -> Non
             log=logger.debug,
         )
 
-    assert type(excinfo.value) is not SNMPContextTimeout
-
 
 def test_walk_raises_on_timeout_without_snmpv3_context_stop_on_timeout() -> None:
     class Backend(SNMPBackend):
         def get(self, /, *args: object, **kw: object) -> NoReturn:
             assert False
 
-        def walk(self, /, *args: object, **kw: object) -> NoReturn:
-            raise SNMPContextTimeout
+        def walk(
+            self,
+            /,
+            oid: object,
+            *,
+            context: SNMPContext,
+            **kw: object,
+        ) -> NoReturn:
+            # return timeout on first context, error on second context
+            # We expect to never reach the second context here.
+            raise SNMPTimeout() if context != "two" else RuntimeError()
 
-    section_name = SectionName("section")
-    with pytest.raises(MKSNMPError) as excinfo:
+    section_name = SNMPSectionName("section")
+    with pytest.raises(SNMPTimeout):
         _snmp_table.get_snmpwalk(
             section_name,
             ".1.2.3",
@@ -249,7 +263,7 @@ def test_walk_raises_on_timeout_without_snmpv3_context_stop_on_timeout() -> None
                     snmpv3_contexts=[
                         SNMPContextConfig(
                             section=section_name,
-                            contexts=[""],
+                            contexts=["one", "two"],
                             timeout_policy="stop",
                         )
                     ],
@@ -258,5 +272,3 @@ def test_walk_raises_on_timeout_without_snmpv3_context_stop_on_timeout() -> None
             ),
             log=logger.debug,
         )
-
-    assert type(excinfo.value) is SNMPContextTimeout

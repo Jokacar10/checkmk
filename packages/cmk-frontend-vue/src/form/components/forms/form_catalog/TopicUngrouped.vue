@@ -4,23 +4,22 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import type {
-  TopicElement,
-  I18NFormSpecBase
-} from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { groupNestedValidations, type ValidationMessages } from '@/form/components/utils/validation'
-import { useId } from '@/form/utils'
-import CmkCheckbox from '@/components/CmkCheckbox.vue'
+import type { TopicElement } from 'cmk-shared-typing/typescript/vue_formspec_components'
 import { onMounted, ref, watch } from 'vue'
+
 import { immediateWatch } from '@/lib/watch'
+
+import CmkCheckbox from '@/components/user-input/CmkCheckbox.vue'
+
+import { type ValidationMessages, groupNestedValidations } from '@/form/components/utils/validation'
 import { useFormEditDispatcher } from '@/form/private'
 import FormRequired from '@/form/private/FormRequired.vue'
 import { rendersRequiredLabelItself } from '@/form/private/requiredValidator'
+import { useId } from '@/form/utils'
 
 const props = defineProps<{
   elements: TopicElement[]
   backendValidation: ValidationMessages
-  i18nBase: I18NFormSpecBase
 }>()
 
 const data = defineModel<Record<string, unknown>>('data', { required: true })
@@ -87,7 +86,6 @@ const { FormEditDispatcher } = useFormEditDispatcher()
           }}<FormRequired
             v-if="!rendersRequiredLabelItself(element.parameter_form)"
             :spec="element.parameter_form"
-            :i18n-required="props.i18nBase.required"
             :space="'before'"
           />
         </label>
@@ -106,11 +104,14 @@ const { FormEditDispatcher } = useFormEditDispatcher()
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 td.title {
   width: 240px;
   min-width: 240px;
   max-width: 240px;
   vertical-align: top;
+
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   span.fixed_content_width {
     width: 230px;
     display: inline-block;
@@ -119,16 +120,20 @@ td.title {
   }
 
   label {
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.show_pointer {
       cursor: pointer;
     }
   }
+
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   span.hidden_checkbox_size {
     width: 13px;
     display: inline-block;
   }
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 td.value {
   width: 100%;
   vertical-align: top;

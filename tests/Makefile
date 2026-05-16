@@ -24,6 +24,7 @@ ADDITIONAL_MYPY_ARGS := $(JUNIT_XML)
 AGENT_PLUGIN_PYTHON_VERSIONS := $(shell make --no-print-directory --file=../defines.make print-AGENT_PLUGIN_PYTHON_VERSIONS)
 REPO_PATH := $(shell make --no-print-directory --file=../defines.make print-REPO_PATH)
 MAX_CHARS := 1500000
+EDITION ?= cee
 
 # A random time zone between UTC-11...UTC+14. Note the recursively expanded
 # variable assignment to get a new time zone on every access.
@@ -32,6 +33,7 @@ RANDOM_TZ = $(shell printf "UTC%+d\n" $$(( $$RANDOM / 1261 - 11 )) )
 SYSTEM_TESTS := \
     test-integration \
     test-integration-redfish \
+    test-integration-otel \
     test-composition \
     test-update-cre \
     test-update-cee \
@@ -256,6 +258,24 @@ test-format-bazel:
 test-lint-groovy:
 	cd ..; scripts/run-groovy-lint --loglevel warning --failon error $(GROOVYLINT_OUTPUT_ARGS)
 
+test-performance:
+	BRANCH=$(shell make --no-print-directory --file="../defines.make" print-BRANCH_VERSION) ; \
+	EDITION=cee ; \
+	RELEASE="$${BRANCH}-$$(date '+%Y.%m.%d').$${EDITION}" ; \
+	ROOT_DIR=$(or $(RESULT_PATH),"$(REPO_PATH)/results")/performance ; \
+	BENCHMARK_DIR=$${ROOT_DIR}/$${RELEASE} ; \
+	mkdir -p "$${BENCHMARK_DIR}" ; \
+	$(PYTEST) "$(realpath performance)" $(PYTEST_SYSTEM_TEST_ARGS) \
+	--benchmark-json="$${BENCHMARK_DIR}/benchmark.json" \
+	--benchmark-verbose --html="$${BENCHMARK_DIR}/report.htm" \
+	--self-contained-html --ignore-running-procs ; \
+	$(UVENV) "$(realpath performance)/perftest_plot.py" \
+	--root-dir="$${ROOT_DIR}" --log-level=INFO --dbhost=qa.lan.checkmk.net \
+	--validate-baselines --alert-on-failure --jira-url="https://jira.lan.tribe29.com/"
+
+test-performance-docker:
+	RESULT_PATH=$(realpath ..) $(UVENV) scripts/run-dockerized.py "$(subst -docker,,$@)"
+
 test-gui-crawl: prepare-playwright
 	$(PYTEST) $(PYTEST_SYSTEM_TEST_ARGS) $(realpath gui_crawl/test_gui_crawl.py)
 
@@ -263,12 +283,12 @@ test-xss-crawl: prepare-playwright
 	XSS_CRAWL=1 $(PYTEST) $(PYTEST_SYSTEM_TEST_ARGS) $(realpath gui_crawl/test_gui_crawl.py) --numprocesses=1
 
 test-gui-e2e test-gui-e2e-cee: prepare-playwright # full e2e test is done for cee
-	EDITION=cee $(PYTEST) --screenshot-cmk=only-on-failure --output-cmk="$$RESULT_PATH/" \
-	$(PYTEST_SYSTEM_TEST_ARGS) $(realpath gui_e2e/)  --numprocesses=1
+	$(PYTEST) --cmk-edition cee --screenshot=only-on-failure --output="$$RESULT_PATH/" --tracing=retain-on-failure \
+	$(PYTEST_SYSTEM_TEST_ARGS) $(realpath gui_e2e/) --numprocesses=1
 
 test-gui-e2e-non-free: prepare-playwright # limited e2e test for non-free editions (cee or higher)
-	$(PYTEST) --screenshot-cmk=only-on-failure --output-cmk="$$RESULT_PATH/" \
-	$(PYTEST_SYSTEM_TEST_ARGS) $(realpath gui_e2e/cee)  --numprocesses=1
+	$(PYTEST) --screenshot=only-on-failure --output="$$RESULT_PATH/" --tracing=retain-on-failure \
+	$(PYTEST_SYSTEM_TEST_ARGS) --cmk-edition $(EDITION) $(realpath gui_e2e/cee) --numprocesses=1
 
 test-gui-e2e-cce:
 	EDITION=cce $(MAKE) test-gui-e2e-non-free
@@ -287,6 +307,10 @@ test-integration-redfish:
 	$(PYTEST) $(PYTEST_SYSTEM_TEST_ARGS) \
 	$(realpath integration_redfish) --session-timeout 1800
 
+test-integration-otel:
+	$(PYTEST) $(PYTEST_SYSTEM_TEST_ARGS) \
+	$(realpath integration/otel) --session-timeout 1800
+
 test-composition:
 	OTEL_RESOURCE_ATTRIBUTES=service.name=pytest \
 	    $(PYTEST) --export-traces $(PYTEST_SYSTEM_TEST_ARGS) \
@@ -296,35 +320,35 @@ test-extension-compatibility:
 	$(PYTEST) -vv $(PYTEST_SYSTEM_TEST_ARGS) $(realpath extension_compatibility)
 
 test-update-cre:
-	EDITION=cre $(PYTEST) $(realpath update/cre) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
+	$(PYTEST) --cmk-edition cre $(realpath update/cre) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
 
 test-update-cee:
-	EDITION=cee $(PYTEST) $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
+	$(PYTEST) --cmk-edition cee $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
 
 test-update-cce:
-	EDITION=cce $(PYTEST) $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
+	$(PYTEST) --cmk-edition cce $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
 
 test-update-cme:
-	EDITION=cme $(PYTEST) $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
+	$(PYTEST) --cmk-edition cme $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --session-timeout 5400
 
 test-update-cse:
-	EDITION=cse $(PYTEST) $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --disable-interactive-mode \
+	$(PYTEST) --cmk-edition cse $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) --disable-interactive-mode \
 	--session-timeout 5400
 
 test-update-cross-edition-cee-to-cce: # from CEE to CCE
-	EDITION=cee $(PYTEST) $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) $(realpath update/cee/test_update.py) \
+	$(PYTEST) --cmk-edition cee $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) $(realpath update/cee/test_update.py) \
 	--latest-base-version --target-edition=CCE --disable-interactive-mode --session-timeout 5400
 
 test-update-cross-edition-cee-to-cme: # from CEE to CME
-	EDITION=cee $(PYTEST) $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) $(realpath update/cee/test_update.py) \
+	$(PYTEST) --cmk-edition cee $(realpath update/cee) $(PYTEST_SYSTEM_TEST_ARGS) $(realpath update/cee/test_update.py) \
 	--latest-base-version --target-edition=CME --disable-interactive-mode --session-timeout 5400
 
 test-update-cross-edition-cre-to-cee: # from CRE to CEE
-	EDITION=cre $(PYTEST) $(realpath update/cre/test_update.py) $(PYTEST_SYSTEM_TEST_ARGS) \
+	$(PYTEST) --cmk-edition cre $(realpath update/cre/test_update.py) $(PYTEST_SYSTEM_TEST_ARGS) \
 	--latest-base-version --target-edition=CEE --disable-interactive-mode --session-timeout 5400
 
 test-update-cross-edition-cre-to-cce: # from CRE to CCE
-	EDITION=cre $(PYTEST) $(realpath update/cre/test_update.py) $(PYTEST_SYSTEM_TEST_ARGS) \
+	$(PYTEST) --cmk-edition cre $(realpath update/cre/test_update.py) $(PYTEST_SYSTEM_TEST_ARGS) \
 	--latest-base-version --target-edition=CCE --disable-interactive-mode --session-timeout 5400
 
 test-schemathesis-openapi:
@@ -360,6 +384,15 @@ test-license-headers:
 
 test-requirements:
 	$(PYTEST) --log-cli-level=INFO $(realpath code_quality/test_requirements.py);
+
+test-py-extensions:
+	# block 1: no changes file given, test all files
+	# block 2: changes file given, test only changed files
+	if test -z "$$CHANGED_FILES_WITH_MODE_FILE"; then \
+		$(PYTEST) --log-cli-level=INFO $(realpath code_quality/test_python_extensions.py) --test-all-files -k 'py_extension' --result-out="$$RESULTS_FILE"; \
+	else \
+		$(PYTEST) --log-cli-level=INFO $(realpath code_quality/test_python_extensions.py) --git-changes="$$CHANGED_FILES_WITH_MODE_FILE" -k 'py_extension' --result-out="$$RESULTS_FILE"; \
+	fi
 
 test-file-content:
 	if test -z "$$CHANGED_FILES_REL_FILE"; then \
@@ -399,7 +432,7 @@ test-packaging:
 	$(PYTEST) packaging
 
 test-pylint:
-	cd ..; $(UVENV) pylint --disable=all --enable=$(PYLINT_CUSTOM_CHECKERS) --jobs=6 $(PYLINT_ARGS) $$($(FIND_PYTHON_FILES))
+	cd ..; $(UVENV) pylint --disable=all --enable=useless-suppression,$(PYLINT_CUSTOM_CHECKERS) --jobs=6 $(PYLINT_ARGS) $$($(FIND_PYTHON_FILES))
 	cd .. && $(PYTEST) \
 	    --config-file=pyproject.toml \
 	    --override-ini="pythonpath=." \
@@ -422,7 +455,7 @@ test-cycles:
 		    $$($(UVENV) scripts/find_cmk_namespace_package_paths.py) \
 		    $$(realpath -L ..)/omd/packages/omd/omdlib \
 		--strategy johnson \
-		--threshold 12 \
+		--threshold 0 \
 		--verbose
 
 test-unit-omdlib:
@@ -483,7 +516,7 @@ test-unit-neb:
 	cd ../packages/neb/test && ./.f12
 
 test-unit-cmc:
-	cd ../packages/cmc/test && ./.f12
+	cd ../non-free/packages/cmc/test && ./.f12
 
 test-find-modified-lock-files:
 	scripts/find_modified_lock_files

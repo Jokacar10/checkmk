@@ -5,16 +5,14 @@
 
 import copy
 from collections.abc import Iterator
-from typing import NamedTuple
-
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.plugin_registry import Registry
-
-from cmk.utils.servicename import ServiceName
+from typing import NamedTuple, override
 
 from cmk.bi.data_fetcher import BIStatusFetcher
 from cmk.bi.lib import NodeResultBundle, RequiredBIElement
 from cmk.bi.trees import BICompiledAggregation, BICompiledRule
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.plugin_registry import Registry
+from cmk.utils.servicename import ServiceName
 
 
 class BIAggregationFilter(NamedTuple):
@@ -34,6 +32,7 @@ class ABCPostprocessComputeResult:
 
 
 class BIComputerPostprocessingRegistry(Registry[ABCPostprocessComputeResult]):
+    @override
     def plugin_name(self, instance: ABCPostprocessComputeResult) -> str:
         return instance.__class__.__name__
 

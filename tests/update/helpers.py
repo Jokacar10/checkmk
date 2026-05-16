@@ -16,6 +16,7 @@ from tests.testlib.site import Site, SiteFactory
 from tests.testlib.utils import (
     get_services_with_status,
     get_supported_distros,
+    is_cleanup_enabled,
     parse_files,
     ServiceInfo,
     version_spec_from_env,
@@ -166,18 +167,23 @@ def inject_rules(site: Site) -> None:
 
 
 def cleanup_cmk_package(site: Site, request: pytest.FixtureRequest) -> None:
-    if os.getenv("CLEANUP", "1") == "1" and not request.config.getoption(name="--skip-uninstall"):
+    if is_cleanup_enabled() and not request.config.getoption(name="--skip-uninstall"):
         site.uninstall_cmk()
 
 
 def check_agent_receiver_error_log(site: Site) -> None:
     """Assert that there are no unexpected errors in the agent receiver log."""
-    error_match_dict = parse_files(pathname=site.logs_dir / "**/*log*", pattern="error")
-
-    # TODO: Remove the following block after CMK-18520 is done
-    agent_receiver_error_log = str(site.logs_dir / "agent-receiver/error.log")
-    if agent_receiver_error_log in error_match_dict:
-        error_match_dict.pop(agent_receiver_error_log)
+    error_match_dict = parse_files(
+        path_name=site.logs_dir / "agent-receiver",
+        files_name_pattern="*log*",
+        content_pattern="error",
+        sudo=True,
+    )
+    # TODO: Remove the following block after CMK-24766 is done
+    for file in list(error_match_dict):
+        for error in error_match_dict[file]:
+            if "was sent SIGTERM!" in error:
+                error_match_dict.pop(file)
 
     assert not error_match_dict, f"Error string found in one or more log files: {error_match_dict}"
 

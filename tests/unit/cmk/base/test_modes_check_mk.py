@@ -3,20 +3,29 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
+from dataclasses import replace
+
 import pytest
 
-from tests.testlib.unit.base_configuration_scenario import Scenario
-
-from tests.unit.cmk.base.emptyconfig import EMPTYCONFIG
-
-from cmk.ccc.hostaddress import HostName
-
-import cmk.utils.resulttype as result
-
-from cmk.fetchers import PiggybackFetcher
-
+import cmk.ccc.resulttype as result
 from cmk.base import config
 from cmk.base.modes import check_mk
+from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.fetchers import Fetcher, Mode, PiggybackFetcher, PlainFetcherTrigger
+from cmk.utils.tags import TagGroupID, TagID
+from tests.testlib.unit.base_configuration_scenario import Scenario
+from tests.unit.cmk.base.empty_config import EMPTY_CONFIG
+
+
+class _MockFetcherTrigger(PlainFetcherTrigger):
+    def __init__(self, payload: bytes) -> None:
+        super().__init__()
+        self._payload = payload
+
+    def _trigger(self, fetcher: Fetcher, mode: Mode) -> result.Result:
+        if isinstance(fetcher, PiggybackFetcher):
+            return result.OK(b"")
+        return result.OK(self._payload)
 
 
 class TestModeDumpAgent:
@@ -33,8 +42,27 @@ class TestModeDumpAgent:
         return b"<<<check_mk>>>\nraw data"
 
     @pytest.fixture
-    def patch_config_load(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        loaded_config = EMPTYCONFIG
+    def patch_config_load(
+        self, monkeypatch: pytest.MonkeyPatch, hostname: HostName, ipaddress: HostAddress
+    ) -> None:
+        loaded_config = replace(
+            EMPTY_CONFIG,
+            ipaddresses={hostname: ipaddress},
+            host_tags={
+                hostname: {
+                    TagGroupID("checkmk-agent"): TagID("checkmk-agent"),
+                    TagGroupID("piggyback"): TagID("auto-piggyback"),
+                    TagGroupID("networking"): TagID("lan"),
+                    TagGroupID("agent"): TagID("cmk-agent"),
+                    TagGroupID("criticality"): TagID("prod"),
+                    TagGroupID("snmp_ds"): TagID("no-snmp"),
+                    TagGroupID("site"): TagID("unit"),
+                    TagGroupID("address_family"): TagID("ip-v4-only"),
+                    TagGroupID("tcp"): TagID("tcp"),
+                    TagGroupID("ip-v4"): TagID("ip-v4"),
+                }
+            },
+        )
         monkeypatch.setattr(
             config,
             config.load.__name__,
@@ -47,11 +75,9 @@ class TestModeDumpAgent:
     @pytest.fixture
     def patch_fetch(self, raw_data, monkeypatch):
         monkeypatch.setattr(
-            check_mk,
-            "get_raw_data",
-            lambda _file_cache, fetcher, _mode: (
-                result.OK(b"") if isinstance(fetcher, PiggybackFetcher) else result.OK(raw_data)
-            ),
+            check_mk.config,  # type: ignore[attr-defined]
+            "make_fetcher_trigger",
+            lambda *args: _MockFetcherTrigger(raw_data),
         )
 
     @pytest.fixture

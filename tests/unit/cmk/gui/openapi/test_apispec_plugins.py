@@ -9,10 +9,9 @@ import pytest
 from apispec import APISpec
 from marshmallow import post_load, Schema, ValidationError
 
+from cmk import fields
 from cmk.gui.fields.base import ValueTypedDictSchema
 from cmk.gui.openapi.spec.plugin_marshmallow import CheckmkMarshmallowPlugin
-
-from cmk import fields
 
 
 class Movie:
@@ -223,6 +222,7 @@ def test_static_fields_and_schema() -> None:
     src_data.update(MOVIES)
 
     result = schema.load(src_data)
+    assert isinstance(result, dict)
     assert set(result) == set(src_data)
     assert schema.dump(result) == src_data
 
@@ -230,4 +230,4 @@ def test_static_fields_and_schema() -> None:
 def test_invalid_data_type() -> None:
     schema = MovieDictSchema()
     with pytest.raises(ValidationError):
-        schema.load("invalid_data")
+        schema.load("invalid_data")  # type: ignore[arg-type]

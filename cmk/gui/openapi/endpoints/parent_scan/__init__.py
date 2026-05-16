@@ -80,6 +80,7 @@ def start_parent_scan_background_job(params: Mapping[str, Any]) -> Response:
             site_configs=active_config.sites,
             pprint_value=active_config.wato_pprint_config,
             debug=active_config.debug,
+            use_git=active_config.wato_use_git,
         )
     ).is_error():
         raise result.error
@@ -108,5 +109,7 @@ def _serve_background_job(job: BackgroundJob, domain_type: DomainType) -> Respon
     )
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(start_parent_scan_background_job)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(
+        start_parent_scan_background_job, ignore_duplicates=ignore_duplicates
+    )

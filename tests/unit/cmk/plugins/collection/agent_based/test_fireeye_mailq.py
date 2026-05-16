@@ -6,17 +6,15 @@
 
 import pytest
 
-from cmk.utils.sectionname import SectionName
-
+from cmk.agent_based.v2 import Metric, Result, Service, State
 from cmk.checkengine.plugins import (
     AgentBasedPlugins,
     CheckFunction,
     CheckPlugin,
     CheckPluginName,
     DiscoveryFunction,
+    SectionName,
 )
-
-from cmk.agent_based.v2 import Metric, Result, Service, State
 
 _PLUGIN = CheckPluginName("fireeye_mailq")
 

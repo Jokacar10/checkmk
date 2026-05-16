@@ -13,17 +13,20 @@ from cmk.gui.breadcrumb import (
     make_current_page_breadcrumb_item,
     make_topic_breadcrumb,
 )
+from cmk.gui.config import Config
 from cmk.gui.exceptions import HTTPRedirect, MKAuthException, MKUserError
 from cmk.gui.htmllib.header import make_header
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.page_menu import make_simple_form_page_menu, PageMenu
 from cmk.gui.pages import Page, PageResult
 from cmk.gui.pagetypes import PagetypeTopics
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import SingleInfos
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.valuespec import (
     Checkbox,
@@ -60,7 +63,7 @@ class EditDashletPage(Page):
         except KeyError:
             raise MKUserError("name", _("The requested dashboard does not exist."))
 
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         if self._ident is None:
             type_name = request.get_str_input_mandatory("type")
             mode = "add"
@@ -112,7 +115,12 @@ class EditDashletPage(Page):
 
             title = _("Edit element: %s") % dashlet_type.title()
 
-        breadcrumb = dashlet_editor_breadcrumb(self._board, self._dashboard, title)
+        breadcrumb = dashlet_editor_breadcrumb(
+            self._board,
+            self._dashboard,
+            title,
+            UserPermissions.from_config(config, permission_registry),
+        )
         make_header(
             html,
             title,
@@ -309,10 +317,12 @@ def _dashlet_editor_page_menu(breadcrumb: Breadcrumb) -> PageMenu:
     )
 
 
-def dashlet_editor_breadcrumb(name: str, board: DashboardConfig, title: str) -> Breadcrumb:
+def dashlet_editor_breadcrumb(
+    name: str, board: DashboardConfig, title: str, user_permissions: UserPermissions
+) -> Breadcrumb:
     breadcrumb = make_topic_breadcrumb(
-        mega_menu_registry.menu_monitoring(),
-        PagetypeTopics.get_topic(board["topic"]).title(),
+        main_menu_registry.menu_monitoring(),
+        PagetypeTopics.get_topic(board["topic"], user_permissions).title(),
     )
     breadcrumb.append(
         BreadcrumbItem(

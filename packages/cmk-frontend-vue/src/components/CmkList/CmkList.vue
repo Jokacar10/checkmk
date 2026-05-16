@@ -6,12 +6,14 @@ conditions defined in the file COPYING, which is part of this source code packag
 <script setup generic="ItemsProps extends Record<string, unknown[]>" lang="ts">
 import { ref } from 'vue'
 
-import CmkSpace from '@/components/CmkSpace.vue'
+import { type UnpackedArray } from '@/lib/typeUtils'
 import useDragging from '@/lib/useDragging'
 import { immediateWatch } from '@/lib/watch'
-import { type UnpackedArray } from '@/lib/typeUtils'
-import CmkListItem from './CmkListItem.vue'
+
+import CmkSpace from '@/components/CmkSpace.vue'
+
 import CmkListAddButton from './CmkListAddButton.vue'
+import CmkListItem from './CmkListItem.vue'
 
 type ItemProps = { [K in keyof ItemsProps]: UnpackedArray<ItemsProps[K]> }
 
@@ -19,7 +21,7 @@ const { orientation = 'vertical', ...props } = defineProps<{
   itemsProps: ItemsProps
   tryDelete: (index: number) => boolean
   add?: { show: boolean; tryAdd: (index: number) => boolean; label: string }
-  draggable?: { onReorder: (order: number[]) => void } | null
+  dragCallbacks?: { onReorder: (order: number[]) => void } | null
   orientation?: 'vertical' | 'horizontal'
 }>()
 
@@ -45,7 +47,7 @@ immediateWatch(
   }
 )
 
-const { tableRef, dragStart, dragEnd: _dragEnd, dragging: _dragging } = useDragging()
+const { trContainerRef, dragStart, dragEnd: _dragEnd, dragging: _dragging } = useDragging()
 
 function dragging(event: DragEvent) {
   const dragReturn = _dragging(event)
@@ -58,7 +60,7 @@ function dragging(event: DragEvent) {
 
 function dragEnd(event: DragEvent) {
   _dragEnd(event)
-  props.draggable?.onReorder(localOrder.value)
+  props.dragCallbacks?.onReorder(localOrder.value)
 }
 
 function removeElement(dataIndex: number) {
@@ -98,7 +100,7 @@ function getItemVariant(index: number, length: number) {
     :class="{ 'cmk-list--horizontal': orientation === 'horizontal' }"
   >
     <table
-      ref="tableRef"
+      ref="trContainerRef"
       role="list"
       class="cmk-list__table"
       :class="{ 'cmk-list__table-empty': localOrder.length === 0 }"
@@ -109,7 +111,7 @@ function getItemVariant(index: number, length: number) {
             <CmkListItem
               :remove-element="() => removeElement(dataIndex)"
               :variant="getItemVariant(listIndex, localOrder.length)"
-              :draggable="draggable ? { dragStart, dragEnd, dragging } : null"
+              :drag-callbacks="dragCallbacks ? { dragStart, dragEnd, dragging } : null"
             >
               <slot name="item-props" v-bind="{ index: dataIndex, ...getItemProps(dataIndex) }" />
             </CmkListItem>

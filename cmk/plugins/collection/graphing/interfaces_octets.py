@@ -5,7 +5,7 @@
 
 from cmk.graphing.v1 import graphs, metrics, perfometers, Title
 
-UNIT_BITS_PER_SECOND = metrics.Unit(metrics.IECNotation("bits/s"))
+UNIT_BITS_PER_SECOND = metrics.Unit(metrics.IECNotation("bit/s"))
 UNIT_BYTES_PER_SECOND = metrics.Unit(metrics.IECNotation("B/s"))
 UNIT_NUMBER = metrics.Unit(metrics.DecimalNotation(""))
 
@@ -40,7 +40,12 @@ perfometer_if_octets = perfometers.Bidirectional(
         name="if_in_octets",
         focus_range=perfometers.FocusRange(
             perfometers.Closed(0),
-            perfometers.Open(500000),
+            perfometers.Closed(
+                metrics.MaximumOf(
+                    "if_in_octets",
+                    color=metrics.Color.BLACK,
+                )
+            ),
         ),
         segments=["if_in_octets"],
     ),
@@ -48,7 +53,31 @@ perfometer_if_octets = perfometers.Bidirectional(
         name="if_out_octets",
         focus_range=perfometers.FocusRange(
             perfometers.Closed(0),
-            perfometers.Open(500000),
+            perfometers.Closed(
+                metrics.MaximumOf(
+                    "if_out_octets",
+                    color=metrics.Color.BLACK,
+                )
+            ),
+        ),
+        segments=["if_out_octets"],
+    ),
+)
+perfometer_if_octets_fallback = perfometers.Bidirectional(
+    name="if_octets_fallback",
+    left=perfometers.Perfometer(
+        name="if_in_octets_fallback",
+        focus_range=perfometers.FocusRange(
+            perfometers.Closed(0),
+            perfometers.Open(125_000_000),
+        ),
+        segments=["if_in_octets"],
+    ),
+    right=perfometers.Perfometer(
+        name="if_out_octets_fallback",
+        focus_range=perfometers.FocusRange(
+            perfometers.Closed(0),
+            perfometers.Open(125_000_000),
         ),
         segments=["if_out_octets"],
     ),
@@ -59,7 +88,7 @@ perfometer_if_unicast_octets = perfometers.Bidirectional(
         name="if_unicast_octets_out",
         focus_range=perfometers.FocusRange(
             perfometers.Closed(0),
-            perfometers.Open(500000),
+            perfometers.Open(125_000_000),
         ),
         segments=[
             metrics.Sum(
@@ -76,7 +105,7 @@ perfometer_if_unicast_octets = perfometers.Bidirectional(
         name="if_in_octets",
         focus_range=perfometers.FocusRange(
             perfometers.Closed(0),
-            perfometers.Open(500000),
+            perfometers.Open(125_000_000),
         ),
         segments=["if_in_octets"],
     ),

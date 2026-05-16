@@ -8,17 +8,19 @@ from collections.abc import MutableMapping
 from typing import Any
 
 import marshmallow
+from marshmallow import pre_load
 from marshmallow_oneofschema import OneOfSchema
 
+from cmk import fields
 from cmk.gui import fields as gui_fields
+from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKInternalError
 from cmk.gui.fields.definitions import GroupField, Username, UserRoleID
 from cmk.gui.fields.utils import BaseSchema
+from cmk.gui.openapi.endpoints.utils import mutually_exclusive_fields
 from cmk.gui.type_defs import DismissableWarning
 from cmk.gui.userdb import all_user_attributes
 from cmk.gui.utils.temperate_unit import TemperatureUnit
-
-from cmk import fields
 
 AUTH_PASSWORD = fields.String(
     required=False,
@@ -200,10 +202,18 @@ class UserInterfaceAttributes(BaseSchema):
         enum=["hide", "show"],
         load_default="hide",
     )
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
     mega_menu_icons = fields.String(
         required=False,
+        description="Deprecated - use `main_menu_icons` instead.",
+        enum=["topic", "entry"],
+        load_default="topic",
+        deprecated=True,
+    )
+    main_menu_icons = fields.String(
+        required=False,
         description="This option decides if colored icon should be shown foe every entry in the "
-        "mega menus or alternatively only for the headlines (the 'topics')",
+        "main menus or alternatively only for the headlines (the 'topics')",
         enum=["topic", "entry"],
         load_default="topic",
     )
@@ -223,10 +233,25 @@ class UserInterfaceAttributes(BaseSchema):
         load_default="show_icon",
     )
 
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
+    @pre_load
+    def _handle_menu_icons_fields(self, data: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        params = {key: value for key, value in data.items() if value is not None}
+        if params:
+            data["main_menu_icons"] = mutually_exclusive_fields(
+                str,
+                params,
+                "mega_menu_icons",
+                "main_menu_icons",
+                default="topic",
+            )
+        return data
+
 
 DISMISSABLE_WARNINGS: list[DismissableWarning] = [
     "notification_fallback",
     "immediate_slideout_change",
+    "changes-info",
 ]
 
 
@@ -258,7 +283,7 @@ class CustomUserAttributes(BaseSchema):
             original_data.pop(field, None)
 
         for name, value in original_data.items():
-            attribute = dict(all_user_attributes()).get(name)
+            attribute = dict(all_user_attributes(active_config.wato_user_attrs)).get(name)
             if attribute is None:
                 raise marshmallow.ValidationError(f"Unknown Attribute: {name!r}")
             if not attribute.is_custom():
@@ -274,7 +299,7 @@ class CustomUserAttributes(BaseSchema):
 class CreateUser(CustomUserAttributes):
     username = Username(
         required=True,
-        should_exist=False,
+        presence="should_not_exist",
         description="An unique username for the user",
         example="cmkuser",
     )
@@ -391,12 +416,20 @@ class CreateUser(CustomUserAttributes):
             "interface_theme": "default",
             "sidebar_position": "right",
             "navigation_bar_icons": "hide",
-            "mega_menu_icons": "topic",
+            "main_menu_icons": "topic",
+            "mega_menu_icons": "topic",  # TODO: DEPRECATED(18295) remove "mega_menu_icons"
             "show_mode": "default",
             "contextual_help_icon": "show_icon",
         },
         example={"interface_theme": "dark"},
         description="",
+    )
+    start_url = fields.String(
+        required=False,
+        load_default="default_start_url",
+        description="The URL that the user should be redirected to after login. There is a "
+        "'default_start_url', a 'welcome_page', and any other will be treated as a custom URL",
+        example="default_start_url",
     )
 
 
@@ -417,10 +450,17 @@ class UserInterfaceUpdateAttributes(BaseSchema):
         "respective titles",
         enum=["hide", "show"],
     )
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
     mega_menu_icons = fields.String(
         required=False,
+        description="Deprecated - use `main_menu_icons` instead.",
+        enum=["topic", "entry"],
+        deprecated=True,
+    )
+    main_menu_icons = fields.String(
+        required=False,
         description="This option decides if colored icon should be shown foe every entry in the "
-        "mega menus or alternatively only for the headlines (the 'topics')",
+        "main menus or alternatively only for the headlines (the 'topics')",
         enum=["topic", "entry"],
     )
     show_mode = fields.String(
@@ -437,6 +477,20 @@ class UserInterfaceUpdateAttributes(BaseSchema):
         example="show_icon",
         load_default="show_icon",
     )
+
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
+    @pre_load
+    def _handle_menu_icons_fields(self, data: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        params = {key: value for key, value in data.items() if value is not None}
+        if params:
+            data["main_menu_icons"] = mutually_exclusive_fields(
+                str,
+                params,
+                "mega_menu_icons",
+                "main_menu_icons",
+                default="topic",
+            )
+        return data
 
 
 class UpdateUser(CustomUserAttributes):
@@ -541,4 +595,10 @@ class UpdateUser(CustomUserAttributes):
         required=False,
         example={"interface_theme": "dark"},
         description="",
+    )
+    start_url = fields.String(
+        required=False,
+        description="The URL that the user should be redirected to after login. There is a "
+        "'default_start_url', a 'welcome_page', and any other will be treated as a custom URL",
+        example="default_start_url",
     )

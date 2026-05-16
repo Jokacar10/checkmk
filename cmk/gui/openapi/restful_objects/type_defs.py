@@ -24,7 +24,12 @@ DomainType = Literal[
     "broker_connection",
     "comment",
     "configuration_entity",
+    "constant",
     "contact_group_config",
+    "dashboard",
+    "dashboard_metadata",
+    "dashboard_relative_grid",
+    "dashboard_responsive_grid",
     "dcd",
     "discovery_run",
     "downtime",
@@ -32,6 +37,7 @@ DomainType = Literal[
     "form_spec",
     "folder",
     "folder_config",
+    "graph_timerange",
     "host",
     "host_config",
     "host_config_internal",
@@ -47,8 +53,10 @@ DomainType = Literal[
     "metric",
     "notification_rule",
     "notification_parameter",
+    "otel_collector_config",
     "password",
     "parent_scan",
+    "relay",
     "rule",
     "ruleset",
     "saml_connection",
@@ -72,6 +80,8 @@ DomainType = Literal[
     "quick_setup_stage_action_result",
     "managed_robots",
     "onboarding",
+    "view",
+    "visual_filter",
 ]
 
 
@@ -86,6 +96,7 @@ CmkEndpointName = Literal[
     "cmk/bulk_discovery",
     "cmk/bulk_update",
     "cmk/compute",
+    "cmk/compute-list",
     "cmk/configure",
     "cmk/create",
     "cmk/create_aux_tag",
@@ -94,10 +105,14 @@ CmkEndpointName = Literal[
     "cmk/create_service",
     "cmk/create_for_service",
     "cmk/create_cluster",
+    "cmk/create_dashboard_relative_grid",
+    "cmk/create_dashboard_responsive_grid",
     "cmk/download",
     "cmk/download_by_hash",
     "cmk/download_by_host",
     "cmk/download_license_request",
+    "cmk/edit_dashboard_relative_grid",
+    "cmk/edit_dashboard_responsive_grid",
     "cmk/fetch",
     "cmk/fetch_phase_one",
     "cmk/list",
@@ -105,6 +120,8 @@ CmkEndpointName = Literal[
     "cmk/permalink",
     "cmk/rename",
     "cmk/show",
+    "cmk/show_dashboard_relative_grid",
+    "cmk/show_dashboard_responsive_grid",
     "cmk/sign",
     "cmk/start",
     "cmk/host_config",
@@ -281,7 +298,7 @@ class ObjectProperty(TypedDict, total=False):
     extensions: dict[str, Any]
 
 
-Serializable = dict[str, Any] | CollectionObject | ObjectProperty | DomainObject | ActionResult
+Serializable = Mapping[str, Any] | CollectionObject | ObjectProperty | DomainObject | ActionResult
 ETagBehaviour = Literal["input", "output", "both"]
 
 SchemaClass = type[Schema]

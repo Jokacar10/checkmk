@@ -2,7 +2,7 @@ ARG DISTRO_IMAGE_BASE
 
 # hadolint ignore=DL3006
 # Create base image
-FROM ${DISTRO_IMAGE_BASE} as base
+FROM ${DISTRO_IMAGE_BASE} AS base
 
 SHELL ["/bin/bash", "-c"]
 ENV \
@@ -11,8 +11,8 @@ ENV \
     LANG=C.UTF-8 \
     PATH="/opt/bin:${PATH}"
 
-# fix for CMK-23806, url taken from https://launchpad.net/ubuntu/+archivemirrors
-RUN sed -i "s|http://.*.ubuntu.com/ubuntu|http://ftp.uni-stuttgart.de/ubuntu/|g" /etc/apt/sources.list.d/ubuntu.sources
+# Fix for CMK-23806, using our internal apt mirror
+RUN sed -i "s|http://.*.ubuntu.com/ubuntu|http://apt.lan.checkmk.net/ubuntu|g" /etc/apt/sources.list.d/ubuntu.sources
 
 RUN apt-get update
 
@@ -94,7 +94,7 @@ RUN rm /etc/cron.daily/apt-compat
 # - cmake is needed for e.g. building re2
 # - openssl is needed by Python 3.7+
 # - python is needed by our build / test chain
-FROM base as builder
+FROM base AS builder
 ARG NEXUS_ARCHIVES_URL
 ARG NEXUS_USERNAME
 ARG NEXUS_PASSWORD
@@ -141,9 +141,6 @@ RUN /opt/install-python.sh
 COPY install-gdb.sh /opt/
 RUN /opt/install-gdb.sh
 
-COPY install-rust-cargo.sh /opt/
-RUN /opt/install-rust-cargo.sh
-
 # Now shrink all the binaries and libraries we produced to build a small image
 # in the next step
 COPY strip_binaries /opt/
@@ -173,7 +170,6 @@ RUN /opt/install-cmake.sh link-only
 RUN /opt/install-protobuf-cpp.sh --link-only
 RUN /opt/install-python.sh link-only
 RUN /opt/install-bazel.sh link-only
-RUN /opt/install-rust-cargo.sh link-only
 
 # Install non cached dependencies
 COPY "${DISTRO_MK_FILE}" /opt/
@@ -187,21 +183,17 @@ RUN /opt/install-patchelf.sh
 # Jenkins is using this group ID everywhere, so lets move it
 RUN groupmod -g 3000 ubuntu
 
-ENV RUSTUP_HOME=/opt/rust/rustup
-
 COPY ci.bazelrc /etc/
 RUN <<EOF cat >> /etc/ci.bazelrc
-common:ci --@//bazel/cmk/filesystem_layout=lsb
+common:ci --@cmk//distro="ubuntu-24.04"
 common:ci --action_env=DISTRO=${DISTRO}
 common:ci --action_env=BRANCH_VERSION=${BRANCH_VERSION}
-common:ci --action_env=RUSTUP_HOME=${RUSTUP_HOME}
 # We encountered false cache hits with remote caching due to environment variables
 # not being propagated to external dependeny builds
 # In that case "--host_action_env=..." (in addition to "--action_env") might help
 # Currently we don't use any external dependencies though.
 common:ci --host_action_env=DISTRO=${DISTRO}
 common:ci --host_action_env=BRANCH_VERSION=${BRANCH_VERSION}
-common:ci --host_action_env=RUSTUP_HOME=${RUSTUP_HOME}
 EOF
 
 ARG VERS_TAG

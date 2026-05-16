@@ -34,14 +34,13 @@ using row_type = HostServiceState;
 
 using namespace std::chrono_literals;
 
-TableStateHistory::TableStateHistory(ICore *mc, LogCache *log_cache)
+TableStateHistory::TableStateHistory(LogCache *log_cache)
     : log_cache_{log_cache}, abort_query_{false} {
-    addColumns(this, *mc, "", ColumnOffsets{});
+    addColumns(this, "", ColumnOffsets{});
 }
 
 // static
-void TableStateHistory::addColumns(Table *table, const ICore &core,
-                                   const std::string &prefix,
+void TableStateHistory::addColumns(Table *table, const std::string &prefix,
                                    const ColumnOffsets &offsets) {
     table->addColumn(std::make_unique<TimeColumn<row_type>>(
         prefix + "time", "Time of the log event (seconds since 1/1/1970)",
@@ -169,11 +168,11 @@ void TableStateHistory::addColumns(Table *table, const ICore &core,
 
     // join host and service tables
     TableHosts::addColumns(
-        table, core, prefix + "current_host_",
+        table, prefix + "current_host_",
         offsets.add([](Row r) { return r.rawData<row_type>()->_host; }),
         LockComments::yes, LockDowntimes::yes);
     TableServices::addColumns(
-        table, core, prefix + "current_service_",
+        table, prefix + "current_service_",
         offsets.add([](Row r) { return r.rawData<row_type>()->_service; }),
         TableServices::AddHosts::no, LockComments::yes, LockDowntimes::yes);
 }
@@ -183,14 +182,16 @@ std::string TableStateHistory::name() const { return "statehist"; }
 std::string TableStateHistory::namePrefix() const { return "statehist_"; }
 
 void LogEntryForwardIterator::setEntries() {
-    entries_ = it_logs_->second->getEntriesFor({
-        .max_lines_per_log_file = max_lines_per_log_file_,
-        .log_entry_classes =
-            LogEntryClasses{}
-                .set(static_cast<int>(LogEntry::Class::alert))
-                .set(static_cast<int>(LogEntry::Class::program))
-                .set(static_cast<int>(LogEntry::Class::state)),
-    });
+    entries_ = it_logs_->second->getEntriesFor(
+        {
+            .max_lines_per_log_file = max_lines_per_log_file_,
+            .log_entry_classes =
+                LogEntryClasses{}
+                    .set(static_cast<int>(LogEntry::Class::alert))
+                    .set(static_cast<int>(LogEntry::Class::program))
+                    .set(static_cast<int>(LogEntry::Class::state)),
+        },
+        max_cached_messages_);
     it_entries_ = entries_->begin();
 }
 
@@ -237,9 +238,12 @@ private:
 void TableStateHistory::answerQuery(Query &query, const User &user,
                                     const ICore &core) {
     log_cache_->apply(
+        core.paths()->history_file(), core.paths()->history_archive_directory(),
+        core.last_logfile_rotation(),
         [this, &query, &user, &core](const LogFiles &log_files,
                                      size_t /*num_cached_log_messages*/) {
-            LogEntryForwardIterator it{log_files, core.maxLinesPerLogFile()};
+            LogEntryForwardIterator it{log_files, core.maxLinesPerLogFile(),
+                                       core.maxCachedMessages()};
             answerQueryInternal(query, user, core, it);
         });
 }
@@ -492,7 +496,7 @@ HostServiceState *TableStateHistory::get_state_for_entry(
         if (!hss->_is_host) {
             // NOTE: The filter is only allowed to inspect those fields of state
             // which are set by now, see createPartialFilter()!
-            if (!blacklist.accepts(*hss)) {
+            if (!blacklist.accepts(*hss, core)) {
                 blacklist.insert(key);
                 return nullptr;
             }
@@ -787,16 +791,17 @@ TableStateHistory::ModificationStatus TableStateHistory::updateHostServiceState(
     return state_changed;
 }
 
-std::shared_ptr<Column> TableStateHistory::column(std::string colname) const {
+std::shared_ptr<Column> TableStateHistory::column(std::string colname,
+                                                  const ICore &core) const {
     try {
         // First try to find column in the usual way
-        return Table::column(colname);
+        return Table::column(colname, core);
     } catch (const std::runtime_error &e) {
         // Now try with prefix "current_", since our joined tables have this
         // prefix in order to make clear that we access current and not historic
         // data and in order to prevent mixing up historic and current fields
         // with the same name.
-        return Table::column("current_" + colname);
+        return Table::column("current_" + colname, core);
     }
 }
 
@@ -836,8 +841,9 @@ ObjectBlacklist::ObjectBlacklist(const Query &query, const User &user)
                   columnName == "service_description");
           })} {}
 
-bool ObjectBlacklist::accepts(const HostServiceState &hss) const {
-    return filter_->accepts(Row{&hss}, *user_, query_->timezoneOffset());
+bool ObjectBlacklist::accepts(const HostServiceState &hss,
+                              const ICore &core) const {
+    return filter_->accepts(Row{&hss}, *user_, query_->timezoneOffset(), core);
 }
 
 bool ObjectBlacklist::contains(HostServiceKey key) const {

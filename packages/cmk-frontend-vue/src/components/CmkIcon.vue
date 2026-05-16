@@ -31,17 +31,24 @@ const cmkIconVariants = cva('', {
       inline: 'cmk-icon--inline'
     },
     size: {
+      xxsmall: '8px',
       xsmall: '10px',
       small: '12px',
       medium: '15px',
       large: '18px',
       xlarge: '20px',
-      xxlarge: '32px'
+      xxlarge: '32px',
+      xxxlarge: '77px'
+    },
+    colored: {
+      true: '',
+      false: 'cmk-icon--colorless'
     }
   },
   defaultVariants: {
     variant: 'plain',
-    size: 'medium'
+    size: 'medium',
+    colored: true
   }
 })
 export type CmkIconVariants = VariantProps<typeof cmkIconVariants>
@@ -55,6 +62,9 @@ export interface CmkIconProps {
 
   /** @property {undefined | CmkIconVariants['size']} size - Width and height of the icon */
   size?: CmkIconVariants['size'] | undefined
+
+  /** @property {undefined | CmkIconVariants['colored']} colored - Whether the icon is colored or black and white */
+  colored?: CmkIconVariants['colored'] | undefined
 
   /** @property {undefined | number} rotate - Transform rotate value in degrees */
   rotate?: number | undefined
@@ -73,7 +83,7 @@ const getTransformRotate = () => {
 <template>
   <img
     class="cmk-icon"
-    :class="cmkIconVariants({ variant: props.variant, size: null })"
+    :class="cmkIconVariants({ variant: props.variant, size: null, colored: props.colored })"
     :title="title || ''"
     :alt="title || ''"
   />
@@ -84,15 +94,19 @@ const getTransformRotate = () => {
   margin: 0;
   padding: 0;
   vertical-align: baseline;
-
   content: v-bind('getIconVariable(name)');
   width: v-bind('cmkIconVariants({size})') !important;
   height: v-bind('cmkIconVariants({size})') !important;
   transform: v-bind('getTransformRotate()');
 
   &.cmk-icon--inline {
+    display: inline-block;
     margin-right: var(--spacing-half);
     vertical-align: middle;
+  }
+
+  &.cmk-icon--colorless {
+    filter: grayscale(100%);
   }
 }
 </style>

@@ -6,20 +6,16 @@
 import abc
 from collections.abc import Callable, Sequence
 from datetime import datetime
-from typing import Generic, Literal, TypedDict, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from cmk.ccc.user import UserId
-
-from cmk.gui.type_defs import Users, UserSpec
-
 from cmk.crypto.password import Password
+from cmk.gui.type_defs import Users, UserSpec
+from cmk.gui.user_connection_config_types import UserConnectionConfig
+
+from .._user_attribute import UserAttribute
 
 CheckCredentialsResult = UserId | None | Literal[False]
-
-
-class UserConnectionConfig(TypedDict):
-    id: str
-    disabled: bool
 
 
 _T_Config = TypeVar("_T_Config", bound=UserConnectionConfig)
@@ -70,7 +66,14 @@ class UserConnector(abc.ABC, Generic[_T_Config]):
     #     '<user_id>' -> Login succeeded
     #     False       -> Login failed
     #     None        -> Unknown user
-    def check_credentials(self, user_id: UserId, password: Password) -> CheckCredentialsResult:
+    def check_credentials(
+        self,
+        user_id: UserId,
+        password: Password,
+        user_attributes: Sequence[tuple[str, UserAttribute]],
+        user_connections: Sequence[UserConnectionConfig],
+        default_user_profile: UserSpec,
+    ) -> CheckCredentialsResult:
         return None
 
     # Optional: Hook function can be registered here to be executed
@@ -80,8 +83,20 @@ class UserConnector(abc.ABC, Generic[_T_Config]):
         *,
         add_to_changelog: bool,
         only_username: UserId | None,
+        user_attributes: Sequence[tuple[str, UserAttribute]],
         load_users_func: Callable[[bool], Users],
-        save_users_func: Callable[[Users, datetime], None],
+        save_users_func: Callable[
+            [
+                Users,
+                Sequence[tuple[str, UserAttribute]],
+                Sequence[UserConnectionConfig],
+                datetime,
+                bool,
+                bool,
+            ],
+            None,
+        ],
+        default_user_profile: UserSpec,
     ) -> None:
         pass
 
@@ -97,13 +112,19 @@ class UserConnector(abc.ABC, Generic[_T_Config]):
 
     # List of user attributes locked for all users attached to this
     # connection. Those locked attributes are read-only in Setup.
-    def locked_attributes(self) -> Sequence[str]:
+    def locked_attributes(
+        self, user_attributes: Sequence[tuple[str, UserAttribute]]
+    ) -> Sequence[str]:
         return []
 
-    def multisite_attributes(self) -> Sequence[str]:
+    def multisite_attributes(
+        self, user_attributes: Sequence[tuple[str, UserAttribute]]
+    ) -> Sequence[str]:
         return []
 
-    def non_contact_attributes(self) -> Sequence[str]:
+    def non_contact_attributes(
+        self, user_attributes: Sequence[tuple[str, UserAttribute]]
+    ) -> Sequence[str]:
         return []
 
 

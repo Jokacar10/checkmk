@@ -29,10 +29,12 @@ class User;
 class LogEntryForwardIterator {
 public:
     LogEntryForwardIterator(const LogFiles &log_files,
-                            size_t max_lines_per_log_file)
+                            size_t max_lines_per_log_file,
+                            size_t max_cached_messages)
         : log_files_{&log_files}
         , it_logs_{log_files.end()}
-        , max_lines_per_log_file_{max_lines_per_log_file} {}
+        , max_lines_per_log_file_{max_lines_per_log_file}
+        , max_cached_messages_{max_cached_messages} {}
 
     bool rewind_to_start(const LogPeriod &period, Logger *logger);
     LogEntry *getNextLogentry();
@@ -45,6 +47,7 @@ private:
     const Logfile::map_type *entries_{nullptr};
     Logfile::const_iterator it_entries_;
     size_t max_lines_per_log_file_;
+    size_t max_cached_messages_;
 };
 
 class ObjectBlacklist {
@@ -52,7 +55,8 @@ public:
     ObjectBlacklist(const Query &query, const User &user);
     // TODO(sp) Fix the signature mismatch below: The key can be derived from
     // the state. When this is done, insert() can be merged into accepts().
-    [[nodiscard]] bool accepts(const HostServiceState &hss) const;
+    [[nodiscard]] bool accepts(const HostServiceState &hss,
+                               const ICore &core) const;
     [[nodiscard]] bool contains(HostServiceKey key) const;
     void insert(HostServiceKey key);
 
@@ -74,9 +78,8 @@ private:
 
 class TableStateHistory : public Table {
 public:
-    TableStateHistory(ICore *mc, LogCache *log_cache);
-    static void addColumns(Table *table, const ICore &core,
-                           const std::string &prefix,
+    explicit TableStateHistory(LogCache *log_cache);
+    static void addColumns(Table *table, const std::string &prefix,
                            const ColumnOffsets &offsets);
 
     [[nodiscard]] std::string name() const override;
@@ -84,7 +87,7 @@ public:
     void answerQuery(Query &query, const User &user,
                      const ICore &core) override;
     [[nodiscard]] std::shared_ptr<Column> column(
-        std::string colname) const override;
+        std::string colname, const ICore &core) const override;
 
     using state_info_t =
         std::map<HostServiceKey, std::unique_ptr<HostServiceState>>;

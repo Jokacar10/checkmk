@@ -24,10 +24,9 @@ from redfish.rest.v1 import (
     ServerDownOrUnreachableError,
 )
 
-from cmk.utils import password_store, paths
-
 from cmk.plugins.redfish.lib import REDFISH_SECTIONS
 from cmk.special_agents.v0_unstable.agent_common import (
+    CannotRecover,
     SectionManager,
     SectionWriter,
     special_agent_main,
@@ -36,6 +35,8 @@ from cmk.special_agents.v0_unstable.argument_parsing import (
     Args,
     create_default_argument_parser,
 )
+from cmk.utils.password_store import lookup as password_store_lookup
+from cmk.utils.paths import tmp_dir
 
 
 class CachedSectionWriter(SectionManager):
@@ -81,7 +82,7 @@ class Vendor:
 class ClientSession:
     """Client session data"""
 
-    DIR = paths.tmp_dir / "agents/agent_redfish"
+    DIR = tmp_dir / "agents/agent_redfish"
 
     def __init__(self, location: str, session: str) -> None:
         self.location: Final = location
@@ -112,7 +113,10 @@ class RedfishClient:
         self._client = client
 
     def get(self, url: str, timeout: int | None) -> RestResponse:
-        return self._client.get(url, timeout=timeout)
+        try:
+            return self._client.get(url, timeout=timeout)
+        except RetriesExhaustedError as excp:
+            raise CannotRecover("ERROR: too many retries for connection attempt") from excp
 
     def make_session(self, host_name: str, auth: Literal["session"]) -> None:
         if session := ClientSession.loadf(host_name):
@@ -685,7 +689,7 @@ def get_information(redfishobj: RedfishData) -> Literal[0]:
 
 
 def _make_cached_section_path(hostname: str, section: str) -> Path:
-    return paths.tmp_dir / "agents" / "agent_redfish" / f"{hostname}_{section}.json"
+    return tmp_dir / "agents" / "agent_redfish" / f"{hostname}_{section}.json"
 
 
 def store_section_data(redfishobj: RedfishData) -> None:
@@ -753,7 +757,7 @@ def get_session(args: Args) -> RedfishData:
                     password=(
                         args.password
                         if args.password is not None
-                        else password_store.lookup(Path(pw_path), pw_id)
+                        else password_store_lookup(Path(pw_path), pw_id)
                     ),
                     cafile="",
                     default_prefix="/redfish/v1",
@@ -765,13 +769,9 @@ def get_session(args: Args) -> RedfishData:
         redfishobj.redfish_connection.make_session(redfishobj.hostname, auth="session")
 
     except ServerDownOrUnreachableError as excp:
-        sys.stderr.write(
-            f"ERROR: server not reachable or does not support RedFish. Error Message: {excp}\n"
-        )
-        sys.exit(1)
+        raise CannotRecover("ERROR: server not reachable or does not support RedFish") from excp
     except RetriesExhaustedError as excp:
-        sys.stderr.write(f"ERROR: too many retries for connection attempt: {excp}\n")
-        sys.exit(1)
+        raise CannotRecover("ERROR: too many retries for connection attempt") from excp
 
     return redfishobj
 

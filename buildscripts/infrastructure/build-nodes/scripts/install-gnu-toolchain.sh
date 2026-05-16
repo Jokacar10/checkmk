@@ -9,7 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 # shellcheck source=buildscripts/infrastructure/build-nodes/scripts/build_lib.sh
 . "${SCRIPT_DIR}/build_lib.sh"
 
-MIRROR_URL="https://ftp.gnu.org/gnu/"
+# Fast mirror located nearby, see https://www.gnu.org/prep/ftp.en.html
+MIRROR_URL="https://ftpmirror.gnu.org/"
 
 GCC_MAJOR=$(get_version "$SCRIPT_DIR" GCC_VERSION_MAJOR)
 GCC_MINOR=$(get_version "$SCRIPT_DIR" GCC_VERSION_MINOR)
@@ -18,7 +19,7 @@ GCC_VERSION="${GCC_MAJOR}.${GCC_MINOR}.${GCC_PATCHLEVEL}"
 GCC_ARCHIVE_NAME="gcc-${GCC_VERSION}.tar.gz"
 GCC_URL="${MIRROR_URL}gcc/gcc-${GCC_VERSION}/${GCC_ARCHIVE_NAME}"
 
-BINUTILS_VERSION="2.41"
+BINUTILS_VERSION="2.43.1"
 BINUTILS_ARCHIVE_NAME="binutils-${BINUTILS_VERSION}.tar.gz"
 BINUTILS_URL="${MIRROR_URL}binutils/${BINUTILS_ARCHIVE_NAME}"
 

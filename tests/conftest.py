@@ -11,6 +11,7 @@ import subprocess
 from collections.abc import Generator, Iterator
 from enum import StrEnum
 from pathlib import Path
+from typing import Final
 
 import pytest
 import pytest_check
@@ -20,7 +21,9 @@ from pytest_metadata.plugin import metadata_key  # type: ignore[import-untyped]
 # TODO: Can we somehow push some of the registrations below to the subdirectories?
 # Needs to be executed before the import of those modules
 pytest.register_assert_rewrite(
-    "tests.testlib", "tests.unit.checks.checktestlib", "tests.unit.checks.generictests.run"
+    "tests.testlib",
+    "tests.unit.cmk.base,legacy_checks.checktestlib",
+    "tests.unit.checks.generictests.run",
 )
 
 from tests.testlib.common.repo import (  # noqa: E402
@@ -34,6 +37,7 @@ from tests.testlib.utils import (  # noqa: E402
 )
 from tests.testlib.version import (  # noqa: E402
     CMKEdition,
+    CMKVersion,
     edition_from_env,
     TypeCMKEdition,
 )
@@ -46,11 +50,20 @@ pytest_plugins = ("tests.gui_e2e.testlib.playwright.plugin",)
 # when pytest based tests are being run from inside the IDE
 # To enable this, set `_PYTEST_RAISE` to some value != '0' in your IDE
 PYTEST_RAISE = os.getenv("_PYTEST_RAISE", "0") != "0"
+ARG_EDITION_CMK: Final[str] = "--cmk-edition"
+ARG_VERSION_CMK: Final[str] = "--cmk-version"
+ARG_REUSE: Final[str] = "--reuse"
+ARG_NO_CLEANUP: Final[str] = "--no-cleanup"
 
 
 class EditionMarker(StrEnum):
     skip_if = "skip_if_edition"
     skip_if_not = "skip_if_not_edition"
+
+
+class ContainerizedMarker(StrEnum):
+    skip_if = "skip_if_containerized"
+    skip_if_not = "skip_if_not_containerized"
 
 
 def get_test_type(test_path: Path) -> str:
@@ -245,10 +258,66 @@ def pytest_addoption(parser):
         default=False,
         help="Simulate test execution. XFail all tests that would be executed.",
     )
+    parser.addoption(
+        ARG_VERSION_CMK,
+        action="store",
+        type=str,
+        metavar="2.X.0[pZ|-YYYY.MM.DD]",
+        help=(
+            "Select version of the Checkmk site under test. If not set, value of environment "
+            "variable 'VERSION' is used, if available. If neither is set, 'daily' is used."
+        ),
+        default=os.getenv("VERSION", CMKVersion.DAILY),
+    )
+    parser.addoption(
+        ARG_EDITION_CMK,
+        action="store",
+        choices=[
+            CMKEdition.CCE.short,
+            CMKEdition.CEE.short,
+            CMKEdition.CME.short,
+            CMKEdition.CRE.short,
+            CMKEdition.CSE.short,
+        ],
+        type=str,
+        help=(
+            "Select edition of the Checkmk site under test. If not set, value of environment "
+            "variable 'EDITION' is used, if available. If neither is set, 'cee' is used."
+        ),
+        default=os.getenv("EDITION", CMKEdition.CEE.short),
+    )
+    parser.addoption(
+        ARG_REUSE,
+        action="store_true",
+        default=False,
+        help=(
+            "Reuse an existing site to perform the tests. If not set, value of environment "
+            "variable 'REUSE' is used, if available. If neither is set, reuse is disabled."
+        ),
+    )
+    parser.addoption(
+        ARG_NO_CLEANUP,
+        action="store_true",
+        default=False,
+        help=(
+            "Avoid cleanup the test-environment after a test-run. If not set, value of environment "
+            "variable 'CLEANUP' is used, if available. If neither is set, cleanup is enabled."
+        ),
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
     """Add important environment variables to the report and register custom pytest markers"""
+
+    if config.getoption(ARG_REUSE):
+        os.environ["REUSE"] = "1"
+
+    if config.getoption(ARG_NO_CLEANUP):
+        os.environ["CLEANUP"] = "0"
+
+    os.environ["EDITION"] = config.getoption(ARG_EDITION_CMK)
+    os.environ["VERSION"] = config.getoption(ARG_VERSION_CMK)
+
     env_vars = {
         "BRANCH": current_base_branch_name(),
         "EDITION": "cee",
@@ -276,6 +345,14 @@ def pytest_configure(config: pytest.Config) -> None:
         f"{EditionMarker.skip_if_not}(edition): "
         "skips the tests for anything but the given edition(s)",
     )
+    config.addinivalue_line(
+        "markers",
+        f"{ContainerizedMarker.skip_if}: skips the tests for containerized runs",
+    )
+    config.addinivalue_line(
+        "markers",
+        f"{ContainerizedMarker.skip_if_not}: skips the tests for uncontainerized runs",
+    )
 
 
 def pytest_collection_modifyitems(items: list[pytest.Function], config: pytest.Config) -> None:
@@ -294,16 +371,24 @@ def _editions_from_markers(item: pytest.Item, marker_name: EditionMarker) -> lis
 
 
 def pytest_runtest_setup(item: pytest.Item) -> None:
-    """Skip tests of unwanted types"""
+    """Skip tests for specific editions or environments"""
     current_edition = edition_from_env()
 
     skip_editions = _editions_from_markers(item, EditionMarker.skip_if)
     if skip_editions and current_edition in skip_editions:
-        pytest.skip(f'Test skipped because edition "{current_edition.long}" is skipped explicitly!')
+        pytest.skip(f'{item.nodeid}: Edition "{current_edition.long}" is skipped explicitly!')
 
     unskip_editions = _editions_from_markers(item, EditionMarker.skip_if_not)
     if unskip_editions and current_edition not in unskip_editions:
-        pytest.skip(f'Test skipped because edition "{current_edition.long}" is skipped implicitly!')
+        pytest.skip(f'{item.nodeid}: Edition "{current_edition.long}" is skipped implicitly!')
+
+    skip_containerized = next(item.iter_markers(name=ContainerizedMarker.skip_if), None)
+    if skip_containerized and is_containerized():
+        pytest.skip(f"{item.nodeid}: Containerized run excluded!")
+
+    skip_not_containerized = next(item.iter_markers(name=ContainerizedMarker.skip_if_not), None)
+    if skip_not_containerized and not is_containerized():
+        pytest.skip(f"{item.nodeid}: Containerized run required!")
 
     if item.config.getoption("--dry-run"):
         pytest.xfail("*** DRY-RUN ***")

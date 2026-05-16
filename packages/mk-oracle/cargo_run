@@ -1,0 +1,9 @@
+#!/bin/bash
+# Copyright (C) 2022 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+
+#  imitates agent behavior: setup LD_LIBRARY_PATH to include the runtime library
+# also adds MK_CONFDIR which may be needed for Oracle connections - this is not mandatory burt worth a check
+export MK_CONFDIR="${PWD}"
+MK_LIBDIR=${PWD}/runtimes/ cargo "$@"

@@ -10,7 +10,7 @@ import logging
 import re
 import warnings
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from functools import cache
 from itertools import chain
 from pathlib import Path
@@ -19,14 +19,13 @@ from typing import NamedTuple, NewType
 import isort
 import pytest
 
+import requirements
 from tests.testlib.common.repo import (
     branch_from_env,
     current_base_branch_name,
     is_enterprise_repo,
     repo_path,
 )
-
-import requirements
 
 IGNORED_LIBS = {
     "agent_receiver",
@@ -39,9 +38,13 @@ IGNORED_LIBS = {
 }  # our stuff
 IGNORED_LIBS |= isort.stdlibs._all.stdlib  # builtin stuff
 IGNORED_LIBS |= {"__future__"}  # other builtin stuff
-
-# currently runtime requirements are stored in multiple files
-DEV_REQ_FILES_LIST = [repo_path() / "dev-requirements.in"]
+DEV_REQ_FILES_LIST = (
+    [
+        repo_path() / "cmk/dev-requirements.in",
+    ]
+    + list((repo_path() / "packages").glob("*/dev-requirements.in"))
+    + list((repo_path() / "non-free" / "packages").glob("*/dev-requirements.in"))
+)
 RUNTIME_REQ_FILES_LIST = (
     [
         repo_path() / "cmk/requirements.in",
@@ -144,16 +147,17 @@ def iter_sourcefiles(basepath: Path) -> Iterable[Path]:
     this could have been a easy glob, but we do not care for hidden files here:
     https://bugs.python.org/issue26096"""
     for sub_path in basepath.iterdir():
-        # TODO: remove after CMK-20852 is finished
-        if sub_path == repo_path() / "packages/cmk-shared-typing":
-            continue
         # the following paths may contain python files and should not be scanned
         if sub_path.name == "container_shadow_workspace_local":
             continue
         # TODO: We need to find a better way for the bazel-* folders created by bazel
         if "bazel-" in sub_path.name:
             continue
+        if sub_path.name == "external":  # Bazel external dependencies
+            continue
         if sub_path.name == "node_modules":
+            continue
+        if sub_path.name == "tests":
             continue
         if sub_path.name.startswith("."):
             continue
@@ -171,7 +175,7 @@ def iter_relevant_files(basepath: Path) -> Iterable[Path]:
         basepath / "agents",  # There are so many optional imports...
         basepath / "node_modules",
         basepath / "omd/license_sources",  # update_licenses.py contains imports
-        basepath / "tests",
+        basepath / "packages/cmk-shared-typing/utils",  # only build time dependencies
     ]
     if is_enterprise_repo():
         # Not deployed with the Checkmk site Python environment, but required by tests in the
@@ -239,7 +243,7 @@ def get_imported_libs(repopath: Path) -> list[Import]:
 
     for path in iter_relevant_files(repopath):
         for imp in imports_for_file(path):
-            imports_to_files[imp].add(path)
+            imports_to_files[imp].add(path.relative_to(repopath))
 
     return [
         Import(name, paths) for name, paths in imports_to_files.items() if name not in IGNORED_LIBS
@@ -351,13 +355,62 @@ def get_undeclared_dependencies() -> Iterable[Import]:
 
 CEE_UNUSED_PACKAGES = [
     "setuptools-scm",
-    "snmpsim-lextudio",
+    "snmpsim",
     "python-multipart",  # needed by fastapi
-    # stub packages
-    "types-python-dateutil",
-    "types-markdown",
-    "types-pika-ts",
 ]
+
+KNOWN_UNDECLARED_DEPENDENCIES = {
+    ImportName("buildscripts"): {
+        Path("buildscripts/scripts/assert_build_artifacts.py"),
+        Path("buildscripts/scripts/get_distros.py"),
+        Path("buildscripts/scripts/build-cmk-container.py"),
+    },
+    ImportName("tests"): {
+        Path("buildscripts/scripts/assert_build_artifacts.py"),
+        Path("buildscripts/scripts/lib/registry.py"),
+    },
+    ImportName("libcst"): {
+        Path("doc/treasures/migration_helpers/legacy_ssc_to_v1.py"),
+        Path("doc/treasures/migration_helpers/legacy_checks_to_v2.py"),
+        Path("doc/treasures/migration_helpers/legacy_vs_to_fs_v1.py"),
+    },
+    ImportName("pip"): {  # is included by default in python
+        Path("omd/packages/Python/pip")
+    },
+    ImportName("pymongo"): {  # Optional except ImportError...
+        Path("cmk/ec/history_mongo.py")
+    },
+    ImportName("ibm_db"): {Path("cmk/plugins/sql/active_check/check_sql.py")},
+    ImportName("sqlanydb"): {Path("cmk/plugins/sql/active_check/check_sql.py")},
+    ImportName("ibm_db_dbi"): {Path("cmk/plugins/sql/active_check/check_sql.py")},
+    ImportName("mypy_boto3_logs"): {  # used by mypy within typing.TYPE_CHECKING
+        Path("cmk/plugins/aws/special_agent/agent_aws.py")
+    },
+    ImportName("tinkerforge"): {Path("cmk/plugins/tinkerforge/special_agent/agent_tinkerforge.py")},
+    ImportName("rados"): {Path("cmk/plugins/ceph/agents/mk_ceph.py")},
+    ImportName("netsnmp"): {  # We ship it with omd/packages
+        Path("cmk/fetchers/cee/snmp_backend/inline.py")
+    },
+    ImportName("rrdtool"): {  # is built as part of the project
+        Path("bin/cmk-convert-rrds"),
+        Path("bin/cmk-create-rrd"),
+    },
+    ImportName("docker"): (
+        Path("buildscripts/docker_image_aliases/register.py"),
+        Path("buildscripts/scripts/lib/registry.py"),
+        Path("buildscripts/scripts/build-cmk-container.py"),
+    ),
+}
+
+
+def _asym_diff(
+    minuend: Mapping[ImportName, Iterable[Path]], subtrahend: Mapping[ImportName, Iterable[Path]]
+) -> Mapping[ImportName, Iterable[Path]]:
+    return {
+        key: left_paths
+        for key, paths in minuend.items()
+        if (left_paths := set(paths) - set(subtrahend.get(key, ())))
+    }
 
 
 def test_dependencies_are_used() -> None:
@@ -386,36 +439,14 @@ def test_dependencies_are_declared() -> None:
     """Test for unknown imports which could not be mapped to the requirements files
 
     mostly optional imports and OMD-only shiped packages."""
-    undeclared_dependencies = list(get_undeclared_dependencies())
-    undeclared_dependencies_str = {d.name for d in undeclared_dependencies}
-    known_undeclared_dependencies = {
-        "buildscripts",  # used in build helper scripts in buildscripts/scripts
-        "netsnmp",  # We ship it with omd/packages
-        "pymongo",  # Optional except ImportError...
-        "tinkerforge",  # agents/plugins/mk_tinkerforge.py has its own install routine
-        "mypy_boto3_logs",  # used by mypy within typing.TYPE_CHECKING
-        "docker",  # optional
-        "msrest",  # used in publish_cloud_images.py and not in the product
-        "pip",  # is included by default in python
-        "rrdtool",  # is built as part of the project
-        # the following packages must be installed additionally by the user
-        "ibm_db",  # active_checks/check_sql
-        "ibm_db_dbi",  # active_checks/check_sql
-        "sqlanydb",  # active_checks/check_sql
-        "libcst",  # doc/treasures/migration_helpers
-        "tests",  # buildscripts/scripts/assert_build_artifactsa.py and buildscripts/scripts/lib/registry.py
-    }
+    undeclared_dependencies = {i.name: i.paths for i in get_undeclared_dependencies()}
 
-    assert undeclared_dependencies_str >= known_undeclared_dependencies, (
-        "The exceptionlist is outdated, these are the 'offenders':"
-        + str(known_undeclared_dependencies - undeclared_dependencies_str)
+    assert not (outdated := _asym_diff(KNOWN_UNDECLARED_DEPENDENCIES, undeclared_dependencies)), (
+        f"The exceptionlist is outdated, these are the 'offenders': {outdated!r}"
     )
-    undeclared_dependencies_str -= known_undeclared_dependencies
-    assert undeclared_dependencies_str == set(), (
-        "There are imports that are not declared in the requirements files:\n    "
-        + "\n    ".join(
-            str(d) for d in undeclared_dependencies if d.name not in known_undeclared_dependencies
-        )
+
+    assert not (offending := _asym_diff(undeclared_dependencies, KNOWN_UNDECLARED_DEPENDENCIES)), (
+        f"There are imports that are not declared in the requirements files: {offending!r}"
     )
 
 
@@ -437,3 +468,21 @@ def test_constraints() -> None:
                 continue
             offenses.append(f"Constraint for {r.name} has no ticket to be removed")
     assert not offenses, "\n".join(offenses)
+
+
+def test_no_development_packages_in_runtime_requirements() -> None:
+    """Test that development/testing libraries are not included in runtime requirements"""
+    runtime_requirements = get_requirements_libs(repo_path())
+
+    forbidden_prefixes = ["pytest-", "types-"]
+    offending_packages = []
+
+    for package_name in runtime_requirements.keys():
+        for prefix in forbidden_prefixes:
+            if package_name.startswith(prefix):
+                offending_packages.append(package_name)
+
+    assert not offending_packages, (
+        f"The following development/testing libraries should not be "
+        f"in runtime requirements: {offending_packages}"
+    )

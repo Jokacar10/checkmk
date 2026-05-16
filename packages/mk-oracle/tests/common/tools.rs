@@ -2,40 +2,169 @@
 // This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 // conditions defined in the file COPYING, which is part of this source code package.
 
-use anyhow::{self, Result};
-use mk_oracle::config::ora_sql::Role;
-pub const ORA_ENDPOINT_ENV_VAR_BASE: &str = "CI_ORA1_DB_TEST";
-// pub const ORA_ENDPOINT_ENV_VAR_EXT: &str = "CI_ORA2_DB_TEST";
-// See ticket CMK-23904 for details on the format of this environment variable.
-// CI_ORA1_DB_TEST=ora1.lan.tribe29.net:system:ABcd#1234:1521:XE:sysdba:_:_:_
-#[allow(dead_code)]
-#[derive(Debug)]
-pub struct SqlDbEndpoint {
-    pub host: String,
-    pub user: String,
-    pub pwd: String,
-    pub port: u16,
-    pub point: String,
-    pub role: Option<Role>,
+use mk_oracle::config::authentication::{AuthType, SqlDbEndpoint};
+use mk_oracle::config::ora_sql::Config;
+use mk_oracle::types::{Credentials, InstanceAlias};
+
+pub const ORA_ENDPOINT_ENV_VAR_LOCAL: &str = "CI_ORA1_DB_TEST";
+pub const ORA_ENDPOINT_ENV_VAR_EXT: &str = "CI_ORA2_DB_TEST";
+
+#[cfg(windows)]
+pub mod platform {
+    use mk_oracle::setup::RUNTIME_SUB_DIR;
+    use std::path::PathBuf;
+    use std::sync::OnceLock;
+
+    #[cfg(windows)]
+    static RUNTIME_PATH: OnceLock<PathBuf> = OnceLock::new();
+    static PATCHED_PATH: OnceLock<()> = OnceLock::new();
+    pub fn add_runtime_to_path() {
+        PATCHED_PATH.get_or_init(_patch_path);
+    }
+
+    fn _init_runtime_path() -> PathBuf {
+        if let Ok(path) = std::env::var("MK_LIBDIR") {
+            return PathBuf::from(path);
+        }
+        let _this_file: PathBuf = PathBuf::from(file!());
+        let base_root = _this_file
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap();
+        std::env::set_var(
+            "TNS_ADMIN",
+            base_root.join("tests").join("files").join("tns"),
+        );
+        base_root.join("runtimes").join(RUNTIME_SUB_DIR)
+    }
+
+    fn _patch_path() {
+        let cwd = RUNTIME_PATH.get_or_init(_init_runtime_path).clone();
+        unsafe {
+            std::env::set_var(
+                "PATH",
+                format!("{cwd:?};") + &std::env::var("PATH").unwrap(),
+            );
+        }
+        std::env::set_current_dir(cwd).unwrap();
+        eprintln!("PATH={}", std::env::var("PATH").unwrap());
+    }
 }
 
-impl SqlDbEndpoint {
-    pub fn from_env(endpoint_var: &str) -> Result<Self> {
-        let env_value =
-            std::env::var(endpoint_var).map_err(|e| anyhow::anyhow!("{e}: {endpoint_var}"))?;
-        let parts: Vec<&str> = env_value.split(':').collect();
-        if parts.len() < 6 {
-            anyhow::bail!("Invalid format for {}", endpoint_var);
-        }
-        Ok(Self {
-            host: parts[0].to_string(),
-            user: parts[1].to_string(),
-            pwd: parts[2].to_string(),
-            port: parts[3]
-                .parse()
-                .map_err(|_| anyhow::anyhow!("Wrong/malformed port number in {}", endpoint_var))?,
-            point: parts[4].to_string(),
-            role: Role::new(parts[5]),
-        })
+#[cfg(unix)]
+pub mod platform {
+    pub fn add_runtime_to_path() {
+        // script is responsible for setting up the environment
     }
+}
+
+fn _make_mini_config(credentials: &Credentials, auth_type: AuthType, address: &str) -> Config {
+    let config_str = format!(
+        r#"
+---
+oracle:
+  main:
+    authentication:
+       username: "{}"
+       password: "{}"
+       type: {}
+       role: {}
+    connection:
+       hostname: {}
+       timeout: 10
+"#,
+        credentials.user,
+        credentials.password,
+        auth_type,
+        if address == "localhost" { "sysdba" } else { "" },
+        address,
+    );
+    Config::from_string(config_str).unwrap().unwrap()
+}
+
+fn _make_mini_config_custom_instance(
+    credentials: &Credentials,
+    auth_type: AuthType,
+    address: &str,
+    include: &str,
+    alias: Option<InstanceAlias>,
+) -> Config {
+    fn alias_raw(alias: &Option<InstanceAlias>) -> String {
+        if let Some(a) = alias {
+            format!("alias: {a}")
+        } else {
+            String::new()
+        }
+    }
+    let config_str = format!(
+        r#"
+---
+oracle:
+  main:
+    authentication:
+       username: "{0}"
+       password: "{1}"
+       type: {2}
+       role: {3}
+    connection:
+       hostname: absent.{4}
+       timeout: 5
+       tns_admin: ./tests/files/tns
+    sections: # optional, if absent will use default as defined below
+      - instance: # special section
+    discovery: # optional, defines instances to be monitored
+      detect: no # optional
+      include: [{5}] # optional
+      exclude: [] # optional
+    instances: # optional
+      - sid: FREE
+        {6}
+        connection: # mandatory
+          hostname: {4}
+        authentication: # mandatory
+          username: "{0}"
+          password: "{1}"
+          type: standard
+  #      role: sysdba # it may be not enabled by Oracle DBA
+"#,
+        credentials.user,
+        credentials.password,
+        auth_type,
+        if address == "localhost" { "sysdba" } else { "" },
+        address,
+        include,
+        alias_raw(&alias)
+    );
+    Config::from_string(config_str).unwrap().unwrap()
+}
+
+pub fn make_mini_config_custom_instance(
+    endpoint: &SqlDbEndpoint,
+    include: &str,
+    alias: Option<InstanceAlias>,
+) -> Config {
+    _make_mini_config_custom_instance(
+        &Credentials {
+            user: endpoint.user.clone(),
+            password: endpoint.pwd.clone(),
+        },
+        AuthType::Standard,
+        &endpoint.host,
+        include,
+        alias,
+    )
+}
+
+pub fn make_mini_config(endpoint: &SqlDbEndpoint) -> Config {
+    _make_mini_config(
+        &Credentials {
+            user: endpoint.user.clone(),
+            password: endpoint.pwd.clone(),
+        },
+        AuthType::Standard,
+        &endpoint.host,
+    )
 }

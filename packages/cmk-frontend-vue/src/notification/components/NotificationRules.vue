@@ -65,6 +65,8 @@ defineProps<{
       font-size: var(--font-size-normal);
     }
   }
+
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   div.ruleset > div.text {
     max-width: calc(100% - 20px);
   }

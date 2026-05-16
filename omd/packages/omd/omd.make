@@ -36,6 +36,8 @@ endif
 	$(MKDIR) $(DESTDIR)$(OMD_ROOT)/lib/omd
 	install -m 644 $(PACKAGE_DIR)/$(OMD)/init_profile $(DESTDIR)$(OMD_ROOT)/lib/omd/
 	install -m 755 $(PACKAGE_DIR)/$(OMD)/next_free_port $(DESTDIR)$(OMD_ROOT)/lib/omd/
+	install -m 755 $(PACKAGE_DIR)/$(OMD)/restart_site_apache $(DESTDIR)$(OMD_ROOT)/lib/omd/
+	sed -i 's|###OMD_VERSION###|$(OMD_VERSION)|g' $(DESTDIR)$(OMD_ROOT)/lib/omd/restart_site_apache
 	install -m 644 $(PACKAGE_DIR)/$(OMD)/bash_completion $(DESTDIR)$(OMD_ROOT)/lib/omd/
 	$(MKDIR) $(DESTDIR)$(OMD_ROOT)/lib/omd/scripts/post-create
 	$(MKDIR) $(DESTDIR)$(OMD_ROOT)/lib/omd/scripts/post-update
@@ -44,7 +46,7 @@ endif
 	$(MKDIR) $(SKEL)/etc/bash_completion.d
 	$(TOUCH) $@
 
-omdlib-install: $(PACKAGE_PYTHON3_MODULES_PYTHON_DEPS)
+omdlib-install:
 	$(MKDIR) $(DESTDIR)$(OMD_ROOT)/lib/python3/omdlib
 	install -m 644 $(PACKAGE_DIR)/$(OMD)/omdlib/*.py $(DESTDIR)$(OMD_ROOT)/lib/python3/omdlib/
 	sed -i 's|###OMD_VERSION###|$(OMD_VERSION)|g' $(DESTDIR)$(OMD_ROOT)/lib/python3/omdlib/__init__.py

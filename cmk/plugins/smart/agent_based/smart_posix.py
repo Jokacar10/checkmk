@@ -20,6 +20,10 @@ class Temperature(BaseModel, frozen=True):
     drive_trip: int | None = None
 
 
+class PowerOnTime(BaseModel, frozen=True):
+    hours: int
+
+
 class SCSIDevice(BaseModel, frozen=True):
     # Not implemented, but needs to be handled in schema
     protocol: Literal["SCSI"]
@@ -44,7 +48,7 @@ class ATATableEntry(BaseModel, frozen=True):
     id: int
     name: str
     value: int
-    thresh: int
+    thresh: int | None = None
     raw: ATARawValue
 
 
@@ -58,6 +62,7 @@ class ATAAll(BaseModel, frozen=True):
     serial_number: str
     ata_smart_attributes: ATATable | None = None
     temperature: Temperature | None = None
+    power_on_time: PowerOnTime | None = None
 
     def by_id(self, id_: int) -> ATATableEntry | None:
         if self.ata_smart_attributes is None:

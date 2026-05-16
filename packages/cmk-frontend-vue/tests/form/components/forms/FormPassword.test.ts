@@ -5,7 +5,9 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
 import FormPassword from '@/form/components/forms/FormPassword.vue'
+
 import { renderFormWithData } from '../cmk-form-helper'
 
 const validators: FormSpec.Validator[] = [
@@ -20,7 +22,6 @@ const spec: FormSpec.Password = {
   type: 'password',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   validators: validators,
   password_store_choices: [
     {

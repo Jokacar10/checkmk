@@ -16,16 +16,13 @@ from typing import NamedTuple, override, Self
 from livestatus import SiteConfiguration, SiteGlobals
 
 import cmk.ccc.version as cmk_version
+import cmk.utils.paths
 from cmk.ccc import store
 from cmk.ccc.plugin_registry import Registry
 from cmk.ccc.site import SiteId
-
-import cmk.utils.paths
-
 from cmk.gui.log import logger
 from cmk.gui.userdb import user_sync_default_config
 from cmk.gui.watolib.config_domain_name import wato_fileheader
-
 from cmk.messaging import rabbitmq
 
 Command = list[str]
@@ -210,7 +207,7 @@ def _create_distributed_wato_file_for_base(
         "# we only monitor hosts that are assigned to our site.\n\n"
     )
     output += "distributed_wato_site = '%s'\n" % site_id
-    output += "is_wato_slave_site = %r\n" % is_remote
+    output += "is_distributed_setup_remote_site = %r\n" % is_remote
 
     store.save_text_to_file(base_dir.joinpath("etc/check_mk/conf.d/distributed_wato.mk"), output)
 

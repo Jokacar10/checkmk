@@ -4,20 +4,19 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import logging
-import os
 from collections.abc import Generator
 from contextlib import contextmanager
 
 import pytest
 
-from tests.testlib.agent_dumps import inject_dumps
+from tests.testlib.agent_dumps import get_dump_names, inject_dumps
 from tests.testlib.site import Site
+from tests.testlib.utils import is_cleanup_enabled
 from tests.testlib.version import (
     CMKEdition,
     edition_from_env,
     TypeCMKEdition,
 )
-
 from tests.update.helpers import (
     BaseVersions,
     bulk_discover_and_schedule,
@@ -121,11 +120,11 @@ def _setup(
             if not disable_rules_injection:
                 inject_rules(test_site)
 
-        hostname = "test-host"
+        hostname = get_dump_names(DUMPS_DIR)[0]
         with _setup_host(test_site, hostname=hostname, ip_address="127.0.0.1"):
             yield test_site, target_edition, interactive_mode, hostname
     finally:
-        cleanup = os.getenv("CLEANUP", "1") == "1"
+        cleanup = is_cleanup_enabled()
         test_site.save_results()
         if cleanup:
             test_site.rm()

@@ -30,17 +30,17 @@ from cmk.ccc import tty
 from cmk.ccc.crash_reporting import (
     ABCCrashReport,
     BaseDetails,
-    crash_report_registry,
     CrashInfo,
     CrashReportStore,
+    make_crash_report_base_path,
     VersionInfo,
 )
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.version import get_general_version_infos
-
-from cmk.utils import paths, pnp_cleanup
+from cmk.utils import paths
 from cmk.utils.log import console
 from cmk.utils.metrics import MetricName
+from cmk.utils.misc import pnp_cleanup
 
 from .config import RRDConfig, RRDObjectConfig
 from .interface import RRDInterface
@@ -833,8 +833,10 @@ class RRDCreator:
 def create_crash_report() -> None:
     CrashReportStore().save(
         CMKBaseCrashReport(
-            paths.crash_dir,
-            CMKBaseCrashReport.make_crash_info(get_general_version_infos(paths.omd_root)),
+            crash_report_base_path=make_crash_report_base_path(paths.omd_root),
+            crash_info=CMKBaseCrashReport.make_crash_info(
+                get_general_version_infos(paths.omd_root)
+            ),
         )
     )
 
@@ -849,7 +851,6 @@ def _float_or_nan(s: str | None) -> str:
         return "U"
 
 
-@crash_report_registry.register
 class CMKBaseCrashReport(ABCCrashReport[BaseDetails]):
     @classmethod
     def type(cls) -> str:

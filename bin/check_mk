@@ -26,29 +26,26 @@ if not os.environ.get("OMD_SITE"):
     sys.stderr.write("Check_MK can be used only as site user.\n")
     sys.exit(1)
 
+import cmk.base.utils
 import cmk.ccc.debug
 import cmk.ccc.version as cmk_version
+import cmk.utils.caching
+import cmk.utils.log
+import cmk.utils.paths
+from cmk import trace
+from cmk.base import profiling
+from cmk.base.modes import modes
 from cmk.ccc.crash_reporting import (
     ABCCrashReport,
     BaseDetails,
-    crash_report_registry,
     CrashReportStore,
+    make_crash_report_base_path,
     VersionInfo,
 )
 from cmk.ccc.exceptions import MKBailOut, MKGeneralException, MKTerminate
 from cmk.ccc.site import get_omd_config, omd_site, resource_attributes_from_config
-
-import cmk.utils.caching
-import cmk.utils.log
-import cmk.utils.paths
-from cmk.utils.log import console
-
-import cmk.base.utils
-from cmk.base import profiling
-from cmk.base.modes import modes
-
-from cmk import trace
 from cmk.trace.export import exporter_from_config, init_span_processor
+from cmk.utils.log import console
 
 cmk.utils.log.setup_console_logging()
 logger = logging.getLogger("cmk.base")
@@ -57,29 +54,19 @@ cmk.base.utils.register_sigint_handler()
 
 help_function = modes.get("help").handler_function
 
-# Would be nice if we could enable tracing in all cases. But the current timeout and retry
-# logic of the OpenTelemetry SDK does not work as intended, which can lead to longer hanging
-# executions in case the configured collector (e.g. Jaeger) is not reachable.
-# For now only enable tracing in case the caller provides a tracing context. This way we produce
-# traces only when the caller is interested in them.
-# This condition can be removed once the timeout and retry logic was fixed
-# (https://github.com/open-telemetry/opentelemetry-python/issues/4043).
-if trace_context := trace.extract_context_from_environment(dict(os.environ)):
-    init_span_processor(
-        trace.init_tracing(
-            service_namespace=trace.service_namespace_from_config(
-                "", omd_config := get_omd_config(cmk.utils.paths.omd_root)
-            ),
-            service_name="cmk",
-            service_instance_id=omd_site(),
-            extra_resource_attributes=resource_attributes_from_config(cmk.utils.paths.omd_root),
+init_span_processor(
+    trace.init_tracing(
+        service_namespace=trace.service_namespace_from_config(
+            "", omd_config := get_omd_config(cmk.utils.paths.omd_root)
         ),
-        exporter_from_config(trace.trace_send_config(omd_config)),
-    )
+        service_name="cmk",
+        service_instance_id=omd_site(),
+        extra_resource_attributes=resource_attributes_from_config(cmk.utils.paths.omd_root),
+    ),
+    exporter_from_config(trace.trace_send_config(omd_config)),
+)
 
 
-# We probably don't really need to register that here, do we?
-@crash_report_registry.register
 class CrashReport(ABCCrashReport[BaseDetails]):
     @classmethod
     def type(cls) -> str:
@@ -88,17 +75,18 @@ class CrashReport(ABCCrashReport[BaseDetails]):
     @classmethod
     def from_exception(
         cls,
-        crashdir: Path,
+        *,
+        crash_report_base_path: Path,
         version_info: VersionInfo,
     ) -> Self:
         return cls(
-            crashdir,
-            cls.make_crash_info(
+            crash_report_base_path=crash_report_base_path,
+            crash_info=cls.make_crash_info(
                 version_info,
-                {
-                    "argv": sys.argv,
-                    "env": dict(os.environ),
-                },
+                BaseDetails(
+                    argv=sys.argv,
+                    env=dict(os.environ),
+                ),
             ),
         )
 
@@ -130,6 +118,7 @@ try:
         sys.exit(0)
 
     done, exit_status = False, 0
+    trace_context = trace.extract_context_from_environment(dict(os.environ))
     if mode_name is not None and mode_args is not None:
         exit_status = modes.call(mode_name, mode_args, opts, args, trace_context)
         done = True
@@ -161,19 +150,21 @@ except OSError as e:
     if e.errno == errno.EPIPE:
         # this is not an error, caller closes socket(s) and will kill cmk too
         sys.exit(4)
-    crash = CrashReport.from_exception(
-        cmk.utils.paths.crash_dir,
-        cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
+    CrashReportStore().save(
+        CrashReport.from_exception(
+            crash_report_base_path=make_crash_report_base_path(cmk.utils.paths.omd_root),
+            version_info=cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
+        )
     )
-    CrashReportStore().save(crash)
     raise
 
 except Exception:
-    crash = CrashReport.from_exception(
-        cmk.utils.paths.crash_dir,
-        cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
+    CrashReportStore().save(
+        CrashReport.from_exception(
+            crash_report_base_path=make_crash_report_base_path(cmk.utils.paths.omd_root),
+            version_info=cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
+        )
     )
-    CrashReportStore().save(crash)
     raise
 
 finally:

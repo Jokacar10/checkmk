@@ -21,13 +21,15 @@ from flask import g, send_from_directory
 from werkzeug.exceptions import HTTPException, NotFound
 from werkzeug.routing import Map, Rule, Submount
 
+from livestatus import LivestatusTestingError
+
 import cmk.ccc.version as cmk_version
-from cmk.ccc import crash_reporting, store
-from cmk.ccc.exceptions import MKException
+from cmk import trace
+from cmk.ccc import store
+from cmk.ccc.crash_reporting import ABCCrashReport, CrashReportStore, make_crash_report_base_path
+from cmk.ccc.exceptions import MKException, MKGeneralException
 from cmk.ccc.site import omd_site, SiteId
-
-from cmk.utils import paths
-
+from cmk.crypto import MKCryptoException
 from cmk.gui import session
 from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKAuthException, MKHTTPException, MKUserError
@@ -57,11 +59,10 @@ from cmk.gui.openapi.utils import (
     RestAPIRequestGeneralException,
     RestAPIResponseGeneralException,
 )
+from cmk.gui.site_config import enabled_sites
 from cmk.gui.wsgi.applications.utils import AbstractWSGIApp
 from cmk.gui.wsgi.wrappers import ParameterDict
-
-from cmk import trace
-from cmk.crypto import MKCryptoException
+from cmk.utils import paths
 
 if TYPE_CHECKING:
     from cmk.gui.http import HTTPMethod
@@ -117,17 +118,19 @@ def crash_report_response(exc: Exception) -> WSGIApplication:
         "check_mk_user": {
             "user_id": user.id,
             "user_roles": user.role_ids,
-            "authorized_sites": list(user.authorized_sites()),
+            "authorized_sites": list(
+                user.authorized_sites(unfiltered_sites=enabled_sites(active_config.sites))
+            ),
         },
     }
 
     crash = APICrashReport(
-        paths.crash_dir,
-        APICrashReport.make_crash_info(
+        crash_report_base_path=make_crash_report_base_path(paths.omd_root),
+        crash_info=APICrashReport.make_crash_info(
             cmk_version.get_general_version_infos(paths.omd_root), details
         ),
     )
-    crash_reporting.CrashReportStore().save(crash)
+    CrashReportStore().save(crash)
     logger.exception("Unhandled exception (Crash-ID: %s)", crash.ident_to_text())
 
     query_string = urllib.parse.urlencode(
@@ -206,6 +209,11 @@ class VersionedEndpointAdapter(AbstractWSGIApp):
             "query": self._query_args(),
             "headers": request.headers,
         }
+        api_context = ApiContext.new(
+            config=active_config,
+            version=self.requested_version,
+            etag_if_match=request.if_match,
+        )
 
         is_testing = str(request.environ.get("paste.testing", "False")).lower() == "true"
 
@@ -218,7 +226,7 @@ class VersionedEndpointAdapter(AbstractWSGIApp):
         response = handle_endpoint_request(
             endpoint=self.endpoint.request_endpoint(),
             request_data=request_data,
-            api_context=ApiContext(version=self.requested_version),
+            api_context=api_context,
             permission_validator=permission_validator,
             wato_enabled=active_config.wato_enabled,
             wato_use_git=active_config.wato_use_git,
@@ -564,7 +572,7 @@ class CheckmkRESTAPI(AbstractWSGIApp):
         path_entries: list[str],
         endpoint: AbstractWSGIApp,
         version: APIVersion,
-        content_type: str,
+        content_type: str | None,
         method: HTTPMethod | None = None,
     ) -> None:
         if method is None:
@@ -689,7 +697,8 @@ class CheckmkRESTAPI(AbstractWSGIApp):
                 detail=str(exc),
             )
 
-        except (MKException, MKCryptoException) as exc:
+        # I added MKGeneralException during a refactoring, but I did not check if it is needed.
+        except (MKException, MKCryptoException, MKGeneralException) as exc:
             if self.debug and not self.testing:
                 raise
             response = problem(
@@ -697,6 +706,11 @@ class CheckmkRESTAPI(AbstractWSGIApp):
                 title="An exception occurred.",
                 detail=str(exc),
             )
+
+        except LivestatusTestingError as exc:
+            if self.testing:
+                raise  # this makes it easier to read incorrect expected queries in tests
+            response = crash_report_response(exc)
 
         except Exception as exc:
             if self.debug and not self.testing:
@@ -726,7 +740,7 @@ class RestAPIDetails(TypedDict):
     check_mk_info: dict[str, Any]
 
 
-class APICrashReport(crash_reporting.ABCCrashReport[RestAPIDetails]):
+class APICrashReport(ABCCrashReport[RestAPIDetails]):
     """API specific crash reporting class."""
 
     @classmethod

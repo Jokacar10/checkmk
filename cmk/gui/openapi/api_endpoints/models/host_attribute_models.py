@@ -3,7 +3,6 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, WithJsonSchema
@@ -11,10 +10,6 @@ from pydantic import AfterValidator, WithJsonSchema
 from cmk.ccc.hostaddress import HostAddress, HostName
 from cmk.ccc.site import SiteId
 from cmk.ccc.version import Edition
-
-from cmk.utils.agent_registration import HostAgentConnectionMode
-from cmk.utils.tags import TagGroupID
-
 from cmk.gui.fields.utils import edition_field_description
 from cmk.gui.openapi.api_endpoints.models.attributes import (
     FolderCustomHostAttributesAndTagGroupsModel,
@@ -25,11 +20,14 @@ from cmk.gui.openapi.api_endpoints.models.attributes import (
     MetaDataModel,
     NetworkScanModel,
     NetworkScanResultModel,
+    OTelMetricsAssociationEnabledModel,
+    OTelMetricsAssociationFilterModel,
+    OTelMetricsAssociationModel,
     SNMPCredentialsConverter,
     SNMPCredentialsModel,
 )
 from cmk.gui.openapi.endpoints._common.host_attribute_schemas import built_in_tag_group_config
-from cmk.gui.openapi.framework.model import api_field, ApiOmitted
+from cmk.gui.openapi.framework.model import api_field, api_model, ApiOmitted
 from cmk.gui.openapi.framework.model.converter import (
     HostAddressConverter,
     HostConverter,
@@ -37,7 +35,13 @@ from cmk.gui.openapi.framework.model.converter import (
 )
 from cmk.gui.openapi.framework.model.restrict_editions import RestrictEditions
 from cmk.gui.watolib.builtin_attributes import HostAttributeLabels, HostAttributeWaitingForDiscovery
-from cmk.gui.watolib.host_attributes import HostAttributes
+from cmk.gui.watolib.host_attributes import (
+    HostAttributes,
+    OTelMetricsAssociationEnabled,
+    OTelMetricsAssociationFilter,
+)
+from cmk.utils.agent_registration import HostAgentConnectionMode
+from cmk.utils.tags import TagGroupID
 
 HostNameOrIPv4 = Annotated[
     HostAddress,
@@ -63,7 +67,7 @@ def _validate_tag_id(tag_id: str, built_in_tag_group_id: TagGroupID) -> str:
     return tag_id
 
 
-@dataclass(kw_only=True)
+@api_model(slots=False)
 class BaseHostTagGroupModel:
     tag_address_family: (
         Annotated[
@@ -112,7 +116,7 @@ class BaseHostTagGroupModel:
     )
 
 
-@dataclass(kw_only=True)
+@api_model(slots=False)
 class BaseHostAttributeModel:
     alias: str | ApiOmitted = api_field(
         description="Add a comment or describe this host", default_factory=ApiOmitted
@@ -178,6 +182,14 @@ class BaseHostAttributeModel:
 
     snmp_community: SNMPCredentialsModel | ApiOmitted = api_field(
         description="The SNMP access configuration. A configured SNMP v1/v2 community here will have precedence over any configured SNMP community rule. For this attribute to take effect, the attribute `tag_snmp_ds` needs to be set first.",
+        default_factory=ApiOmitted,
+    )
+
+    otel_metrics_association: Annotated[
+        OTelMetricsAssociationModel | ApiOmitted,
+        RestrictEditions(supported_editions={Edition.CCE, Edition.CME, Edition.CSE}),
+    ] = api_field(
+        description="Configuration for associating OpenTelemetry metrics with this host.",
         default_factory=ApiOmitted,
     )
 
@@ -261,7 +273,7 @@ class BaseHostAttributeModel:
         return value
 
 
-@dataclass(kw_only=True, slots=True)
+@api_model
 class HostViewAttributeModel(
     BaseHostAttributeModel, BaseHostTagGroupModel, FolderCustomHostAttributesAndTagGroupsModel
 ):
@@ -299,6 +311,22 @@ class HostViewAttributeModel(
                 value["snmp_community"]
             )
             if "snmp_community" in value
+            else ApiOmitted(),
+            otel_metrics_association=(
+                "disabled"
+                if otel_metrics_assoc[0] == "disabled"
+                else OTelMetricsAssociationEnabledModel(
+                    attribute_filters=[
+                        OTelMetricsAssociationFilterModel(
+                            attribute_type=attribute_filter["attribute_type"],
+                            attribute_key=attribute_filter["attribute_key"],
+                            attribute_value=attribute_filter["attribute_value"],
+                        )
+                        for attribute_filter in otel_metrics_assoc[1]["attribute_filters"]
+                    ],
+                )
+            )
+            if (otel_metrics_assoc := value.get("otel_metrics_association"))
             else ApiOmitted(),
             labels=dict(value["labels"]) if "labels" in value else ApiOmitted(),
             waiting_for_discovery=value.get("waiting_for_discovery", ApiOmitted()),
@@ -341,7 +369,7 @@ class HostViewAttributeModel(
         )
 
 
-@dataclass(kw_only=True, slots=True)
+@api_model
 class HostUpdateAttributeModel(
     BaseHostAttributeModel, BaseHostTagGroupModel, FolderCustomHostAttributesAndTagGroupsModel
 ):
@@ -369,6 +397,24 @@ class HostUpdateAttributeModel(
             attributes["cmk_agent_connection"] = self.cmk_agent_connection
         if not isinstance(self.snmp_community, ApiOmitted):
             attributes["snmp_community"] = self.snmp_community_to_internal(self.snmp_community)
+        if not isinstance(self.otel_metrics_association, ApiOmitted):
+            attributes["otel_metrics_association"] = (
+                ("disabled", None)
+                if self.otel_metrics_association == "disabled"
+                else (
+                    "enabled",
+                    OTelMetricsAssociationEnabled(
+                        attribute_filters=[
+                            OTelMetricsAssociationFilter(
+                                attribute_type=attribute_filter.attribute_type,
+                                attribute_key=attribute_filter.attribute_key,
+                                attribute_value=attribute_filter.attribute_value,
+                            )
+                            for attribute_filter in self.otel_metrics_association.attribute_filters
+                        ],
+                    ),
+                )
+            )
         if not isinstance(self.labels, ApiOmitted):
             attributes["labels"] = self.labels
         if not isinstance(self.waiting_for_discovery, ApiOmitted):

@@ -7,40 +7,72 @@ extern crate common;
 #[cfg(not(feature = "build_system_bazel"))]
 mod common;
 
-use mk_oracle::config::ora_sql::{AuthType, Config, EngineTag, Role};
+use crate::common::tools::{
+    make_mini_config, make_mini_config_custom_instance, platform::add_runtime_to_path,
+    ORA_ENDPOINT_ENV_VAR_EXT, ORA_ENDPOINT_ENV_VAR_LOCAL,
+};
+use mk_oracle::config::authentication::{AuthType, Authentication, Role, SqlDbEndpoint};
+use mk_oracle::config::defines::defaults::SECTION_SEPARATOR;
+use mk_oracle::config::ora_sql::Config;
+use mk_oracle::config::OracleConfig;
 use mk_oracle::ora_sql::backend;
+use mk_oracle::ora_sql::instance::generate_data;
+use mk_oracle::ora_sql::sqls;
+use mk_oracle::ora_sql::system;
+use mk_oracle::platform::registry::get_instances;
+use mk_oracle::setup::{detect_host_runtime, detect_runtime, Env};
+use mk_oracle::types::{
+    Credentials, InstanceName, InstanceNumVersion, InstanceVersion, Tenant, UseHostClient,
+};
+use mk_oracle::types::{InstanceAlias, SqlQuery};
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::str::FromStr;
+use std::sync::LazyLock;
 
-use crate::common::tools::{SqlDbEndpoint, ORA_ENDPOINT_ENV_VAR_BASE};
-use mk_oracle::types::{Credentials, InstanceName};
+pub static ORA_TEST_ENDPOINTS: &str = include_str!("files/endpoints.txt");
 
-static RUNTIME_PATH: OnceLock<PathBuf> = OnceLock::new();
+static ORA_TEST_INSTANCE_DATA: &str = r"
+XE|21.3.0.0.0|OPEN|ALLOWED|STOPPED|1496|3073262481|
+NOARCHIVELOG|PRIMARY|NO|XE|030220252229|TRUE|2|PDB$SEED
+|1566296130|READ ONLY|NO|770703360|ENABLED|1483|8192|oralinux810.myguest.virtualbox.org";
+static ORA_TEST_SESSION_PDB_DATA: &str = "XE.XEPDB1|1";
+static ORA_TEST_SESSION_CDB_DATA: &str = "XE|61|472|-1";
+static ORA_TEST_LOGSWITCHES_DATA: &str = "XE|0";
+static ORA_TEST_UNDOSTAT_DATA: &str = "XE|160|1|900|0|0";
+static ORA_TEST_PROCESSES_DATA: &str = "XE|52|300";
+static ORA_TEST_RECOVERY_STATUS_DATA: &str = r"
+XE|XE|PRIMARY|READ WRITE|1|1753809286|1488|ONLINE|NO|YES|14817978|NOT ACTIVE|0";
+static ORA_TEST_LONGACTIVESESSIONS_DATA: &str = "XE.CDB$ROOT||||||||";
+static ORA_TEST_PERFORMANCE_SYSTIMEMODEL_DATA: &str = "XE.CDB$ROOT|sys_time_model|DB CPU|16";
+static ORA_TEST_PERFORMANCE_SYSWAITCLASS_DATA: &str = r"
+XE.CDB$ROOT|sys_wait_class|Administrative|103|0|103|0";
+static ORA_TEST_PERFORMANCE_BUFFERPOOL_DATA: &str = r"
+XE.CDB$ROOT|buffer_pool_statistics|DEFAULT|20121|25027|345233|19206|1592|0|17";
+static ORA_TEST_PERFORMANCE_SGAINFO_DATA: &str = "XE.CDB$ROOT|SGA_info|Fixed SGA Size|9691632";
+static ORA_TEST_PERFORMANCE_LIBRARYCACHE_DATA: &str = r"
+XE.CDB$ROOT|librarycache|SQL AREA|12297|8158|87660|79684|216|351";
+static ORA_TEST_PERFORMANCE_PGAINFO_DATA: &str = r"
+XE.CDB$ROOT|PGA_info|MGA allocated (under PGA)|0|bytes";
+static ORA_TEST_LOCKS_DATA: &str = "XE.CDB$ROOT|||||||||||||||||";
+static ORA_TEST_TABLESPACES_DATA: &str = r"
+XE|/opt/oracle/oradata/XE/users01.dbf|
+USERS|AVAILABLE|YES|640|4194302|512|160|ONLINE|8192|ONLINE|296|PERMANENT|21.0.0.0.0";
+static ORA_TEST_JOBS_DATA: &str = r"
+XE|CDB$ROOT|ORACLE_OCM|MGMT_STATS_CONFIG_JOB
+|SCHEDULED|1|3|TRUE|01-AUG-25 01.01.01.502927 AM +01:00|-|SUCCEEDED";
+static ORA_TEST_IOSTAT_DATA: &str = r"
+XE.CDB$ROOT|iostat_file|Archive Log|0|0|0|0|0|0|0|0|0|0|0|0";
+static ORA_TEST_SYSTEMPARAM_DATA: &str = "XE|lock_name_space||TRUE";
+static ORA_TEST_RESUMABLE_DATA: &str = "XE|||||||||";
 
-fn _init_runtime_path() -> PathBuf {
-    let _this_file: PathBuf = PathBuf::from(file!());
-    _this_file
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("runtimes")
-        .join("oci_light_win_x86_zip")
-}
-
-fn change_cwd_to_runtime_path() {
-    let runtime_location = RUNTIME_PATH.get_or_init(_init_runtime_path).clone();
-    std::env::set_current_dir(runtime_location).unwrap();
-}
 fn make_base_config(
     credentials: &Credentials,
     auth_type: AuthType,
     role: Option<Role>,
     address: &str,
     port: u16,
-    instance_name: InstanceName,
+    instance_name: Option<InstanceName>,
 ) -> Config {
     let role_string = if let Some(r) = role {
         format!("{}", r)
@@ -69,41 +101,112 @@ oracle:
         role_string,
         address,
         port,
-        instance_name
+        instance_name.unwrap_or_default()
     );
     Config::from_string(config_str).unwrap().unwrap()
 }
 
-#[test]
-fn test_config_to_remove() {
-    let config = make_base_config(
-        &Credentials {
-            user: "sys".to_string(),
-            password: "Oracle-dba".to_string(),
-        },
-        AuthType::Standard,
-        None,
-        "localhost",
-        1521,
-        InstanceName::from("XE"),
-    );
+fn load_endpoints() -> Vec<SqlDbEndpoint> {
+    let mut r = remote_reference_endpoint();
+    let content = ORA_TEST_ENDPOINTS.to_owned();
+    let mut endpoints = content
+        .split("\n")
+        .filter_map(|s| {
+            let cleaned = s.split('#').next().unwrap_or("").trim();
+            if cleaned.is_empty() {
+                None
+            } else {
+                Some(cleaned)
+            }
+        })
+        .filter_map(|s| {
+            if let Some(env_var) = s.strip_prefix("$") {
+                r = SqlDbEndpoint::from_env(env_var).unwrap();
+                None
+            } else {
+                Some(s.replacen(":::", &format!(":{}:{}:", r.user, r.pwd), 1))
+            }
+        })
+        .map(|s| SqlDbEndpoint::from_str(s.as_str()).unwrap())
+        .collect::<Vec<SqlDbEndpoint>>();
+    if let Ok(local_endpoint) = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL) {
+        endpoints.push(local_endpoint);
+    } else {
+        eprintln!("No local endpoint found, skipping test_local_connection");
+    };
+    endpoints
+}
 
-    assert_eq!(config.conn().engine_tag(), &EngineTag::Std);
+fn remote_reference_endpoint() -> SqlDbEndpoint {
+    SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_EXT).unwrap()
+}
+
+static WORKING_ENDPOINTS: LazyLock<Vec<SqlDbEndpoint>> = LazyLock::new(load_endpoints);
+#[test]
+fn test_endpoints_file() {
+    let s = &WORKING_ENDPOINTS;
+    let r = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_EXT).unwrap();
+    assert!(!s.is_empty());
+    assert_eq!(s[0], r);
+    for e in &s[..] {
+        if e.host == "localhost" {
+            continue; // skip local endpoint, it may have strange credentials
+        }
+        assert_eq!(e.user, r.user);
+        assert_eq!(e.pwd, r.pwd);
+    }
 }
 
 #[test]
-#[allow(clippy::const_is_empty)]
-fn test_endpoint() {
-    assert!(!ORA_ENDPOINT_ENV_VAR_BASE.is_empty());
+fn test_authentication_from_env_var() {
+    use mk_oracle::config::yaml::test_tools::create_yaml;
+    pub const AUTHENTICATION_ENV_VAR: &str = r#"
+authentication:
+  username: "$CI_ORA2_DB_TEST"
+  password: "$CI_ORA2_DB_TEST"
+"#;
+    let a = Authentication::from_yaml(&create_yaml(AUTHENTICATION_ENV_VAR))
+        .unwrap()
+        .unwrap();
+    assert_ne!(a.username(), "$CI_ORA2_DB_TEST");
+    assert!(a.password().is_some());
+    assert_ne!(a.password(), Some("$CI_ORA2_DB_TEST"));
 }
+
+static TEST_SQL_INSTANCE: LazyLock<SqlQuery> = LazyLock::new(|| {
+    SqlQuery::new(
+        r"
+    select upper(i.INSTANCE_NAME)
+        ||'|'|| 'sys_time_model'
+        ||'|'|| S.STAT_NAME
+        ||'|'|| Round(s.value/1000000)
+    from v$instance i,
+        v$sys_time_model s
+    where s.stat_name in('DB time', 'DB CPU')
+    order by s.stat_name",
+        &Vec::new(),
+    )
+});
+
+#[cfg(windows)]
+#[test]
+fn test_environment() {
+    // it seems we need this flag to properly link openssl on Windows
+    let env_value = std::env::var("CFLAGS")
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .unwrap();
+    assert_eq!(env_value, "-DNDEBUG");
+}
+
 #[allow(clippy::const_is_empty)]
 #[test]
 fn test_local_connection() {
-    let r = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_BASE);
+    let r = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL);
     if r.is_err() {
-        println!("Skipping test_local_connection: {}", r.err().unwrap());
+        eprintln!("Skipping test_local_connection: {}", r.err().unwrap());
         return;
     }
+    add_runtime_to_path();
     let endpoint = r.unwrap();
 
     let config = make_base_config(
@@ -115,12 +218,1281 @@ fn test_local_connection() {
         Some(Role::SysDba),
         &endpoint.host,
         endpoint.port,
-        InstanceName::from(endpoint.point),
+        None,
     );
 
-    change_cwd_to_runtime_path();
+    for i in [None, Some(&InstanceName::from(&endpoint.instance))] {
+        let spot = backend::make_spot(&config.endpoint()).unwrap();
+        let conn = spot.connect(i).unwrap();
+        let result = conn.query_table(&TEST_SQL_INSTANCE).format("");
+        assert!(result.is_ok());
+        let rows = result.unwrap();
+        eprintln!(
+            "Rows: {i:?} {:?} {:?}",
+            rows,
+            conn.target().make_connection_string(i)
+        );
+        assert!(!rows.is_empty());
+        assert!(rows[0].starts_with(&format!("{}|sys_time_model|DB CPU|", &endpoint.instance)));
+        assert!(rows[1].starts_with(&format!("{}|sys_time_model|DB time|", &endpoint.instance)));
+        assert_eq!(rows.len(), 2);
+    }
+}
 
-    let mut task = backend::make_task(&config.endpoint()).unwrap();
-    let r = task.connect();
+#[test]
+fn test_remote_mini_connection() {
+    add_runtime_to_path();
+    let endpoint = remote_reference_endpoint();
+    let config = make_mini_config(&endpoint);
+
+    let spot = backend::make_spot(&config.endpoint()).unwrap();
+    println!("Target {:?}", spot.target());
+    let conn = spot.connect(None).unwrap();
+    let result = conn.query_table(&TEST_SQL_INSTANCE).format("");
+    assert!(result.is_ok());
+    let rows = result.unwrap();
+    assert!(!rows.is_empty());
+    assert!(rows[0].starts_with(&format!("{}|sys_time_model|DB CPU|", &endpoint.instance)));
+    assert!(rows[1].starts_with(&format!("{}|sys_time_model|DB time|", &endpoint.instance)));
+    assert_eq!(rows.len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_custom_instance_connection() {
+    add_runtime_to_path();
+    let endpoint = remote_reference_endpoint();
+    let config = make_mini_config_custom_instance(&endpoint, "FREE", None);
+    let env = Env::default();
+    let r = generate_data(&config, &env).await;
+
     assert!(r.is_ok());
+    let table = r.unwrap();
+    eprintln!("{:?}", table);
+    assert_eq!(table.len(), 2);
+    assert_eq!(table[0], "<<<oracle_instance>>>");
+    let rows: Vec<&str> = table[1].split("\n").collect();
+    eprintln!("{rows:?}");
+    assert_eq!(rows[0], "<<<oracle_instance:sep(124)>>>");
+    for r in rows[1..].iter() {
+        assert!(r.starts_with("FREE"));
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_absent_remote_custom_instance_connection() {
+    add_runtime_to_path();
+
+    let endpoint = remote_reference_endpoint();
+    let config = make_mini_config_custom_instance(&endpoint, "absent", None);
+    let env = Env::default();
+    let r = generate_data(&config, &env).await;
+
+    assert!(r.is_ok());
+    assert_eq!(r.unwrap()[0], "<<<oracle_instance>>>");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_remote_tns_custom_instance_connection() {
+    add_runtime_to_path();
+    let endpoint = remote_reference_endpoint();
+    let config = make_mini_config_custom_instance(
+        &endpoint,
+        "FREE",
+        Some(InstanceAlias::from("ora_remote".to_string())),
+    );
+    let env = Env::default();
+    let r = generate_data(&config, &env).await;
+
+    assert!(r.is_ok());
+    let table = r.unwrap();
+    assert_eq!(table.len(), 2);
+    assert_eq!(table[0], "<<<oracle_instance>>>");
+    let rows: Vec<&str> = table[1].split("\n").collect();
+    assert_eq!(rows[0], "<<<oracle_instance:sep(124)>>>");
+    for r in rows[1..].iter() {
+        assert!(r.starts_with("FREE"));
+    }
+}
+
+pub const INSTANCE_INFO_SQL_TEXT_FAIL: &str = r"
+SELECT
+    INSTANCE_NAME,
+    i.CON_ID,
+    VERSION_FULL_2,
+    d.name,
+    d.cdb
+    FROM v$instance i
+    join v$database d
+        on i.con_id = d.con_id";
+#[test]
+fn test_remote_mini_connection_version() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        eprintln!("Endpoint: {}", endpoint.host);
+        let config = make_mini_config(endpoint);
+
+        let spot = backend::make_spot(&config.endpoint()).unwrap();
+        let conn = spot
+            .connect(None)
+            .expect("Connect failed, check environment variables");
+        // get instances using two different scripts, one of them simulates call to the old instance
+        // which doesn't report VERSION_FULL
+        let instances_new = system::WorkInstances::new(&conn, None);
+        let instances_old = system::WorkInstances::new(&conn, Some(INSTANCE_INFO_SQL_TEXT_FAIL));
+        let r_new = instances_new.get_full_version(&InstanceName::from(&endpoint.instance));
+        let r_old = instances_old.get_full_version(&InstanceName::from(&endpoint.instance));
+        let version_ok = r_new.unwrap();
+        let version_old = r_old.unwrap();
+        //check that both methods return the same values
+        assert_eq!(version_ok, version_old);
+        assert!(String::from(version_ok).starts_with("2"));
+        assert!(instances_new
+            .get_full_version(&InstanceName::from("no-such-db"))
+            .is_none());
+    }
+}
+
+#[test]
+fn test_io_stats_query() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        let rows = connect_and_query(endpoint, sqls::Id::IoStats, None);
+        assert!(rows.len() > 10);
+        let name_dot = format!("{}.", &endpoint.instance);
+        for r in &rows {
+            let values: Vec<String> = r.split('|').map(|s| s.to_string()).collect();
+            assert_eq!(
+                values.len(),
+                ORA_TEST_IOSTAT_DATA.split('|').collect::<Vec<_>>().len(),
+                "Row does not have enough columns: {}",
+                r
+            );
+            assert!(
+                values[0].starts_with(name_dot.as_str()),
+                "Row does not start with instance name: {}",
+                r
+            );
+            assert_eq!(values[1], "iostat_file");
+            let all_types: HashSet<String> = HashSet::from_iter(
+                vec![
+                    "Archive Log",
+                    "Archive Log Backup",
+                    "Control File",
+                    "Data File",
+                    "Data File Backup",
+                    "Data File Copy",
+                    "Data File Incremental Backup",
+                    "Data Pump Dump File",
+                    "External Table",
+                    "Flashback Log",
+                    "Log File",
+                    "Other",
+                    "Temp File",
+                ]
+                .into_iter()
+                .map(|s| s.to_string()),
+            );
+            let the_type = &values[2];
+            assert!(all_types.contains(the_type), "Wrong type: {}", the_type);
+            for v in &values[3..] {
+                assert!(v.parse::<u64>().is_ok(), "Value is not digit: {}", v);
+            }
+        }
+    }
+}
+
+fn connect_and_query(
+    endpoint: &SqlDbEndpoint,
+    id: sqls::Id,
+    version: Option<InstanceNumVersion>,
+) -> Vec<String> {
+    let config = make_mini_config(endpoint);
+
+    let spot = backend::make_spot(&config.endpoint()).unwrap();
+    let conn = spot.connect(None).unwrap();
+    let queries = sqls::get_factory_query(id, version, Tenant::All, None)
+        .unwrap()
+        .split(';')
+        .filter_map(|q| {
+            let trimmed = q.trim();
+            if !trimmed.is_empty() {
+                Some(SqlQuery::new(trimmed, config.params()))
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>();
+
+    queries
+        .iter()
+        .flat_map(|q| {
+            conn.query_table(q)
+                .format(&SECTION_SEPARATOR.to_string())
+                .unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn test_ts_quotas() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::TsQuotas, None);
+        assert!(!rows.is_empty());
+        let expected = format!("{}||||", &endpoint.instance);
+        assert_eq!(rows[0], expected);
+    }
+}
+
+#[test]
+fn test_jobs() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Jobs, None);
+        assert!(rows.len() > 10);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_JOBS_DATA.split('|').collect::<Vec<_>>().len(),
+                "Row does not have enough columns: {}",
+                r
+            );
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(
+                [1, 2, 3, 4, 6, 7, 8]
+                    .iter()
+                    .all(|i| { !line[*i].is_empty() }),
+                "Columns 1, 2, 3, 4, 6, 7, 8 should be NOT empty: {:?}",
+                line
+            );
+        });
+    }
+}
+
+#[test]
+fn test_jobs_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Jobs,
+            Some(InstanceNumVersion::from(11_00_00_00)),
+        );
+        assert!(rows.len() > 10);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(line.len(), 10, "Row does not have enough columns: {}", r);
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(
+                [1, 2, 3, 5, 6].iter().all(|i| { !line[*i].is_empty() }),
+                "Columns 1, 2, 3, 5, 6 should be NOT empty: {:?}",
+                line
+            );
+        });
+    }
+}
+
+#[test]
+fn test_resumable() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Resumable, None);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_RESUMABLE_DATA.split('|').collect::<Vec<_>>().len(),
+            );
+        });
+        assert_eq!(rows[0], format!("{}|||||||||", &endpoint.instance));
+    }
+}
+
+#[test]
+fn test_undo_stats() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        for version in [None, Some(InstanceNumVersion::from(11_00_00_00))] {
+            println!("Testing version: {:?}", version);
+            let rows = connect_and_query(endpoint, sqls::Id::UndoStat, version);
+            assert_eq!(rows.len(), 1);
+            let r = &rows[0];
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_UNDOSTAT_DATA.split('|').collect::<Vec<_>>().len(),
+                "Row does not have enough columns: {}",
+                r,
+            );
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(
+                [2, 3, 4, 5]
+                    .iter()
+                    .all(|i| { line[*i].parse::<u32>().is_ok() }),
+                "Columns 2..5 should be numbers: {:?}",
+                line
+            );
+        }
+    }
+}
+
+#[test]
+fn test_locks_last() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Locks, None);
+        assert!(rows.len() >= 3);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_LOCKS_DATA.split('|').collect::<Vec<_>>().len(),
+                "Row does not have enough columns: {}",
+                rows.len()
+            );
+        });
+        assert_eq!(
+            rows[0],
+            format!("{}.CDB$ROOT|||||||||||||||||", &endpoint.instance)
+        );
+        assert_eq!(
+            rows[1],
+            format!("{0}.{0}PDB1|||||||||||||||||", &endpoint.instance)
+        );
+        assert_eq!(rows[2], format!("{}|||||||||||||||||", &endpoint.instance));
+    }
+}
+
+#[test]
+fn test_locks_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Locks,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_LOCKS_DATA.split('|').collect::<Vec<_>>().len(),
+                "Row does not have enough columns: {}",
+                rows.len()
+            );
+        });
+        assert!(!rows.is_empty());
+        assert_eq!(rows[0], format!("{}|||||||||||||||||", &endpoint.instance));
+    }
+}
+
+#[test]
+fn test_log_switches() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::LogSwitches, None);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_LOGSWITCHES_DATA
+                    .split('|')
+                    .collect::<Vec<_>>()
+                    .len(),
+                "Row does not have enough columns: {}",
+                rows.len()
+            );
+        });
+        assert!(!rows.is_empty());
+        assert_eq!(rows[0], format!("{}|0", &endpoint.instance));
+    }
+}
+
+#[test]
+fn test_long_active_sessions_last() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::LongActiveSessions, None);
+        assert!(rows.len() >= 3);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_LONGACTIVESESSIONS_DATA
+                    .split('|')
+                    .collect::<Vec<_>>()
+                    .len(),
+                "Row does not have enough columns: {}",
+                rows.len()
+            );
+        });
+        assert_eq!(rows[0], format!("{}.CDB$ROOT||||||||", &endpoint.instance));
+        assert_eq!(rows[1], format!("{0}.{0}PDB1||||||||", &endpoint.instance));
+        assert_eq!(rows[2], format!("{}||||||||", &endpoint.instance));
+    }
+}
+
+#[test]
+fn test_long_active_sessions_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::LongActiveSessions,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        assert!(!rows.is_empty());
+        assert_eq!(rows[0], format!("{}||||||||", &endpoint.instance));
+    }
+}
+
+#[test]
+fn test_processes() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Processes, None);
+        assert!(!rows.is_empty());
+        let array = rows[0].split('|').collect::<Vec<&str>>();
+        assert_eq!(
+            array.len(),
+            ORA_TEST_PROCESSES_DATA.split('|').collect::<Vec<_>>().len(),
+            "Row does not have enough columns: {}",
+            rows.len()
+        );
+        assert_eq!(array[0], endpoint.instance.as_str());
+        assert!(array[1].parse::<u32>().is_ok());
+        assert!(array[2].parse::<u32>().is_ok());
+    }
+}
+
+#[test]
+fn test_recovery_status_last() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::RecoveryStatus, None);
+        for r in rows {
+            let array = r.split('|').collect::<Vec<&str>>();
+            assert_eq!(
+                array.len(),
+                ORA_TEST_RECOVERY_STATUS_DATA
+                    .split('|')
+                    .collect::<Vec<_>>()
+                    .len(),
+            );
+            assert!(array[0].starts_with(endpoint.instance.as_str()));
+            assert_eq!(array[1], endpoint.instance.as_str());
+            assert!(!array[2].is_empty());
+            assert!(!array[3].is_empty());
+            assert!(array[4].parse::<u32>().is_ok());
+            assert!(array[5].parse::<u32>().is_ok());
+            assert!(array[6].parse::<u64>().is_ok());
+            assert!(!array[7].is_empty());
+            assert!(!array[9].is_empty());
+            assert!(array[10].parse::<u32>().is_ok());
+        }
+    }
+}
+
+#[test]
+fn test_recovery_status_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::RecoveryStatus,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        assert!(rows.len() > 10);
+        for r in rows {
+            let array = r.split('|').collect::<Vec<&str>>();
+            assert_eq!(array.len(), 11);
+            assert_eq!(array[0], endpoint.instance.as_str());
+            assert_eq!(array[1], endpoint.instance.as_str());
+            assert!(!array[2].is_empty());
+            assert!(!array[3].is_empty());
+            assert!(array[4].parse::<u32>().is_ok());
+            assert!(array[5].parse::<u32>().is_ok());
+            assert!(array[6].parse::<u64>().is_ok());
+            assert!(!array[7].is_empty());
+            assert!(!array[9].is_empty());
+            assert!(array[10].parse::<u32>().is_ok());
+        }
+    }
+}
+
+#[test]
+fn test_rman() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Rman, None);
+        assert!(rows.is_empty());
+    }
+}
+
+#[test]
+fn test_rman_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Rman,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        assert!(rows.is_empty());
+    }
+}
+
+#[test]
+fn test_sessions_last() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Sessions, None);
+        assert_eq!(rows.len(), 3);
+        let start = endpoint.instance.as_str().to_string() + ".";
+        for n in [0, 1] {
+            let r = rows[n].clone();
+            assert!(r.starts_with(start.as_str()));
+
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_SESSION_PDB_DATA
+                    .split('|')
+                    .collect::<Vec<_>>()
+                    .len(),
+            );
+            assert!(
+                line[1].parse::<i32>().is_ok(),
+                "Value is not a number: {}",
+                line[1]
+            );
+        }
+
+        let line_2: Vec<&str> = rows[2].split("|").collect();
+        assert_eq!(
+            line_2.len(),
+            ORA_TEST_SESSION_CDB_DATA
+                .split('|')
+                .collect::<Vec<_>>()
+                .len(),
+        );
+        line_2[1..].iter().for_each(|s| {
+            assert!(s.parse::<i32>().is_ok(), "Value is not a number: {}", s);
+        });
+    }
+}
+
+#[test]
+fn test_sessions_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Sessions,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        assert_eq!(rows.len(), 1);
+        let line: Vec<&str> = rows[0].split("|").collect();
+        assert_eq!(line.len(), 4);
+        line[1..].iter().for_each(|s| {
+            assert!(s.parse::<i32>().is_ok(), "Value is not a number: {}", s);
+        });
+    }
+}
+
+#[test]
+fn test_system_parameter() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::SystemParameter, None);
+        assert!(rows.len() > 100);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_SYSTEMPARAM_DATA
+                    .split('|')
+                    .collect::<Vec<_>>()
+                    .len(),
+            );
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(!line[1].is_empty());
+            assert!(
+                line[3] == "TRUE" || line[3] == "FALSE",
+                "Value is not TRUE or FALSE:  {:?}",
+                line
+            );
+        });
+    }
+}
+
+#[test]
+fn test_table_spaces() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::TableSpaces, None);
+        assert!(rows.len() > 2);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_TABLESPACES_DATA
+                    .split('|')
+                    .collect::<Vec<_>>()
+                    .len(),
+            );
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(
+                line[1].to_uppercase().ends_with(".DBF"),
+                "File name does not end with .DBF: {}",
+                line[1]
+            );
+            assert!(
+                line[3] == "ONLINE" || line[3] == "AVAILABLE",
+                "3 is not ONLINE or AVAILABLE: {} {}",
+                line[3],
+                r
+            );
+            for i in [5, 6, 7, 8, 10, 12] {
+                assert!(
+                    line[i].parse::<u64>().is_ok(),
+                    "Value is not a number: {} line = {}",
+                    line[i],
+                    r
+                );
+            }
+            assert!(line[11] == "ONLINE", "11 is not ONLINE: {} {}", line[11], r);
+            assert!(
+                line[14].ends_with(".0.0.0.0"),
+                "14 is not version: {} {}",
+                line[14],
+                r
+            );
+        });
+    }
+}
+
+#[test]
+fn test_table_spaces_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::TableSpaces,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        assert!(rows.len() > 2);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(line.len(), 15);
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(
+                line[1].to_uppercase().ends_with(".DBF"),
+                "File name does not end with .DBF: {}",
+                line[1]
+            );
+            assert!(
+                line[3] == "ONLINE" || line[3] == "AVAILABLE",
+                "3 is not ONLINE or AVAILABLE: {} {}",
+                line[3],
+                r
+            );
+            for i in [5, 6, 7, 8, 10, 12] {
+                assert!(
+                    line[i].parse::<u64>().is_ok(),
+                    "Value is not a number: {} line = {}",
+                    line[i],
+                    r
+                );
+            }
+            assert!(line[11] == "ONLINE", "11 is not ONLINE: {} {}", line[11], r);
+            assert!(
+                line[14].ends_with(".0.0.0.0"),
+                "14 is not version: {} {}",
+                line[14],
+                r
+            );
+        });
+    }
+}
+
+#[test]
+fn test_data_guard_stats() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::DataGuardStats, None);
+        assert!(rows.is_empty());
+    }
+}
+
+#[test]
+fn test_instance() {
+    use crate::system::convert_to_num_version;
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Instance, None);
+        assert!(rows.len() > 2);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert_eq!(
+                line.len(),
+                ORA_TEST_INSTANCE_DATA.split('|').collect::<Vec<_>>().len(),
+            );
+            assert_eq!(line[0], endpoint.instance.as_str());
+            assert!(
+                convert_to_num_version(&InstanceVersion::from(line[1].to_string())).is_some(),
+                "1 is not a valid instance name: {}",
+                line[1]
+            );
+            assert_eq!(line[2], "OPEN");
+            assert_eq!(line[3], "ALLOWED");
+            for i in [5, 6, 11, 13, 15, 20, 21] {
+                assert!(
+                    line[i].parse::<i64>().is_ok(),
+                    "Value is not a number: {} line = {}",
+                    line[i],
+                    r
+                );
+            }
+            for i in [7, 8, 9, 10, 13] {
+                assert!(!line[i].is_empty(), "Value is empty: {} line = {}", i, r);
+            }
+        });
+    }
+}
+
+#[test]
+fn test_instance_full_version() {
+    use crate::system::convert_to_num_version;
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Instance,
+            Some(InstanceNumVersion::from(18_00_00_00)),
+        );
+        assert!(!rows.is_empty());
+        let line_last: Vec<&str> = rows[0].split("|").collect();
+        assert!(
+            convert_to_num_version(&InstanceVersion::from(line_last[1].to_string())).is_some(),
+            "1 is not a valid instance name: {}",
+            line_last[1]
+        );
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Instance,
+            Some(InstanceNumVersion::from(17_00_00_00)),
+        );
+        assert!(!rows.is_empty());
+        let line_old: Vec<&str> = rows[0].split("|").collect();
+        assert!(
+            convert_to_num_version(&InstanceVersion::from(line_old[1].to_string())).is_some(),
+            "1 is not a valid instance name: {}",
+            line_old[1]
+        );
+        assert_ne!(
+            line_last[1], line_old[1],
+            "Last and old versions should not be equal"
+        );
+    }
+}
+
+#[test]
+fn test_instance_old() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Instance,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        assert_eq!(rows.len(), 1);
+        let r = rows[0].clone();
+        let line: Vec<&str> = r.split("|").collect();
+        assert_eq!(line.len(), 13);
+        assert_eq!(line[0], endpoint.instance.as_str());
+        assert!(
+            line[1].ends_with(".0.0.0"),
+            "1 is not a valid instance version: {}",
+            line[1]
+        );
+        assert_eq!(line[2], "OPEN");
+        assert_eq!(line[3], "ALLOWED");
+        for i in [5, 6, 11] {
+            assert!(
+                line[i].parse::<i64>().is_ok(),
+                "Value is not a number: {} line = {}",
+                line[i],
+                r
+            );
+        }
+        for i in [7, 8, 9, 10, 12] {
+            assert!(!line[i].is_empty(), "Value is empty: {} line = {}", i, r);
+        }
+    }
+}
+
+#[ignore = "due to lack of ASM instances in test environments"]
+#[test]
+fn test_asm_instance_new() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::AsmInstance, None);
+        assert_eq!(rows.len(), 1);
+        let r = rows[0].clone();
+        let line: Vec<&str> = r.split("|").collect();
+        assert_eq!(line.len(), 12);
+        assert_eq!(line[0], endpoint.instance.as_str());
+        assert!(
+            !line[1].ends_with(".0.0.0.0"),
+            "1 is not a valid instance version: {}",
+            line[1]
+        );
+        assert_eq!(line[2], "OPEN");
+        assert_eq!(line[3], "ALLOWED");
+        for i in [5, 6] {
+            assert!(
+                line[i].parse::<i64>().is_ok(),
+                "Value is not a number: {} line = {}",
+                line[i],
+                r
+            );
+        }
+        assert_eq!(line[8], "ASM");
+        for i in [7, 9, 10, 11] {
+            assert!(!line[i].is_empty(), "Value is empty: {} line = {}", i, r);
+        }
+
+        let old_rows = connect_and_query(
+            endpoint,
+            sqls::Id::AsmInstance,
+            Some(InstanceNumVersion::from(12_00_00_00)),
+        );
+        let old_line: Vec<&str> = old_rows[0].split("|").collect();
+        assert!(
+            old_line[1].ends_with(".0.0.0.0"),
+            "1 is not a valid instance version: {}",
+            old_line[1]
+        );
+        assert_eq!(line[0], old_line[0]);
+        for i in 8..11 {
+            assert_eq!(line[i], old_line[i]);
+        }
+    }
+}
+
+#[test]
+fn test_performance_new() {
+    add_runtime_to_path();
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(endpoint, sqls::Id::Performance, None);
+        assert!(rows.len() > 30);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            match line[1] {
+                "PGA_info" => assert_eq!(
+                    line.len(),
+                    ORA_TEST_PERFORMANCE_PGAINFO_DATA
+                        .split('|')
+                        .collect::<Vec<_>>()
+                        .len()
+                ),
+                "SGA_info" => assert_eq!(
+                    line.len(),
+                    ORA_TEST_PERFORMANCE_SGAINFO_DATA
+                        .split('|')
+                        .collect::<Vec<_>>()
+                        .len()
+                ),
+                "librarycache" => assert_eq!(
+                    line.len(),
+                    ORA_TEST_PERFORMANCE_LIBRARYCACHE_DATA
+                        .split('|')
+                        .collect::<Vec<_>>()
+                        .len()
+                ),
+                "sys_time_model" => assert_eq!(
+                    line.len(),
+                    ORA_TEST_PERFORMANCE_SYSTIMEMODEL_DATA
+                        .split('|')
+                        .collect::<Vec<_>>()
+                        .len()
+                ),
+                "sys_wait_class" => assert_eq!(
+                    line.len(),
+                    ORA_TEST_PERFORMANCE_SYSWAITCLASS_DATA
+                        .split('|')
+                        .collect::<Vec<_>>()
+                        .len()
+                ),
+                "buffer_pool_statistics" => assert_eq!(
+                    line.len(),
+                    ORA_TEST_PERFORMANCE_BUFFERPOOL_DATA
+                        .split('|')
+                        .collect::<Vec<_>>()
+                        .len()
+                ),
+                _ => panic!("Unknown category: {} in line {}", line[1], r),
+            }
+            assert!(line[0].starts_with(format!("{}.", endpoint.instance.as_str()).as_str()));
+            assert!(
+                [4, 5, 7, 9, 10].contains(&line.len()),
+                "Row has wrong quantities of columns: {} {}",
+                r,
+                line.len()
+            );
+            assert!(
+                [
+                    "PGA_info",
+                    "SGA_info",
+                    "librarycache",
+                    "sys_time_model",
+                    "sys_wait_class",
+                    "buffer_pool_statistics"
+                ]
+                .contains(&line[1]),
+                "Column 2 is wrong: {} {}",
+                r,
+                line[2]
+            );
+            assert!(line[0].starts_with(endpoint.instance.as_str()));
+        });
+    }
+}
+
+#[test]
+fn test_performance_old() {
+    for endpoint in WORKING_ENDPOINTS.iter() {
+        println!("endpoint.host = {}", &endpoint.host);
+        let rows = connect_and_query(
+            endpoint,
+            sqls::Id::Performance,
+            Some(InstanceNumVersion::from(11_00_00_00)),
+        );
+        assert!(rows.len() > 30);
+        rows.iter().for_each(|r| {
+            let line: Vec<&str> = r.split("|").collect();
+            assert!(line[0].starts_with(endpoint.instance.as_str()));
+            assert!(
+                [4, 5, 7, 9, 10].contains(&line.len()),
+                "Row has wrong quantities of columns: {} {}",
+                r,
+                line.len()
+            );
+            assert!(
+                [
+                    "SGA_info",
+                    "librarycache",
+                    "sys_time_model",
+                    "sys_wait_class",
+                    "buffer_pool_statistics"
+                ]
+                .contains(&line[1]),
+                "Column 2 is wrong: {} {}",
+                r,
+                line[2]
+            );
+        });
+    }
+}
+
+#[test]
+fn test_detection_registry() {
+    let r = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL);
+    if r.is_err() {
+        eprintln!("Skipping test_detection_registry: {}", r.err().unwrap());
+        return;
+    }
+    let instances = get_instances(None).unwrap();
+    eprintln!("{:?}", instances);
+    assert!(!instances.is_empty());
+    for i in instances {
+        assert!(i.name == InstanceName::from("XE") || i.name == InstanceName::from("FREE"));
+        assert!(std::path::PathBuf::from(&i.home).is_dir());
+        assert!(std::path::PathBuf::from(&i.home).exists());
+        assert!(std::path::PathBuf::from(&i.base).is_dir());
+        assert!(std::path::PathBuf::from(&i.base).exists());
+    }
+}
+
+#[test]
+fn test_detect_host_runtime() {
+    let r = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL);
+    if r.is_err() {
+        assert!(detect_host_runtime().is_none());
+    } else {
+        assert!(detect_host_runtime().is_some());
+    }
+}
+
+fn base_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var("MK_CONFDIR").unwrap_or_else(|_| {
+        let this_file: PathBuf = PathBuf::from(file!());
+        this_file
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned()
+            .into_os_string()
+            .into_string()
+            .unwrap()
+    }))
+}
+
+#[test]
+fn test_detect_runtime_with_runtime() {
+    // MK_LIBDIR is set so that runtimes exist
+    let good_path = base_dir().join("runtimes");
+    const LIBDIR_VAR: &str = "MK_LIBDIR_TEST1";
+    unsafe {
+        std::env::set_var(LIBDIR_VAR, &good_path);
+    }
+    let lib_dir_var: Option<String> = Some(LIBDIR_VAR.to_string());
+    let local_exists = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL)
+        .ok()
+        .is_some();
+
+    // Never
+    assert!(detect_runtime(&UseHostClient::Never, Some("Hurz".to_string())).is_none()); // env var does not exist
+    eprintln!("good_path = {:?}", lib_dir_var.clone());
+    assert!(detect_runtime(&UseHostClient::Never, lib_dir_var.clone()).is_some()); // detected
+
+    // Always
+    assert_eq!(
+        detect_runtime(&UseHostClient::Always, lib_dir_var.clone()).is_some(),
+        local_exists
+    ); // detected only if local exists(skip factory)
+    if local_exists {
+        assert!(!detect_runtime(&UseHostClient::Always, lib_dir_var.clone())
+            .unwrap()
+            .into_os_string()
+            .into_string()
+            .unwrap()
+            .contains("mk-oracle")); // path is to host
+    }
+
+    // Auto
+    let path = detect_runtime(&UseHostClient::Auto, lib_dir_var.clone())
+        .unwrap()
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    assert!(path.contains("mk-oracle")); // detected factory
+
+    // Path:
+    // path is correct -> expected correct path
+    let correct_path = base_dir()
+        .join("runtimes")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let path = to_string(detect_runtime(
+        &UseHostClient::Path(correct_path.clone()),
+        lib_dir_var.clone(),
+    ))
+    .unwrap();
+    assert_eq!(path, correct_path);
+
+    // path is wrong -> expected nothing
+    let wrong_path = correct_path + "something-missing";
+    let path = detect_runtime(&UseHostClient::Path(wrong_path), lib_dir_var.clone());
+    assert!(path.is_none());
+}
+
+fn to_string(p: Option<std::path::PathBuf>) -> Option<String> {
+    p.map(|pb| pb.into_os_string().into_string().unwrap())
+}
+
+#[test]
+fn test_detect_runtime_without_runtime() {
+    // MK_LIBDIR is set so that runtimes is missing
+    let bad_path = base_dir().join("runtimes-wrong");
+    const LIBDIR_VAR: &str = "MK_LIBDIR_TEST2";
+    unsafe {
+        std::env::set_var(LIBDIR_VAR, &bad_path);
+    }
+    let lib_dir_var: Option<String> = Some(LIBDIR_VAR.to_string());
+    let local_exists = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL)
+        .ok()
+        .is_some();
+
+    // Never
+    assert!(detect_runtime(&UseHostClient::Never, lib_dir_var.clone()).is_none());
+
+    // Auto and Always are the same if no runtimes
+    // If local exists -> expected path to local client otherwise nothing
+    for mode in [UseHostClient::Auto, UseHostClient::Always] {
+        let path = to_string(detect_runtime(&mode, lib_dir_var.clone()));
+        if local_exists {
+            assert!(path.unwrap().ends_with("bin"));
+        } else {
+            assert!(path.is_none());
+        }
+    }
+
+    // Path:
+    // path is correct -> expected correct path
+    let correct_path = base_dir()
+        .join("runtimes")
+        .into_os_string()
+        .into_string()
+        .unwrap();
+    let path = to_string(detect_runtime(
+        &UseHostClient::Path(correct_path.clone()),
+        lib_dir_var.clone(),
+    ))
+    .unwrap();
+    assert_eq!(path, correct_path);
+
+    // path is wrong -> expected nothing
+    let wrong_path = correct_path + "something-missing";
+    let path = detect_runtime(&UseHostClient::Path(wrong_path), lib_dir_var.clone());
+    assert!(path.is_none());
+}
+
+fn make_config_with_use_host(use_host: &str) -> String {
+    format!(
+        r#"
+---
+oracle:
+  main: # mandatory, defines main SQL check to be executed
+    options: # optional
+      use_host_client: {} # optional, default: auto, values: auto, never, always, "path-to-oci-lib"
+    authentication: # mandatory
+      username: "foo" # mandatory if not using wallet, examples: "mydbuser", "c##multitenantuser"
+      password: "bar" # optional
+    connection: # optional
+      hostname: "localhost" # optional, default: "localhost"    "#,
+        use_host
+    )
+}
+
+/// NOT ALL CONDITIONS TESTED
+#[test]
+fn test_add_runtime_to_path() {
+    use mk_oracle::setup::add_runtime_path_to_env;
+    fn exec_add_runtime_to_path(
+        cfg: &OracleConfig,
+        mk_lib: &str,
+        mut_env_var: &str,
+    ) -> Option<std::path::PathBuf> {
+        unsafe {
+            std::env::set_var(mut_env_var, "xxx");
+        }
+        add_runtime_path_to_env(cfg, Some(mk_lib.to_owned()), Some(mut_env_var.to_owned()))
+    }
+    let mk_lib_dir_env_var = "MK_LIB_DIR_TEST_VAR_XXX".to_string();
+    let mut_env_var = "SOME_PATH_TEST_VAR_XXX".to_string();
+    let good_path = base_dir().join("runtimes");
+    let local_exists = SqlDbEndpoint::from_env(ORA_ENDPOINT_ENV_VAR_LOCAL)
+        .ok()
+        .is_some();
+    let good_path_str = good_path.clone().into_os_string().into_string().unwrap();
+
+    // *** AUTO ***
+    let cfg = OracleConfig::load_str(&make_config_with_use_host("auto")).unwrap();
+    // MK_LIBDIR ABSENT
+    unsafe {
+        std::env::remove_var(&mk_lib_dir_env_var);
+    }
+    // depends on local SQL endpoint, if exist -> found otherwise not
+    let result = exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    assert_eq!(result.is_some(), local_exists);
+    // MK_LIBDIR is good_path
+    unsafe {
+        std::env::set_var(&mk_lib_dir_env_var, good_path_str.as_str());
+    }
+    exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    assert!(std::env::var(&mut_env_var)
+        .unwrap()
+        .starts_with(good_path_str.as_str()));
+
+    // *** NEVER ***
+    let cfg = OracleConfig::load_str(&make_config_with_use_host("never")).unwrap();
+    // MK_LIBDIR ABSENT
+    unsafe {
+        std::env::remove_var(&mk_lib_dir_env_var);
+    }
+    assert!(exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var).is_none());
+    assert!(std::env::var(&mut_env_var).unwrap().starts_with("xxx"));
+
+    // MK_LIBDIR is good_path
+    unsafe {
+        std::env::set_var(&mk_lib_dir_env_var, good_path_str.as_str());
+    }
+    exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    assert!(std::env::var(&mut_env_var)
+        .unwrap()
+        .starts_with(good_path_str.as_str()));
+
+    // *** ALWAYS ***
+    let cfg = OracleConfig::load_str(&make_config_with_use_host("always")).unwrap();
+    unsafe {
+        std::env::remove_var(&mk_lib_dir_env_var);
+    }
+
+    // depends on local SQL endpoint, if exist -> found otherwise not
+    let result = exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    assert_eq!(result.is_some(), local_exists);
+    assert_eq!(
+        std::env::var(&mut_env_var).unwrap().starts_with("xxx"),
+        !local_exists
+    );
+    unsafe {
+        std::env::set_var(&mk_lib_dir_env_var, good_path_str.as_str());
+    }
+    exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    // depends on local SQL endpoint, if exist -> found otherwise not
+    assert_eq!(
+        exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var).is_some(),
+        local_exists
+    );
+
+    // SOME PATH
+    let some_path = base_dir().into_os_string().into_string().unwrap();
+    let cfg = OracleConfig::load_str(&make_config_with_use_host(some_path.as_str())).unwrap();
+    unsafe {
+        std::env::remove_var(&mk_lib_dir_env_var);
+    }
+    // depends on local SQL endpoint, if exist -> found otherwise not
+    exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    assert!(std::env::var(&mut_env_var)
+        .unwrap()
+        .starts_with(some_path.as_str()));
+    unsafe {
+        std::env::set_var(&mk_lib_dir_env_var, good_path_str.as_str());
+    }
+    exec_add_runtime_to_path(&cfg, &mk_lib_dir_env_var, &mut_env_var);
+    // depends on local SQL endpoint, if exist -> found otherwise not
+    assert!(std::env::var(&mut_env_var)
+        .unwrap()
+        .starts_with(some_path.as_str()));
 }

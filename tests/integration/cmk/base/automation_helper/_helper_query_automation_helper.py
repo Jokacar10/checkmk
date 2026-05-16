@@ -14,9 +14,8 @@ from requests.adapters import HTTPAdapter
 from urllib3.connection import HTTPConnection
 from urllib3.connectionpool import HTTPConnectionPool
 
-from cmk.utils.paths import omd_root
-
 from cmk.automations.helper_api import AutomationPayload
+from cmk.utils.paths import omd_root
 
 _BASE_URL = "http://aut-helper"
 
@@ -71,7 +70,11 @@ def main() -> None:
         case AutomationMode(payload=payload):
             response = session.post(f"{_BASE_URL}/automation", json=payload.model_dump())
         case HealthMode():
-            response = session.get(f"{_BASE_URL}/health")
+            response = session.get(
+                f"{_BASE_URL}/health",
+                # This is generous. `health` should be very quick otherwise something's awry.
+                timeout=10.0,
+            )
         case _:
             assert_never(mode)
 

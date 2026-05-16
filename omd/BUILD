@@ -1,11 +1,13 @@
 load("@aspect_rules_py//py:defs.bzl", "py_binary")
 load("@bazel_skylib//rules:run_binary.bzl", "run_binary")
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@cmk_requirements//:requirements.bzl", "requirement")
+load("@rules_pkg//pkg:deb.bzl", "pkg_deb")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("@rules_uv//uv:pip.bzl", "pip_compile")
 load("@rules_uv//uv:venv.bzl", "create_venv")
 load("//:bazel_variables.bzl", "edition_deps", "edition_skel_permissions")
+load("//bazel/rules:file_from_flag.bzl", "file_from_flag")
+load("//bazel/rules:pkg_name_info.bzl", "pkg_name_info")
 
 exports_files([
     "requirements.txt",
@@ -15,12 +17,27 @@ pip_compile(
     name = "requirements_lock",
     requirements_in = ":requirements.txt",
     requirements_txt = ":requirements_lock.txt",
+    tags = ["manual"],
 )
 
 create_venv(
     name = "venv",
     destination_folder = "omd/.venv",
     requirements_txt = ":requirements_lock.txt",
+)
+
+file_from_flag(
+    name = "omd_root_dir",
+    out = "omd_root_dir.txt",
+    content = [
+        "/opt/omd/versions/{cmk_version}.{cmk_edition}",
+        "",
+    ],
+    replace_labels = {
+        "cmk_version": "@cmk//version",
+        "cmk_edition": "@cmk//edition",
+    },
+    tags = ["manual"],
 )
 
 [pkg_tar(
@@ -30,15 +47,24 @@ create_venv(
         "//omd/packages/protobuf",
         "//packages/check-http:check_http_pkg",
     ],
-    extension = "tar.gz",
+    extension = "tar.xz",
+    package_dir_file = ":omd_root_dir",
+    tags = ["manual"],
     deps = [
+               "//bin:pkg_tar",
+               "//active_checks:pkg_tar",
                #added here instead of above because of disappearing file
                "//omd/packages/Python:python_tar",
+               "//omd/packages/changelog",
+               "//omd/packages/check-cert",
+               "//omd/packages/cpp-libs",
                "//omd/packages/erlang",
+               "//omd/packages/heirloom-mailx",
                "//omd/packages/heirloom-pkgtools",
                "//omd/packages/lcab",
                "//omd/packages/maintenance",
                "//omd/packages/mk-livestatus",
+               "//omd/packages/mk-oracle",
                "//omd/packages/mod_fcgid",
                "//omd/packages/mod_wsgi",
                "//omd/packages/monitoring-plugins",
@@ -50,7 +76,10 @@ create_venv(
                "//omd/packages/openssl:openssl_tar_" + edition,
                "//omd/packages/patch",
                "//omd/packages/perl-modules",
+               "//omd/packages/pnp4nagios",
                "//omd/packages/python3-modules:python3-modules.tar",
+               "//omd/packages/oci:oci_light_win_x64.tar",
+               "//omd/packages/oci:oci_light_lin_x64.tar",
                "//omd/packages/rabbitmq",
                "//omd/packages/redis",
                "//omd/packages/rrdtool:rrdtool_perl_bindings",
@@ -59,6 +88,7 @@ create_venv(
                "//omd/packages/robotmk",
                "//omd/packages/snap7",
                "//omd/packages/stunnel",
+               "//omd/packages/xmlsec1",
                "//packages/cmk-agent-receiver:pkg_tar",
                "//packages/cmk-ccc:pkg_tar",
                "//packages/cmk-crypto:pkg_tar",
@@ -70,6 +100,7 @@ create_venv(
                "//packages/cmk-messaging:pkg_tar",
                "//packages/cmk-mkp-tool:pkg_tar",
                "//packages/cmk-plugin-apis:pkg_tar",
+               "//packages/cmk-relay-protocols:pkg_tar",
                "//packages/cmk-trace:pkg_tar",
                "//packages/cmk-werks:pkg_tar",
                "//packages/livestatus:livestatus_pkg",
@@ -78,8 +109,8 @@ create_venv(
                "//packages/unixcat:unixcat_tar",
                ":license_info",
            ] + select({
-               "//bazel/cmk/distro:almalinux": ["//omd/packages/xinetd"],
-               "//bazel/cmk/distro:sles": [
+               "@cmk//distro:almalinux": ["//omd/packages/xinetd"],
+               "@cmk//distro:sles": [
                    "//omd/packages/libgsf",
                    "//omd/packages/xinetd",
                ],
@@ -99,64 +130,7 @@ create_venv(
     srcs = edition_skel_permissions[edition],
     outs = ["skel.permissions_" + edition],
     cmd = "cat $(SRCS) > $@",
-) for edition in [
-    "cre",
-    "cce",
-    "cee",
-    "cme",
-    "cse",
-]]
-
-write_file(
-    name = "werks_utils",
-    out = "werks_utils.py",
-    content = [
-        "import runpy",
-        "runpy.run_module('cmk.werks.utils', run_name=('__main__'))",
-    ],
-)
-
-py_binary(
-    name = "werks_utils_binary",
-    srcs = [":werks_utils.py"],
-    deps = ["//packages/cmk-werks"],
-)
-
-[run_binary(
-    name = "run_werks_precompile_" + edition,
-    srcs = [
-        # //.:werks warns for dependency checking of directories is unsound but
-        # we only use it to get the path with $location
-        # the real dependency is the //:werks_group filegroup
-        "//:werks_group",
-    ],
-    outs = ["werks_precompiled_" + edition],
-    args = [
-        "precompile",
-        "$(location //:werks_group)",
-        "--filter-by-edition",
-        edition,
-        "$(location werks_precompiled_%s)" % edition,
-    ],
-    tool = ":werks_utils_binary",
-) for edition in [
-    "cre",
-    "cce",
-    "cee",
-    "cme",
-    "cse",
-]]
-
-[run_binary(
-    name = "run_changelog_" + edition,
-    srcs = ["werks_precompiled_" + edition],
-    outs = ["changelog_" + edition],
-    args = [
-        "changelog",
-        "$(location changelog_%s)" % edition,
-        "$(location werks_precompiled_%s)" % edition,
-    ],
-    tool = ":werks_utils_binary",
+    tags = ["manual"],
 ) for edition in [
     "cre",
     "cce",
@@ -168,6 +142,7 @@ py_binary(
 py_binary(
     name = "generate_bom_csv_py",
     srcs = ["license_sources/generate_bom_csv.py"],
+    tags = ["manual"],
 )
 
 run_binary(
@@ -180,6 +155,7 @@ run_binary(
         "--out",
         "$(location bill-of-materials.csv)",
     ],
+    tags = ["manual"],
     tool = ":generate_bom_csv_py",
 )
 
@@ -188,6 +164,7 @@ filegroup(
     srcs = glob([
         "license_sources/license_texts/*.txt",
     ]),
+    tags = ["manual"],
 )
 
 py_binary(
@@ -198,6 +175,7 @@ py_binary(
         "license_sources/checkmk_logo.svg",
         ":license_texts",
     ],
+    tags = ["manual"],
     deps = [
         requirement("reportlab"),
         requirement("svglib"),
@@ -214,6 +192,7 @@ run_binary(
         "--csv",
         "$(location :generate_bom_csv)",
     ],
+    tags = ["manual"],
     tool = ":build_bom_texts_pdf_py",
 )
 
@@ -226,4 +205,70 @@ pkg_tar(
     ],
     package_dir = "share/doc/",
     package_file_name = "license_info_archive.tar",
+    tags = ["manual"],
 )
+
+editions = {
+    "cce": "cloud",
+    "cee": "enterprise",
+    "cme": "managed",
+    "cre": "raw",
+    "cse": "saas",
+}
+
+[pkg_name_info(
+    name = "cmk_pkg_variables_" + edition,
+    architecture = "amd64",
+    cmk_version = "@cmk//version",
+    package = "check-mk-" + editions[edition],
+    tags = ["manual"],
+    version = select({
+        "@cmk//distro:almalinux-8": "el8-38",
+        "@cmk//distro:almalinux-9": "el9-38",
+        "@cmk//distro:debian-12": "0.bookworm",
+        "@cmk//distro:sles-15sp5": "sles15sp5",
+        "@cmk//distro:sles-15sp6": "sles15sp6",
+        "@cmk//distro:ubuntu-22.04": "0.jammy",
+        "@cmk//distro:ubuntu-24.04": "0.noble",
+    }),
+) for edition in [
+    "cre",
+    "cce",
+    "cee",
+    "cme",
+    "cse",
+]]
+
+[pkg_deb(
+    name = "deb_" + edition,
+    architecture = "amd64",
+    changelog = ":changelog_" + edition,
+    config = "//omd/debian:config",
+    #control = "//omd/debian:control", Field does not exist, do we need it?
+    data = "deps_install_" + edition,
+    #data = "//omd/packages/heirloom-mailx",
+    depends_file = "//omd/distros:dependencies",
+    description = "Checkmk - Best-in-class infrastructure & application monitoring",
+    homepage = "https://checkmk.com",
+    maintainer = "Checkmk team <feedback@checkmk.com>",
+    # check-mk-enterprise-2.5.0-2025.06.26_0.noble_amd64.deb
+    package = "check-mk-" + editions[edition],
+    package_file_name = "{package}-{cmk_version}_{version}_{architecture}.deb",
+    package_variables = ":cmk_pkg_variables_" + edition,
+    postinst = "//omd/debian:postinst",
+    postrm = "//omd/debian:postrm",
+    preinst = "//omd/debian:preinst",
+    prerm = "//omd/debian:prerm",
+    priority = "optional",
+    section = "admin",
+    tags = ["manual"],
+    templates = "//omd/debian:templates",
+    triggers = "//omd/debian:triggers",
+    version_file = "//omd/distros:distro_version_file",
+) for edition in [
+    "cre",
+    "cce",
+    "cee",
+    "cme",
+    "cse",
+]]

@@ -10,18 +10,16 @@ import copy
 import json
 import textwrap
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from enum import Enum
 from typing import Any
 
+import cmk.utils.paths
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.site import SiteId
-
-import cmk.utils.paths
-
 from cmk.gui import hooks, pagetypes, sites
 from cmk.gui.breadcrumb import Breadcrumb, make_simple_page_breadcrumb
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.dashboard import DashletRegistry
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.header import make_header
@@ -30,35 +28,37 @@ from cmk.gui.http import request, response
 from cmk.gui.i18n import _
 from cmk.gui.log import logger
 from cmk.gui.logged_in import LoggedInUser, user
-from cmk.gui.main_menu import mega_menu_registry, MegaMenuRegistry
+from cmk.gui.main_menu import main_menu_registry, MainMenuRegistry
 from cmk.gui.page_menu import PageMenu, PageMenuDropdown, PageMenuTopic
-from cmk.gui.pages import AjaxPage, PageRegistry, PageResult
-from cmk.gui.permissions import PermissionSectionRegistry
+from cmk.gui.pages import AjaxPage, PageEndpoint, PageRegistry, PageResult
+from cmk.gui.permissions import permission_registry, PermissionSectionRegistry
 from cmk.gui.theme.current_theme import theme
-from cmk.gui.type_defs import TopicMenuTopic
+from cmk.gui.type_defs import MainMenuTopic
 from cmk.gui.user_sites import get_configured_site_choices
 from cmk.gui.utils import load_web_plugins
 from cmk.gui.utils.csrf_token import check_csrf_token
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.output_funnel import output_funnel
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.werks import may_acknowledge
 
 from . import _snapin
-from ._snapin import all_snapins, CustomSnapins, PERMISSION_SECTION_SIDEBAR_SNAPINS
+from ._snapin import all_snapins as all_snapins
 from ._snapin import begin_footnote_links as begin_footnote_links
 from ._snapin import bulletlink as bulletlink
 from ._snapin import CustomizableSidebarSnapin as CustomizableSidebarSnapin
+from ._snapin import CustomSnapins, PERMISSION_SECTION_SIDEBAR_SNAPINS
 from ._snapin import default_view_menu_topics as default_view_menu_topics
 from ._snapin import end_footnote_links as end_footnote_links
 from ._snapin import footnotelinks as footnotelinks
 from ._snapin import heading as heading
 from ._snapin import iconlink as iconlink
 from ._snapin import link as link
-from ._snapin import make_topic_menu as make_topic_menu
+from ._snapin import make_main_menu as make_main_menu
 from ._snapin import PageHandlers as PageHandlers
 from ._snapin import render_link as render_link
-from ._snapin import show_topic_menu as show_topic_menu
+from ._snapin import show_main_menu as show_main_menu
 from ._snapin import SidebarSnapin as SidebarSnapin
 from ._snapin import snapin_registry as snapin_registry
 from ._snapin import snapin_site_choice as snapin_site_choice
@@ -68,11 +68,14 @@ from ._snapin import view_menu_items as view_menu_items
 from ._snapin import write_snapin_exception as write_snapin_exception
 from ._snapin._bookmarks import BookmarkList
 from ._snapin_dashlet import SnapinDashlet
+from ._snapin_dashlet import SnapinDashletConfig as SnapinDashletConfig
 from .main_menu import (
     ajax_message_read,
     MainMenuRenderer,
+    PageAjaxSidebarChangesMenu,
     PageAjaxSidebarGetMessages,
     PageAjaxSidebarGetUnackIncompWerks,
+    PageAjaxSitesAndChanges,
 )
 
 # TODO: Kept for pre 1.6 plug-in compatibility
@@ -84,27 +87,33 @@ def register(
     permission_section_registry: PermissionSectionRegistry,
     snapin_registry_: SnapinRegistry,
     dashlet_registry: DashletRegistry,
-    mega_menu_registry_: MegaMenuRegistry,
-    view_menu_topics: Callable[[], list[TopicMenuTopic]],
+    main_menu_registry_: MainMenuRegistry,
+    view_menu_topics: Callable[[], list[MainMenuTopic]],
 ) -> None:
-    page_registry.register_page("sidebar_fold")(AjaxFoldSnapin)
-    page_registry.register_page("sidebar_openclose")(AjaxOpenCloseSnapin)
-    page_registry.register_page("sidebar_ajax_add_snapin")(AjaxAddSnapin)
-    page_registry.register_page_handler("side", page_side)
-    page_registry.register_page_handler("sidebar_snapin", ajax_snapin)
-    page_registry.register_page_handler("sidebar_move_snapin", move_snapin)
-    page_registry.register_page_handler("sidebar_add_snapin", page_add_snapin)
-    page_registry.register_page_handler("sidebar_ajax_set_snapin_site", ajax_set_snapin_site)
-    page_registry.register_page_handler("sidebar_message_read", ajax_message_read)
-    page_registry.register_page("ajax_sidebar_get_messages")(PageAjaxSidebarGetMessages)
-    page_registry.register_page("ajax_sidebar_get_unack_incomp_werks")(
-        PageAjaxSidebarGetUnackIncompWerks
+    page_registry.register(PageEndpoint("sidebar_fold", AjaxFoldSnapin))
+    page_registry.register(PageEndpoint("sidebar_openclose", AjaxOpenCloseSnapin))
+    page_registry.register(PageEndpoint("sidebar_ajax_add_snapin", AjaxAddSnapin))
+    page_registry.register(PageEndpoint("side", page_side))
+    page_registry.register(PageEndpoint("sidebar_snapin", ajax_snapin))
+    page_registry.register(PageEndpoint("sidebar_move_snapin", move_snapin))
+    page_registry.register(PageEndpoint("sidebar_add_snapin", page_add_snapin))
+    page_registry.register(PageEndpoint("sidebar_ajax_set_snapin_site", ajax_set_snapin_site))
+    page_registry.register(PageEndpoint("sidebar_message_read", ajax_message_read))
+    page_registry.register(PageEndpoint("ajax_sidebar_get_messages", PageAjaxSidebarGetMessages))
+    page_registry.register(
+        PageEndpoint("ajax_sidebar_get_unack_incomp_werks", PageAjaxSidebarGetUnackIncompWerks)
+    )
+    page_registry.register(
+        PageEndpoint("ajax_sidebar_get_number_of_pending_changes", PageAjaxSidebarChangesMenu)
+    )
+    page_registry.register(
+        PageEndpoint("ajax_sidebar_get_sites_and_changes", PageAjaxSitesAndChanges)
     )
     permission_section_registry.register(PERMISSION_SECTION_SIDEBAR_SNAPINS)
     _snapin.register(
         snapin_registry_,
         page_registry,
-        mega_menu_registry_,
+        main_menu_registry_,
         view_menu_topics,
     )
     dashlet_registry.register(SnapinDashlet)
@@ -148,9 +157,9 @@ def _register_pre_21_plugin_api() -> None:
         ("heading", heading),
         ("iconlink", iconlink),
         ("link", link),
-        ("make_topic_menu", make_topic_menu),
+        ("make_main_menu", make_main_menu),
         ("render_link", render_link),
-        ("show_topic_menu", show_topic_menu),
+        ("show_main_menu", show_main_menu),
         ("snapin_site_choice", snapin_site_choice),
         ("snapin_width", snapin_width),
         ("write_snapin_exception", write_snapin_exception),
@@ -189,7 +198,7 @@ def transform_old_dict_based_snapins() -> None:
             def description(cls):
                 return cls._spec.get("description", "")
 
-            def show(self):
+            def show(self, config: Config) -> None:
                 return self._spec["render"]()
 
             @classmethod
@@ -213,11 +222,16 @@ def transform_old_dict_based_snapins() -> None:
 class UserSidebarConfig:
     """Manages the configuration of the users sidebar"""
 
-    def __init__(self, usr: LoggedInUser, default_config: list[tuple[str, str]]) -> None:
+    def __init__(
+        self,
+        usr: LoggedInUser,
+        default_config: Sequence[tuple[str, str]],
+        user_permissions: UserPermissions,
+    ) -> None:
         super().__init__()
         self._user = usr
         self._default_config = copy.deepcopy(default_config)
-        self._config = self._load()
+        self._config = self._load(user_permissions)
 
     @property
     def folded(self) -> bool:
@@ -267,7 +281,7 @@ class UserSidebarConfig:
     def _user_config(self) -> dict[str, Any]:
         return self._user.get_sidebar_configuration(self._initial_config())
 
-    def _load(self) -> dict[str, Any]:
+    def _load(self, user_permissions: UserPermissions) -> dict[str, Any]:
         """Load current state of user's sidebar
 
         Convert from old format (just a snapin list) to the new format
@@ -280,10 +294,12 @@ class UserSidebarConfig:
 
         # Remove not existing (e.g. legacy) snapins
         user_config["snapins"] = [
-            e for e in user_config["snapins"] if e["snapin_type_id"] in all_snapins()
+            e
+            for e in user_config["snapins"]
+            if e["snapin_type_id"] in all_snapins(user_permissions)
         ]
 
-        user_config = self._from_config(user_config)
+        user_config = self._from_config(user_config, user_permissions)
 
         # Remove entries the user is not allowed for
         user_config["snapins"] = [e for e in user_config["snapins"] if e.snapin_type.may_see()]
@@ -312,10 +328,12 @@ class UserSidebarConfig:
         if self._user.may("general.configure_sidebar"):
             self._user.set_sidebar_configuration(self._to_config())
 
-    def _from_config(self, cfg: dict[str, Any]) -> dict[str, Any]:
+    def _from_config(
+        self, cfg: dict[str, Any], user_permissions: UserPermissions
+    ) -> dict[str, Any]:
         return {
             "fold": cfg["fold"],
-            "snapins": [UserSidebarSnapin.from_config(e) for e in cfg["snapins"]],
+            "snapins": [UserSidebarSnapin.from_config(e, user_permissions) for e in cfg["snapins"]],
         }
 
     def _to_config(self) -> dict[str, Any]:
@@ -334,14 +352,16 @@ class UserSidebarSnapin:
     """An instance of a snapin that is configured in the users sidebar"""
 
     @staticmethod
-    def from_config(cfg: dict[str, Any]) -> UserSidebarSnapin:
+    def from_config(cfg: dict[str, Any], user_permissions: UserPermissions) -> UserSidebarSnapin:
         """Construct a UserSidebarSnapin object from the persisted data structure"""
-        snapin_class = all_snapins()[cfg["snapin_type_id"]]
+        snapin_class = all_snapins(user_permissions)[cfg["snapin_type_id"]]
         return UserSidebarSnapin(snapin_class, SnapinVisibility(cfg["visibility"]))
 
     @staticmethod
-    def from_snapin_type_id(snapin_type_id: str) -> UserSidebarSnapin:
-        return UserSidebarSnapin(all_snapins()[snapin_type_id])
+    def from_snapin_type_id(
+        snapin_type_id: str, user_permissions: UserPermissions
+    ) -> UserSidebarSnapin:
+        return UserSidebarSnapin(all_snapins(user_permissions)[snapin_type_id])
 
     def __init__(
         self,
@@ -369,7 +389,20 @@ class UserSidebarSnapin:
 
 
 class SidebarRenderer:
-    def show(self, title: str | None = None, content: HTML | None = None) -> None:
+    def show(
+        self,
+        *,
+        config: Config,
+        user_permissions: UserPermissions,
+        title: str | None,
+        content: HTML | None,
+        sidebar_config: Sequence[tuple[str, str]],
+        screenshot_mode: bool,
+        sidebar_notify_interval: int | None,
+        start_url: str,
+        show_scrollbar: bool,
+        sidebar_update_interval: float,
+    ) -> None:
         # TODO: Right now the method renders the full HTML page, i.e.
         # the header, sidebar, and page content. Ideally we should
         # split this up. Possible solutions might be:
@@ -385,42 +418,58 @@ class SidebarRenderer:
 
         html.html_head(title or _("Checkmk Sidebar"), main_javascript="side")
 
-        self._show_body_start()
-        self._show_sidebar()
+        self._show_body_start(
+            screenshot_mode=screenshot_mode, sidebar_notify_interval=sidebar_notify_interval
+        )
+        self._show_sidebar(
+            config,
+            user_permissions,
+            sidebar_config,
+            start_url,
+            show_scrollbar=show_scrollbar,
+            sidebar_update_interval=sidebar_update_interval,
+        )
         self._show_page_content(content)
 
         html.body_end()
 
-    def _show_body_start(self) -> None:
-        body_classes = ["side"] + (["screenshotmode"] if active_config.screenshotmode else [])
+    def _show_body_start(
+        self, *, screenshot_mode: bool, sidebar_notify_interval: int | None
+    ) -> None:
+        body_classes = ["side"] + (["screenshotmode"] if screenshot_mode else [])
 
         if not user.may("general.see_sidebar"):
             html.open_body(class_=body_classes, data_theme=theme.get())
             return
 
-        interval = (
-            active_config.sidebar_notify_interval
-            if active_config.sidebar_notify_interval is not None
-            else "null"
-        )
+        interval = sidebar_notify_interval if sidebar_notify_interval is not None else "null"
         html.open_body(
             class_=body_classes,
             onload=f"cmk.sidebar.initialize_scroll_position(); cmk.sidebar.init_messages_and_werks({json.dumps(interval)}, {json.dumps(bool(may_acknowledge()))}); ",
             data_theme=theme.get(),
         )
 
-    def _show_sidebar(self) -> None:
+    def _show_sidebar(
+        self,
+        config: Config,
+        user_permissions: UserPermissions,
+        sidebar_config: Sequence[tuple[str, str]],
+        start_url: str,
+        *,
+        show_scrollbar: bool,
+        sidebar_update_interval: float,
+    ) -> None:
         if not user.may("general.see_sidebar"):
             html.div("", id_="check_mk_navigation")
             return
 
-        user_config = UserSidebarConfig(user, active_config.sidebar)
+        user_config = UserSidebarConfig(user, sidebar_config, user_permissions)
 
         html.open_div(
             id_="check_mk_navigation",
             class_="min" if user.get_attribute("nav_hide_icons_title") else None,
         )
-        self._show_sidebar_head()
+        self._show_sidebar_head(start_url)
         html.close_div()
 
         assert user.id is not None
@@ -434,20 +483,32 @@ class SidebarRenderer:
             class_=[] if sidebar_position is None else [sidebar_position],
         )
 
-        self._show_snapin_bar(user_config)
+        self._show_snapin_bar(
+            config,
+            user_config,
+            show_scrollbar=show_scrollbar,
+            sidebar_update_interval=sidebar_update_interval,
+        )
 
         html.close_div()
 
         if user_config.folded:
             html.final_javascript("cmk.sidebar.fold_sidebar();")
 
-    def _show_snapin_bar(self, user_config: UserSidebarConfig) -> None:
+    def _show_snapin_bar(
+        self,
+        config: Config,
+        user_config: UserSidebarConfig,
+        *,
+        show_scrollbar: bool,
+        sidebar_update_interval: float,
+    ) -> None:
         html.open_div(
-            class_="scroll" if active_config.sidebar_show_scrollbar else None,
+            class_="scroll" if show_scrollbar else None,
             id_="side_content",
         )
 
-        refresh_snapins, restart_snapins, static_snapins = self._show_snapins(user_config)
+        refresh_snapins, restart_snapins, static_snapins = self._show_snapins(config, user_config)
         self._show_add_snapin_button()
 
         html.close_div()
@@ -455,14 +516,16 @@ class SidebarRenderer:
         html.javascript(
             "cmk.sidebar.initialize_sidebar(%0.2f, %s, %s, %s);\n"
             % (
-                active_config.sidebar_update_interval,
+                sidebar_update_interval,
                 json.dumps(refresh_snapins),
                 json.dumps(restart_snapins),
                 json.dumps(static_snapins),
             )
         )
 
-    def _show_snapins(self, user_config: UserSidebarConfig) -> tuple[list, list, list]:
+    def _show_snapins(
+        self, config: Config, user_config: UserSidebarConfig
+    ) -> tuple[list, list, list]:
         refresh_snapins = []
         restart_snapins = []
         static_snapins = []
@@ -472,7 +535,7 @@ class SidebarRenderer:
 
             # Performs the initial rendering and might return an optional refresh url,
             # when the snapin contents are refreshed from an external source
-            refresh_url = self.render_snapin(snapin)
+            refresh_url = self.render_snapin(config, snapin)
 
             if snapin.snapin_type.refresh_regularly():
                 refresh_snapins.append([name, refresh_url])
@@ -494,7 +557,7 @@ class SidebarRenderer:
         html.close_a()
         html.close_div()
 
-    def render_snapin(self, snapin: UserSidebarSnapin) -> str:
+    def render_snapin(self, config: Config, snapin: UserSidebarSnapin) -> str:
         snapin_class = snapin.snapin_type
         name = snapin_class.type_name()
         snapin_instance = snapin_class()
@@ -531,26 +594,14 @@ class SidebarRenderer:
         show_more = snapin_instance.has_show_more_items()
         may_configure = user.may("general.configure_sidebar")
 
-        if show_more or may_configure:
-            html.open_div(class_="snapin_buttons")
-
-            if show_more:
-                html.open_span(class_="moresnapin")
-                html.more_button(more_id, dom_levels_up=4)
-                html.close_span()
-
-            if may_configure:
-                # Button for closing (removing) a snapin
-                html.open_span(class_="closesnapin")
-                close_url = "sidebar_openclose.py?name=%s&state=off" % name
-                html.icon_button(
-                    url=None,
-                    title=_("Remove this element"),
-                    icon="close",
-                    onclick="cmk.sidebar.remove_sidebar_snapin(this, '%s')" % close_url,
-                )
-                html.close_span()
-
+        if show_more:
+            html.open_div()
+            html.open_span(
+                class_=["moresnapin"]
+                + (["hidden"] if snapin.visible == SnapinVisibility.CLOSED else [""])
+            )
+            html.more_button(more_id, dom_levels_up=4)
+            html.close_span()
             html.close_div()
 
         # The heading. A click on the heading mini/maximizes the snapin
@@ -589,7 +640,7 @@ class SidebarRenderer:
         try:
             # TODO: Refactor this confusing special case. Add deddicated method or something
             # to let the snapins make the sidebar know that there is a URL to fetch.
-            url = snapin_instance.show()
+            url = snapin_instance.show(config)
             if url is not None:
                 # Fetch the contents from an external URL. Don't render it on our own.
                 refresh_url = url
@@ -600,6 +651,20 @@ class SidebarRenderer:
             logger.exception("error rendering snapin %s", name)
             write_snapin_exception(e)
         html.close_div()
+        if may_configure:
+            # Button for closing (removing) a snapin
+            html.open_div(
+                class_=["closesnapin"]
+                + (["hidden"] if snapin.visible == SnapinVisibility.CLOSED else [""])
+            )
+            close_url = "sidebar_openclose.py?name=%s&state=off" % name
+            html.icon_button(
+                url=None,
+                title=_("Remove this element"),
+                icon="delete",
+                onclick="cmk.sidebar.remove_sidebar_snapin(this, '%s')" % close_url,
+            )
+            html.close_div()
         html.close_div()
         return refresh_url
 
@@ -616,10 +681,10 @@ class SidebarRenderer:
             html.write_html(content)
         html.close_div()
 
-    def _show_sidebar_head(self):
+    def _show_sidebar_head(self, start_url: str) -> None:
         html.open_div(id_="side_header")
         html.open_a(
-            href=user.start_url or active_config.start_url,
+            href=user.start_url or start_url,
             target="main",
             title=_("Go to main page"),
         )
@@ -650,14 +715,27 @@ def _render_header_icon() -> None:
         html.icon("checkmk_logo" + ("_min" if user.get_attribute("nav_hide_icons_title") else ""))
 
 
-def page_side():
-    SidebarRenderer().show()
+def page_side(config: Config) -> None:
+    SidebarRenderer().show(
+        config=config,
+        user_permissions=UserPermissions.from_config(config, permission_registry),
+        title=None,
+        content=None,
+        sidebar_config=config.sidebar,
+        screenshot_mode=config.screenshotmode,
+        sidebar_notify_interval=config.sidebar_notify_interval,
+        start_url=config.start_url,
+        show_scrollbar=config.sidebar_show_scrollbar,
+        sidebar_update_interval=config.sidebar_update_interval,
+    )
 
 
-def ajax_snapin():
+def ajax_snapin(config: Config) -> None:
     """Renders and returns the contents of the requested sidebar snapin(s) in JSON format"""
     response.set_content_type("application/json")
-    user_config = UserSidebarConfig(user, active_config.sidebar)
+    user_config = UserSidebarConfig(
+        user, config.sidebar, UserPermissions.from_config(config, permission_registry)
+    )
 
     snapin_id = request.var("name")
     snapin_ids = (
@@ -689,7 +767,7 @@ def ajax_snapin():
 
         with output_funnel.plugged():
             try:
-                snapin_instance.show()
+                snapin_instance.show(config)
             except Exception as e:
                 write_snapin_exception(e)
                 e_message = (
@@ -709,17 +787,19 @@ def ajax_snapin():
 
 
 class AjaxFoldSnapin(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         check_csrf_token()
         response.set_content_type("application/json")
-        user_config = UserSidebarConfig(user, active_config.sidebar)
+        user_config = UserSidebarConfig(
+            user, config.sidebar, UserPermissions.from_config(config, permission_registry)
+        )
         user_config.folded = request.var("fold") == "yes"
         user_config.save()
         return None
 
 
 class AjaxOpenCloseSnapin(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         check_csrf_token()
         response.set_content_type("application/json")
         if not user.may("general.configure_sidebar"):
@@ -737,7 +817,9 @@ class AjaxOpenCloseSnapin(AjaxPage):
         ]:
             raise MKUserError("state", "Invalid state: %s" % state)
 
-        user_config = UserSidebarConfig(user, active_config.sidebar)
+        user_config = UserSidebarConfig(
+            user, config.sidebar, UserPermissions.from_config(config, permission_registry)
+        )
 
         try:
             snapin = user_config.get_snapin(snapin_id)
@@ -753,7 +835,7 @@ class AjaxOpenCloseSnapin(AjaxPage):
         return None
 
 
-def move_snapin() -> None:
+def move_snapin(config: Config) -> None:
     response.set_content_type("application/json")
     if not user.may("general.configure_sidebar"):
         return None
@@ -762,7 +844,9 @@ def move_snapin() -> None:
     if snapin_id is None:
         return None
 
-    user_config = UserSidebarConfig(user, active_config.sidebar)
+    user_config = UserSidebarConfig(
+        user, config.sidebar, UserPermissions.from_config(config, permission_registry)
+    )
 
     try:
         snapin = user_config.get_snapin(snapin_id)
@@ -793,18 +877,19 @@ def move_snapin() -> None:
 #   '----------------------------------------------------------------------'
 
 
-def page_add_snapin() -> None:
+def page_add_snapin(config: Config) -> None:
+    user_permissions = UserPermissions.from_config(config, permission_registry)
     if not user.may("general.configure_sidebar"):
         raise MKGeneralException(_("You are not allowed to change the sidebar."))
 
     title = _("Add sidebar element")
-    breadcrumb = make_simple_page_breadcrumb(mega_menu_registry.menu_customize(), title)
+    breadcrumb = make_simple_page_breadcrumb(main_menu_registry.menu_customize(), title)
     make_header(html, title, breadcrumb, _add_snapins_page_menu(breadcrumb))
 
-    used_snapins = _used_snapins()
+    used_snapins = _used_snapins(config, user_permissions)
 
     html.open_div(class_=["add_snapin"])
-    for name, snapin_class in sorted(all_snapins().items()):
+    for name, snapin_class in sorted(all_snapins(user_permissions).items()):
         if name in used_snapins:
             continue
         if not snapin_class.may_see():
@@ -818,7 +903,9 @@ def page_add_snapin() -> None:
 
         html.open_div(class_=["snapin_preview"])
         html.div("", class_=["clickshield"])
-        SidebarRenderer().render_snapin(UserSidebarSnapin.from_snapin_type_id(name))
+        SidebarRenderer().render_snapin(
+            config, UserSidebarSnapin.from_snapin_type_id(name, user_permissions)
+        )
         html.close_div()
         html.div(snapin_class.description(), class_=["description"])
         html.close_div()
@@ -845,33 +932,34 @@ def _add_snapins_page_menu(breadcrumb: Breadcrumb) -> PageMenu:
     )
 
 
-def _used_snapins() -> list[Any]:
-    user_config = UserSidebarConfig(user, active_config.sidebar)
+def _used_snapins(config: Config, user_permissions: UserPermissions) -> list[Any]:
+    user_config = UserSidebarConfig(user, config.sidebar, user_permissions)
     return [snapin.snapin_type.type_name() for snapin in user_config.snapins]
 
 
 class AjaxAddSnapin(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         check_csrf_token()
         if not user.may("general.configure_sidebar"):
             raise MKGeneralException(_("You are not allowed to change the sidebar."))
 
         addname = request.var("name")
 
-        if addname is None or addname not in all_snapins():
+        user_permissions = UserPermissions.from_config(config, permission_registry)
+        if addname is None or addname not in all_snapins(user_permissions):
             raise MKUserError(None, _("Invalid sidebar element %s") % addname)
 
-        if addname in _used_snapins():
+        if addname in _used_snapins(config, user_permissions):
             raise MKUserError(None, _("Element %s is already enabled") % addname)
 
-        user_config = UserSidebarConfig(user, active_config.sidebar)
-        snapin = UserSidebarSnapin.from_snapin_type_id(addname)
+        user_config = UserSidebarConfig(user, config.sidebar, user_permissions)
+        snapin = UserSidebarSnapin.from_snapin_type_id(addname, user_permissions)
         user_config.add_snapin(snapin)
         user_config.save()
 
         with output_funnel.plugged():
             try:
-                url = SidebarRenderer().render_snapin(snapin)
+                url = SidebarRenderer().render_snapin(config, snapin)
             finally:
                 snapin_code = output_funnel.drain()
 
@@ -885,10 +973,10 @@ class AjaxAddSnapin(AjaxPage):
 
 
 # TODO: This is snapin specific. Move this handler to the snapin file
-def ajax_set_snapin_site():
+def ajax_set_snapin_site(config: Config) -> None:
     response.set_content_type("application/json")
     ident = request.var("ident")
-    if ident not in all_snapins():
+    if ident not in all_snapins(UserPermissions.from_config(config, permission_registry)):
         raise MKUserError(None, _("Invalid ident"))
 
     site = request.var("site")

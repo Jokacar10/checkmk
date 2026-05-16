@@ -5,7 +5,7 @@
 
 from cmk.graphing.v1 import graphs, metrics, perfometers, Title
 
-UNIT_BITS_PER_SECOND = metrics.Unit(metrics.SINotation("bits/s"))
+UNIT_BITS_PER_SECOND = metrics.Unit(metrics.SINotation("bit/s"))
 
 metric_if_in_bps = metrics.Metric(
     name="if_in_bps",
@@ -26,7 +26,12 @@ perfometer_if_bps = perfometers.Bidirectional(
         name="if_in_bps",
         focus_range=perfometers.FocusRange(
             perfometers.Closed(0),
-            perfometers.Open(500000),
+            perfometers.Closed(
+                metrics.MaximumOf(
+                    "if_in_bps",
+                    color=metrics.Color.BLACK,
+                )
+            ),
         ),
         segments=["if_in_bps"],
     ),
@@ -34,7 +39,32 @@ perfometer_if_bps = perfometers.Bidirectional(
         name="if_out_bps",
         focus_range=perfometers.FocusRange(
             perfometers.Closed(0),
-            perfometers.Open(500000),
+            perfometers.Closed(
+                metrics.MaximumOf(
+                    "if_out_bps",
+                    color=metrics.Color.BLACK,
+                )
+            ),
+        ),
+        segments=["if_out_bps"],
+    ),
+)
+
+perfometer_if_bps_fallback = perfometers.Bidirectional(
+    name="if_bps_fallback ",
+    left=perfometers.Perfometer(
+        name="if_in_bps_fallback ",
+        focus_range=perfometers.FocusRange(
+            perfometers.Closed(0),
+            perfometers.Open(1_000_000_000),
+        ),
+        segments=["if_in_bps"],
+    ),
+    right=perfometers.Perfometer(
+        name="if_out_bps_fallback ",
+        focus_range=perfometers.FocusRange(
+            perfometers.Closed(0),
+            perfometers.Open(1_000_000_000),
         ),
         segments=["if_out_bps"],
     ),

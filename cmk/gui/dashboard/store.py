@@ -9,17 +9,17 @@ from typing import Any
 import cmk.ccc.version as cmk_version
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-
 from cmk.gui import visuals
 from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.hooks import request_memoize
 from cmk.gui.http import request
 from cmk.gui.i18n import _
+from cmk.gui.permissions import permission_registry
 from cmk.gui.user_async_replication import user_profile_async_replication_page
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.views.store import internal_view_to_runtime_view
+from cmk.utils import paths
 
 from .builtin_dashboards import (
     builtin_dashboard_extender_registry,
@@ -37,9 +37,10 @@ class DashboardStore:
         return cls()
 
     def __init__(self) -> None:
+        user_permissions = UserPermissions.from_config(active_config, permission_registry)
         self.all = self._load_all()
-        self.permitted = self._load_permitted(self.all)
-        self.permitted_by_owner = self._load_permitted_by_owner(self.all)
+        self.permitted = self._load_permitted(self.all, user_permissions)
+        self.permitted_by_owner = self._load_permitted_by_owner(self.all, user_permissions)
 
     def _load_all(self) -> dict[tuple[UserId, DashboardName], DashboardConfig]:
         """Loads all definitions from disk and returns them"""
@@ -52,21 +53,25 @@ class DashboardStore:
         )
 
     def _load_permitted(
-        self, all_dashboards: dict[tuple[UserId, DashboardName], DashboardConfig]
+        self,
+        all_dashboards: dict[tuple[UserId, DashboardName], DashboardConfig],
+        user_permissions: UserPermissions,
     ) -> dict[DashboardName, DashboardConfig]:
         """Returns all definitions that a user is allowed to use"""
-        return visuals.available("dashboards", all_dashboards)
+        return visuals.available("dashboards", all_dashboards, user_permissions)
 
     def _load_permitted_by_owner(
-        self, all_dashboards: dict[tuple[UserId, DashboardName], DashboardConfig]
+        self,
+        all_dashboards: dict[tuple[UserId, DashboardName], DashboardConfig],
+        user_permissions: UserPermissions,
     ) -> dict[DashboardName, dict[UserId, DashboardConfig]]:
         """Returns all definitions that a user is allowed to use"""
-        return visuals.available_by_owner("dashboards", all_dashboards)
+        return visuals.available_by_owner("dashboards", all_dashboards, user_permissions)
 
 
 def _internal_dashboard_to_runtime_dashboard(raw_dashboard: dict[str, Any]) -> DashboardConfig:
     raw_dashboard["packaged"] = False
-    raw_dashboard.setdefault("megamenu_search_terms", [])
+    raw_dashboard.setdefault("main_menu_search_terms", [])
     return {
         # Need to assume that we are right for now. We will have to introduce parsing there to do a
         # real conversion in one of the following typing steps

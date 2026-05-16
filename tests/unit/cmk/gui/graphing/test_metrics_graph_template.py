@@ -5,16 +5,15 @@
 
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
-
-from cmk.gui.graphing._formatter import AutoPrecision
+from cmk.graphing.v1 import graphs, metrics, Title
 from cmk.gui.graphing._from_api import RegisteredMetric
 from cmk.gui.graphing._graph_specification import GraphMetric, GraphRecipe, MinimalVerticalRange
 from cmk.gui.graphing._graph_templates import TemplateGraphSpecification
 from cmk.gui.graphing._metric_operation import MetricOpRRDSource
 from cmk.gui.graphing._unit import ConvertibleUnitSpecification, IECNotation
 from cmk.gui.type_defs import Row
-
-from cmk.graphing.v1 import graphs, metrics, Title
+from cmk.gui.unit_formatter import AutoPrecision
+from cmk.gui.utils.roles import UserPermissions
 
 
 class FakeTemplateGraphSpecification(TemplateGraphSpecification):
@@ -96,6 +95,7 @@ def test_template_recipes() -> None:
                 conflicting=["reserved"],
             ),
         },
+        UserPermissions({}, {}, {}, []),
     ) == [
         GraphRecipe(
             title="Size and used space",

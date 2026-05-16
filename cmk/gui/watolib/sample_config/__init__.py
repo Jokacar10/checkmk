@@ -9,6 +9,8 @@ from ._constants import PS_DISCOVERY_RULES
 from ._impl import (
     ConfigGeneratorAcknowledgeInitialWerks,
     ConfigGeneratorBasicWATOConfig,
+    ConfigGeneratorInitialAdminUser,
+    ConfigGeneratorLocalSiteConnection,
     ConfigGeneratorRegistrationUser,
     get_default_notification_rule,
     init_wato_datastructures,
@@ -21,7 +23,9 @@ __all__ = [
     "SampleConfigGeneratorABCGroups",
     "SampleConfigGeneratorGroups",
     "ConfigGeneratorAcknowledgeInitialWerks",
+    "ConfigGeneratorLocalSiteConnection",
     "ConfigGeneratorBasicWATOConfig",
+    "ConfigGeneratorInitialAdminUser",
     "ConfigGeneratorRegistrationUser",
     "new_notification_parameter_id",
     "new_notification_rule_id",

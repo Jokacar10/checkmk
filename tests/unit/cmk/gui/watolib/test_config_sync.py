@@ -13,24 +13,21 @@ import pytest
 import responses
 from pytest_mock import MockerFixture
 
-from tests.testlib.common.repo import is_cloud_repo, is_enterprise_repo, is_managed_repo
-
 from livestatus import NetworkSocketDetails, SiteConfiguration, TLSParams
 
 import cmk.ccc.version as cmk_version
+import cmk.gui.mkeventd.wato
+import cmk.utils.paths
+from cmk import trace
+from cmk.bi.type_defs import frozen_aggregations_dir
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
-import cmk.utils.paths
-
-import cmk.gui.mkeventd.wato
 from cmk.gui.config import active_config
 from cmk.gui.nodevis.utils import topology_dir
 from cmk.gui.watolib import activate_changes, config_sync
-
-from cmk import trace
-from cmk.bi.type_defs import frozen_aggregations_dir
+from cmk.gui.watolib.automations import RemoteAutomationConfig
 from cmk.messaging import rabbitmq
+from tests.testlib.common.repo import is_cloud_repo, is_enterprise_repo, is_managed_repo
 
 
 @pytest.fixture(name="mocked_responses")
@@ -44,7 +41,7 @@ def fixture_fake_site_states(monkeypatch: pytest.MonkeyPatch) -> None:
     # During these tests we treat all sites a being online
     monkeypatch.setattr(
         activate_changes.ActivateChanges,
-        "_get_site_status",
+        "get_site_status",
         lambda a, b, c: (
             {
                 "state": "online",
@@ -221,32 +218,30 @@ def _get_activation_manager(
             "sites",
             {
                 SiteId("unit"): SiteConfiguration(
-                    {
-                        "id": SiteId("unit"),
-                        "alias": "Die Zentrale",
-                        "disable_wato": True,
-                        "url_prefix": "/unit/",
-                        "disabled": False,
-                        "insecure": False,
-                        "multisiteurl": "",
-                        "message_broker_port": 5672,
-                        "persist": False,
-                        "replicate_ec": False,
-                        "replicate_mkps": False,
-                        "replication": "",
-                        "status_host": None,
-                        "socket": (
-                            "tcp",
-                            NetworkSocketDetails(
-                                address=("127.0.0.1", 6790),
-                                tls=("encrypted", TLSParams(verify=True)),
-                            ),
+                    id=SiteId("unit"),
+                    alias="Die Zentrale",
+                    disable_wato=True,
+                    url_prefix="/unit/",
+                    disabled=False,
+                    insecure=False,
+                    multisiteurl="",
+                    message_broker_port=5672,
+                    persist=False,
+                    replicate_ec=False,
+                    replicate_mkps=False,
+                    replication=None,
+                    status_host=None,
+                    socket=(
+                        "tcp",
+                        NetworkSocketDetails(
+                            address=("127.0.0.1", 6790),
+                            tls=("encrypted", TLSParams(verify=True)),
                         ),
-                        "timeout": 10,
-                        "user_login": True,
-                        "proxy": None,
-                        "user_sync": None,
-                    }
+                    ),
+                    timeout=10,
+                    user_login=True,
+                    proxy=None,
+                    user_sync=None,
                 ),
                 remote_site: _get_site_configuration(remote_site),
             },
@@ -254,7 +249,7 @@ def _get_activation_manager(
 
         activation_manager = activate_changes.ActivateChangesManager()
         activation_manager._sites = [remote_site]
-        activation_manager._changes_by_site = {remote_site: []}
+        activation_manager.changes._changes_by_site = {remote_site: []}
         activation_manager._activation_id = "123"
         yield activation_manager
 
@@ -275,7 +270,7 @@ def _generate_sync_snapshot(
     assert activation_manager._activation_id is not None
     site_snapshot_settings = activation_manager._get_site_snapshot_settings(
         activation_manager._activation_id,
-        activation_manager._sites,
+        {site_id: active_config.sites[site_id] for site_id in activation_manager._sites},
         {remote_site: rabbitmq.Definitions()},
     )
     snapshot_settings = site_snapshot_settings[remote_site]
@@ -395,6 +390,16 @@ def _get_expected_paths(
             "etc/check_mk/multisite.d/wato/groups.mk",
             "etc/check_mk/multisite.d/wato/user_connections.mk",
             "etc/password_store.secret",
+            "etc/check_mk/apache.d/wato/global.mk",
+            "etc/check_mk/conf.d/wato/global.mk",
+            "etc/check_mk/diskspace.d/wato/global.mk",
+            "etc/check_mk/multisite.d/wato/ca-certificates.mk",
+            "etc/check_mk/rrdcached.d/wato/global.mk",
+            "etc/omd/global.mk",
+            "etc/check_mk/dcd.d/wato/global.mk",
+            "etc/check_mk/mknotifyd.d/wato/global.mk",
+            "etc/check_mk/mkeventd.d/wato/global.mk",
+            "etc/check_mk/otel_collector.d/wato/global.mk",
         ]
 
         if with_local:
@@ -562,7 +567,15 @@ def test_synchronize_site(
             remote_site=SiteId("unit_remote_1"),
             edition=edition,
         ) as snapshot_settings:
-            _synchronize_site(activation_manager, site_id, snapshot_settings, file_filter_func)
+            _synchronize_site(
+                activation_manager,
+                site_id,
+                snapshot_settings,
+                file_filter_func,
+                RemoteAutomationConfig.from_site_config(
+                    active_config.sites[SiteId("unit_remote_1")]
+                ),
+            )
 
 
 def _synchronize_site(
@@ -570,10 +583,16 @@ def _synchronize_site(
     site_id: SiteId,
     snapshot_settings: config_sync.SnapshotSettings,
     file_filter_func: Callable[[str], bool] | None,
+    automation_config: RemoteAutomationConfig,
 ) -> None:
     assert activation_manager._activation_id is not None
     site_activation_state = activate_changes._initialize_site_activation_state(
-        site_id, activation_manager._activation_id, activation_manager, time.time(), "GUI"
+        site_id,
+        snapshot_settings.site_config,
+        activation_manager._activation_id,
+        activation_manager.changes,
+        time.time(),
+        "GUI",
     )
 
     current_span = trace.get_current_span()
@@ -582,6 +601,8 @@ def _synchronize_site(
         site_activation_state,
         {},
         current_span,
+        automation_config,
+        debug=True,
     )
 
     assert fetch_state_result is not None
@@ -589,6 +610,7 @@ def _synchronize_site(
 
     calc_delta_result = activate_changes.calc_sync_delta(
         sync_state,
+        bool(snapshot_settings.site_config.get("sync_files")),
         file_filter_func,
         site_activation_state,
         sync_start,
@@ -604,6 +626,8 @@ def _synchronize_site(
         site_activation_state,
         sync_start,
         current_span,
+        automation_config,
+        debug=True,
     )
     assert sync_result is not None
 

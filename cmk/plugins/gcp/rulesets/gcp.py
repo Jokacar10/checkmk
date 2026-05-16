@@ -7,9 +7,6 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Final
 
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils import paths
-
 from cmk.rulesets.v1 import Help, Message, Title
 from cmk.rulesets.v1.form_specs import (
     DefaultValue,
@@ -23,6 +20,7 @@ from cmk.rulesets.v1.form_specs import (
 )
 from cmk.rulesets.v1.form_specs.validators import LengthInRange
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
+from cmk.utils.paths import omd_root
 
 RAW_GCP_SERVICES: Final = [
     MultipleChoiceElement(name="gcs", title=Title("Google Cloud Storage (GCS)")),
@@ -40,7 +38,7 @@ CCE_GCP_SERVICES: Final = [
 
 
 def get_gcp_services() -> Sequence[MultipleChoiceElement]:
-    if edition(paths.omd_root) in (Edition.CME, Edition.CCE, Edition.CSE):
+    if edition(omd_root) in (Edition.CME, Edition.CCE, Edition.CSE):
         return RAW_GCP_SERVICES + CCE_GCP_SERVICES
 
     return RAW_GCP_SERVICES

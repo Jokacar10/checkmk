@@ -8,20 +8,28 @@ from __future__ import annotations
 import contextlib
 import itertools
 import time
-from collections.abc import Callable, Collection, Container, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Container,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from typing import Any, assert_never, TypeVar
 
 import cmk.ccc.debug
+import cmk.utils.paths
+from cmk.agent_based.v1 import Attributes, TableRow
 from cmk.ccc import tty
 from cmk.ccc.hostaddress import HostName
-
-import cmk.utils.paths
-from cmk.utils.log import console, section
-from cmk.utils.sectionname import SectionMap, SectionName
-from cmk.utils.structured_data import (
+from cmk.checkengine.plugins import SectionName
+from cmk.helper_interface import SourceType
+from cmk.inventory.paths import Paths as InventoryPaths
+from cmk.inventory.structured_data import (
     ImmutableTree,
-    InventoryPaths,
     MutableTree,
     parse_visible_raw_path,
     RawIntervalFromConfig,
@@ -30,18 +38,15 @@ from cmk.utils.structured_data import (
     SDPath,
     SDRetentionFilterChoices,
     SDValue,
-    UpdateResult,
 )
-
-from cmk.agent_based.v1 import Attributes, TableRow
+from cmk.utils.log import console, section
 
 from .checkresults import ActiveCheckResult
-from .fetcher import FetcherFunction, HostKey, SourceType
+from .fetcher import FetcherFunction, HostKey
 from .parser import group_by_host, HostSections, ParserFunction
-from .plugins import InventoryPlugin, InventoryPluginName
+from .plugins import InventoryPlugin, InventoryPluginName, ParsedSectionName
 from .sectionparser import (
     make_providers,
-    ParsedSectionName,
     Provider,
     ResolvedResult,
     SectionPlugin,
@@ -108,7 +113,6 @@ class CheckInventoryTreeResult:
     no_data_or_files: bool
     check_results: Sequence[ActiveCheckResult]
     inventory_tree: MutableTree
-    update_result: UpdateResult
 
 
 def inventorize_host(
@@ -118,7 +122,7 @@ def inventorize_host(
     parser: ParserFunction,
     summarizer: SummarizerFunction,
     inventory_parameters: Callable[[HostName, InventoryPlugin], Mapping[str, object]],
-    section_plugins: SectionMap[SectionPlugin],
+    section_plugins: Mapping[SectionName, SectionPlugin],
     inventory_plugins: Mapping[InventoryPluginName, InventoryPlugin],
     run_plugin_names: Container[InventoryPluginName],
     parameters: HWSWInventoryParameters,
@@ -140,7 +144,7 @@ def inventorize_host(
         error_handling=section_error_handling,
     )
 
-    trees, update_result = _inventorize_real_host(
+    trees = _inventorize_real_host(
         now=int(time.time()),
         items_of_inventory_plugins=list(
             _collect_inventory_plugin_items(
@@ -183,7 +187,6 @@ def inventorize_host(
             *check_parsing_errors(parsing_errors, error_state=parameters.fail_status),
         ],
         inventory_tree=trees.inventory,
-        update_result=update_result,
     )
 
 
@@ -206,7 +209,6 @@ def inventorize_cluster(
             )
         ),
         inventory_tree=inventory_tree,
-        update_result=UpdateResult(),
     )
 
 
@@ -229,10 +231,16 @@ def _no_data_or_files(host_name: HostName, host_sections: Iterable[HostSections]
         return False
 
     inv_paths = InventoryPaths(cmk.utils.paths.omd_root)
-    if inv_paths.inventory_tree(host_name).exists():
+    if (
+        inv_paths.inventory_tree(host_name).path.exists()
+        or inv_paths.inventory_tree(host_name).legacy.exists()
+    ):
         return False
 
-    if inv_paths.status_data_tree(host_name).exists():
+    if (
+        inv_paths.status_data_tree(host_name).path.exists()
+        or inv_paths.status_data_tree(host_name).legacy.exists()
+    ):
         return False
 
     archive_host = inv_paths.archive_host(host_name)
@@ -248,14 +256,14 @@ def _inventorize_real_host(
     items_of_inventory_plugins: Collection[ItemsOfInventoryPlugin],
     raw_intervals_from_config: Sequence[RawIntervalFromConfig],
     previous_tree: ImmutableTree,
-) -> tuple[MutableTrees, UpdateResult]:
+) -> MutableTrees:
     section.section_step("Create inventory or status data tree")
 
     trees = _create_trees_from_inventory_plugin_items(items_of_inventory_plugins)
 
     section.section_step("May update inventory tree")
 
-    update_result = _may_update(
+    _may_update(
         now=now,
         items_of_inventory_plugins=items_of_inventory_plugins,
         raw_intervals_from_config=raw_intervals_from_config,
@@ -269,7 +277,7 @@ def _inventorize_real_host(
             pairs=[{SDKey("is_cluster"): False}],
         )
 
-    return trees, update_result
+    return trees
 
 
 def inventorize_status_data_of_real_host(
@@ -506,9 +514,9 @@ def _may_update(
     raw_intervals_from_config: Sequence[RawIntervalFromConfig],
     inventory_tree: MutableTree,
     previous_tree: ImmutableTree,
-) -> UpdateResult:
+) -> None:
     if not raw_intervals_from_config:
-        return UpdateResult()
+        return
 
     # TODO do we need class name?
     cache_info_by_path_and_type = {
@@ -546,15 +554,8 @@ def _may_update(
                 ),
             )
 
-    update_result = UpdateResult()
-    for choices in choices_by_path.values():
-        inventory_tree.update(
-            now=now,
-            previous_tree=previous_tree,
-            choices=choices,
-            update_result=update_result,
-        )
-    return update_result
+    for c in choices_by_path.values():
+        inventory_tree.update(now=now, previous_tree=previous_tree, choices=c)
 
 
 def _check_fetched_data_or_trees(

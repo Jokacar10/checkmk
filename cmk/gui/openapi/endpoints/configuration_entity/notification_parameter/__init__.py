@@ -10,6 +10,7 @@ entity API, for more information see "Configuration entities" endpoints."""
 from collections.abc import Mapping
 from typing import Any
 
+from cmk import fields
 from cmk.gui.http import Response
 from cmk.gui.openapi.endpoints.configuration_entity._common import (
     get_endpoint_decorator,
@@ -19,8 +20,6 @@ from cmk.gui.openapi.endpoints.configuration_entity._common import (
 )
 from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.restful_objects.response_schemas import DomainObject, DomainObjectCollection
-
-from cmk import fields
 from cmk.shared_typing.configuration_entity import ConfigEntityType
 
 
@@ -56,6 +55,6 @@ def _get_notification_parameter(params: Mapping[str, Any]) -> Response:
     return serve_configuration_entity(ConfigEntityType.notification_parameter, params)
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(_list_notification_parameters)
-    endpoint_registry.register(_get_notification_parameter)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(_list_notification_parameters, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(_get_notification_parameter, ignore_duplicates=ignore_duplicates)

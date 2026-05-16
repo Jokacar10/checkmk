@@ -9,24 +9,25 @@
 #include <chrono>
 #include <functional>
 #include <utility>
-#include <variant>
 
 #include "livestatus/Aggregator.h"
 #include "livestatus/Column.h"
 #include "livestatus/User.h"
+
 class Row;
 class RowRenderer;
-class User;
 
 class IntAggregator : public Aggregator {
 public:
-    IntAggregator(const AggregationFactory &factory,
-                  std::function<int(Row, const User &)> getValue)
+    using function_type = std::function<int(Row, const User &, const ICore &)>;
+
+    IntAggregator(const AggregationFactory &factory, function_type getValue)
         : _aggregation{factory()}, _getValue{std::move(getValue)} {}
 
     void consume(Row row, const User &user,
-                 std::chrono::seconds /*timezone_offset*/) override {
-        _aggregation->update(_getValue(row, user));
+                 std::chrono::seconds /*timezone_offset*/,
+                 const ICore &core) override {
+        _aggregation->update(_getValue(row, user, core));
     }
 
     void output(RowRenderer &r) const override {
@@ -35,7 +36,7 @@ public:
 
 private:
     std::unique_ptr<Aggregation> _aggregation;
-    const std::function<int(Row, const User &)> _getValue;
+    const function_type _getValue;
 };
 
 #endif  // IntAggregator_h

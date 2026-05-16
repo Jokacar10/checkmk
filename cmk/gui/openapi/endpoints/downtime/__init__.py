@@ -33,13 +33,8 @@ import json
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Literal
 
+from cmk import fields
 from cmk.ccc.site import SiteId
-
-from cmk.utils.livestatus_helpers.expressions import And, Or, QueryExpression
-from cmk.utils.livestatus_helpers.queries import detailed_connection, Query, ResultRow
-from cmk.utils.livestatus_helpers.tables import Hosts
-from cmk.utils.livestatus_helpers.tables.downtimes import Downtimes
-
 from cmk.gui import fields as gui_fields
 from cmk.gui import sites
 from cmk.gui.fields.utils import BaseSchema
@@ -61,8 +56,10 @@ from cmk.gui.openapi.restful_objects.type_defs import CollectionObject, DomainOb
 from cmk.gui.openapi.spec.utils import LIVESTATUS_GENERIC_EXPLANATION
 from cmk.gui.openapi.utils import problem, serve_json
 from cmk.gui.utils import permission_verification as permissions
-
-from cmk import fields
+from cmk.utils.livestatus_helpers.expressions import And, Or, QueryExpression
+from cmk.utils.livestatus_helpers.queries import detailed_connection, Query, ResultRow
+from cmk.utils.livestatus_helpers.tables import Hosts
+from cmk.utils.livestatus_helpers.tables.downtimes import Downtimes
 
 DowntimeType = Literal[
     "host", "service", "hostgroup", "servicegroup", "host_by_query", "service_by_query"
@@ -376,6 +373,8 @@ def _show_downtimes(param: Mapping[str, Any]) -> Response:
             Downtimes.end_time,
             Downtimes.recurring,
             Downtimes.comment,
+            Downtimes.fixed,
+            Downtimes.duration,
         ]
     )
 
@@ -437,6 +436,8 @@ def show_downtime(params: Mapping[str, Any]) -> Response:
             Downtimes.end_time,
             Downtimes.recurring,
             Downtimes.comment,
+            Downtimes.fixed,
+            Downtimes.duration,
         ],
         filter_expr=Downtimes.id.op("=", downtime_id),
     )
@@ -618,13 +619,19 @@ def _downtime_properties(info: ResultRow) -> dict[str, Any]:
     if info["is_service"]:
         downtime["service_description"] = info["service_description"]
 
+    downtime["mode"] = (
+        {"type": "fixed"}
+        if info["fixed"] == 1
+        else {"type": "flexible", "duration_minutes": info["duration"] // 60}
+    )
+
     return downtime
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(create_host_related_downtime)
-    endpoint_registry.register(create_service_related_downtime)
-    endpoint_registry.register(show_downtimes)
-    endpoint_registry.register(show_downtime)
-    endpoint_registry.register(delete_downtime)
-    endpoint_registry.register(modify_host_downtime)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(create_host_related_downtime, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(create_service_related_downtime, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(show_downtimes, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(show_downtime, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(delete_downtime, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(modify_host_downtime, ignore_duplicates=ignore_duplicates)

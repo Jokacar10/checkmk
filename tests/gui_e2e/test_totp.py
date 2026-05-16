@@ -9,15 +9,14 @@ from datetime import datetime
 
 from playwright.sync_api import expect
 
+from cmk.crypto.totp import TOTP
 from tests.gui_e2e.testlib.playwright.helpers import CmkCredentials
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
 from tests.gui_e2e.testlib.playwright.pom.login import LoginPage
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.testlib.site import Site
 
-from cmk.crypto.totp import TOTP
 
-
-def test_totp(test_site: Site, dashboard_page: Dashboard, credentials: CmkCredentials) -> None:
+def test_totp(test_site: Site, dashboard_page: MainDashboard, credentials: CmkCredentials) -> None:
     # first go to dashboard to ensure we're reloading the page in case we're already there
     dashboard_page.goto_main_dashboard()
 

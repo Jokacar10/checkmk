@@ -31,7 +31,7 @@ from docker.models.images import Image  # type: ignore[import-untyped]
 
 from tests.testlib.common.repo import git_commit_id, git_essential_directories, repo_path
 from tests.testlib.package_manager import DISTRO_CODES
-from tests.testlib.utils import get_cmk_download_credentials
+from tests.testlib.utils import get_cmk_download_credentials, is_cleanup_enabled
 from tests.testlib.version import CMKPackageInfo, CMKVersion, package_hash_path
 
 _DOCKER_REGISTRY = "artifacts.lan.tribe29.com:4000"
@@ -82,7 +82,7 @@ def execute_tests_in_container(
             # Important to workaround really high default of docker which results
             # in problems when trying to close all FDs in Python 2.
             ulimits=[
-                docker.types.Ulimit(name="nofile", soft=2048, hard=2048),
+                docker.types.Ulimit(name="nofile", soft=8192, hard=8192),
             ],
             binds=_runtime_binds(),
         ),
@@ -531,7 +531,7 @@ def _runtime_binds() -> Mapping[str, DockerBind]:
 def _container_env(package_info: CMKPackageInfo) -> Mapping[str, str]:
     # In addition to the ones defined here, some environment vars, like "DISTRO" are added through
     # the docker image
-    return {
+    env = {
         "LANG": "C",
         "VERSION": package_info.version.version_spec,
         "EDITION": package_info.edition.short,
@@ -548,6 +548,9 @@ def _container_env(package_info: CMKPackageInfo) -> Mapping[str, str]:
         "OTEL_SDK_DISABLED": os.environ.get("OTEL_SDK_DISABLED", "true"),
         "OTEL_EXPORTER_OTLP_ENDPOINT": os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
     }
+    # Add all variables prefixed with QA_
+    env.update({var: val for var, val in os.environ.items() if var.startswith("QA_")})
+    return env
 
 
 # pep-0692 is not yet finished in mypy...
@@ -574,7 +577,7 @@ def _start(client: docker.DockerClient, **kwargs) -> Iterator[docker.Container]:
         yield c
     finally:
         # Do not leave inactive containers and anonymous volumes behind
-        if os.getenv("CLEANUP", "1") == "1":
+        if is_cleanup_enabled():
             c.stop()
             c.remove(v=True, force=True)
 

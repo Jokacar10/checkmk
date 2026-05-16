@@ -8,13 +8,11 @@ from __future__ import annotations
 from typing import Any, Final
 
 import cmk.ccc.version as cmk_version
-
-from cmk.utils import paths
-
 from cmk.gui import visuals
 from cmk.gui.config import active_config
 from cmk.gui.data_source import data_source_registry
 from cmk.gui.hooks import request_memoize
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import (
     AllViewSpecs,
     ColumnSpec,
@@ -23,6 +21,8 @@ from cmk.gui.type_defs import (
     ViewName,
     ViewSpec,
 )
+from cmk.gui.utils.roles import UserPermissions
+from cmk.utils import paths
 
 from .builtin_views import builtin_view_extender_registry
 
@@ -34,7 +34,7 @@ def internal_view_to_runtime_view(raw_view: dict[str, Any]) -> ViewSpec:
     # Need to assume that we are right for now. We will have to introduce parsing there to do a real
     # conversion in one of the following typing steps.
     raw_view.setdefault("packaged", False)
-    raw_view.setdefault("megamenu_search_terms", [])
+    raw_view.setdefault("main_menu_search_terms", [])
     return _sorter_specs_to_runtime_format(_column_specs_to_runtime_format(raw_view))  # type: ignore[arg-type]
 
 
@@ -64,8 +64,9 @@ class ViewStore:
         return cls()
 
     def __init__(self) -> None:
+        user_permissions = UserPermissions.from_config(active_config, permission_registry)
         self.all: Final = ViewStore._load_all_views()
-        self.permitted: Final = ViewStore._load_permitted_views(self.all)
+        self.permitted: Final = ViewStore._load_permitted_views(self.all, user_permissions)
 
     @staticmethod
     def _load_all_views() -> AllViewSpecs:
@@ -83,9 +84,11 @@ class ViewStore:
         }
 
     @staticmethod
-    def _load_permitted_views(all_views: AllViewSpecs) -> PermittedViewSpecs:
+    def _load_permitted_views(
+        all_views: AllViewSpecs, user_permissions: UserPermissions
+    ) -> PermittedViewSpecs:
         """Returns all view defitions that a user is allowed to use"""
-        return visuals.available("views", all_views)
+        return visuals.available("views", all_views, user_permissions)
 
 
 def get_all_views() -> AllViewSpecs:

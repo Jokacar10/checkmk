@@ -5,15 +5,18 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { useValidation, type ValidationMessages } from '@/form/components/utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
-import { type Suggestion } from '@/components/suggestions'
-import CmkList from '@/components/CmkList'
 import { onBeforeUpdate, ref, watch } from 'vue'
+
+import CmkList from '@/components/CmkList'
+import { type Suggestion } from '@/components/suggestions'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+import { inputSizes } from '@/components/user-input/sizes'
+
+import { type ValidationMessages, useValidation } from '@/form/components/utils/validation'
 import FormAutocompleter from '@/form/private/FormAutocompleter.vue'
-import { inputSizes } from '../utils/sizes'
-import FormLabelsLabel from './FormLabelsLabel.vue'
 import FormLabel from '@/form/private/FormLabel.vue'
+
+import FormLabelsLabel from './FormLabelsLabel.vue'
 
 type StringMapping = Record<string, string>
 
@@ -126,12 +129,12 @@ const deleteItem = (index: number) => {
   </CmkList>
   <div v-if="!props.spec.max_labels || keyValuePairs.length < props.spec.max_labels">
     <!-- In formLabel, the size on input is a fixed size -->
+    <!-- @vue-ignore keydown.enter does not exist on FormAutocompleter -->
     <FormAutocompleter
       v-model="selectedValue"
       :size="inputSizes['MEDIUM'].width"
       :autocompleter="props.spec.autocompleter"
       :placeholder="props.spec.i18n.add_some_labels"
-      :show="!error"
       :filter="filterKeyValuePairs"
       @keydown.enter="
         (e: KeyboardEvent) => {
@@ -150,6 +153,7 @@ const deleteItem = (index: number) => {
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .label-list {
   list-style-type: none;
   padding: 0;
@@ -164,15 +168,17 @@ const deleteItem = (index: number) => {
   }
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 table.nform input {
   margin: 0;
   padding: 2px;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .error {
   margin: 0;
   padding: 5px;
-  background-color: rgb(247, 65, 65);
+  background-color: rgb(247 65 65);
   color: var(--font-color);
   display: block;
 }

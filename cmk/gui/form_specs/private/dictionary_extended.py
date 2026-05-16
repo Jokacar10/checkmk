@@ -2,36 +2,30 @@
 # Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import override, TypeVar
 
-from cmk.rulesets.v1.form_specs import DefaultValue, DictGroup, Dictionary
-from cmk.shared_typing.vue_formspec_components import DictionaryGroupLayout, DictionaryLayout
+from cmk.rulesets.v1.form_specs import DictGroup, Dictionary
+from cmk.shared_typing.vue_formspec_components import DictionaryGroupLayout
 
 T = TypeVar("T")
 
 
 @dataclass(frozen=True, kw_only=True)
 class DictionaryExtended(Dictionary):
-    """
-    Specifies a (multi-)selection of configuration options.
+    # Usage of default_checked is advised against: if you want an optional
+    # element prefilled with options, reconsider and flip your approach. If
+    # something should be the default, it should not need configuration. Add
+    # complexity (stray from the default) by checking boxes, not unchecking
+    # them. Another approach would be to use a cascading single choice with your
+    # default preselected.
+    default_checked: list[str] | None = None
 
-    Consumer model:
-    ***************
-    **Type**: ``dict[str, object]``
-    The configured value will be presented as a dictionary consisting of the names of provided
-    configuration options and their respective consumer models.
-
-    Arguments:
-    **********
-    """
-
-    prefill: DefaultValue[Mapping[str, object]] | None = None
-    layout: DictionaryLayout = DictionaryLayout.one_column
-
+    @override
     def __post_init__(self) -> None:
-        pass
+        for checked in self.default_checked or []:
+            if checked not in self.elements:
+                raise ValueError(f"Default checked element '{checked}' is not in elements")
 
 
 @dataclass(frozen=True, kw_only=True)

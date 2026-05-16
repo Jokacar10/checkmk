@@ -4,12 +4,18 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import FormValidation from '@/form/components/FormValidation.vue'
 import type { Password } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { validateValue, type ValidationMessages } from '@/form/components/utils/validation'
 import { computed, ref } from 'vue'
+
+import usei18n, { untranslated } from '@/lib/i18n'
 import { immediateWatch } from '@/lib/watch'
+
 import CmkDropdown from '@/components/CmkDropdown.vue'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, validateValue } from '@/form/components/utils/validation'
+
+const { _t } = usei18n()
 
 const props = defineProps<{
   spec: Password
@@ -68,11 +74,11 @@ const passwordTypeOptions = computed(() => {
   return [
     {
       name: 'explicit_password',
-      title: props.spec.i18n.explicit_password
+      title: untranslated(props.spec.i18n.explicit_password)
     },
     {
       name: 'stored_password',
-      title: props.spec.i18n.password_store
+      title: untranslated(props.spec.i18n.password_store)
     }
   ]
 })
@@ -82,7 +88,7 @@ const passwordStoreOptions = computed(() => {
   return props.spec.password_store_choices.map(({ password_id, name }) => {
     return {
       name: password_id,
-      title: name
+      title: untranslated(name)
     }
   })
 })
@@ -92,13 +98,13 @@ const passwordStoreOptions = computed(() => {
   <CmkDropdown
     v-model:selected-option="passwordType"
     :options="{ type: 'fixed', suggestions: passwordTypeOptions }"
-    :label="props.spec.i18n.choose_password_type"
+    :label="untranslated(props.spec.i18n.choose_password_type)"
   />
   {{ ' ' }}
   <template v-if="data[0] === 'explicit_password'">
     <input
       v-model="explicitPassword"
-      aria-label="explicit password"
+      :aria-label="_t('explicit password')"
       type="password"
       :placeholder="'******'"
     />
@@ -111,8 +117,8 @@ const passwordStoreOptions = computed(() => {
       v-else
       v-model:selected-option="passwordStoreChoice"
       :options="{ type: 'fixed', suggestions: passwordStoreOptions }"
-      :required-text="props.spec.i18n_base.required"
-      :label="props.spec.i18n.choose_password_from_store"
+      :label="untranslated(props.spec.i18n.choose_password_from_store)"
+      required
     />
   </template>
   <FormValidation :validation="validation"></FormValidation>

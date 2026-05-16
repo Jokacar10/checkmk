@@ -13,25 +13,12 @@ from pytest import MonkeyPatch
 from pytest_mock import MockerFixture
 from redis import Redis
 
-from cmk.ccc.hostaddress import HostName
-
-from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
-
 from cmk.automations.results import GetConfigurationResult
-
+from cmk.ccc.hostaddress import HostName
+from cmk.gui.config import Config
 from cmk.gui.i18n import localize
 from cmk.gui.logged_in import LoggedInNobody, user
-from cmk.gui.session import _UserContext
-from cmk.gui.type_defs import SearchResult, SearchResultsByTopic
-from cmk.gui.wato._omd_configuration import (
-    ConfigDomainApache,
-    ConfigDomainDiskspace,
-    ConfigDomainRRDCached,
-)
-from cmk.gui.watolib import search
-from cmk.gui.watolib.config_domains import ConfigDomainOMD
-from cmk.gui.watolib.hosts_and_folders import folder_tree
-from cmk.gui.watolib.search import (
+from cmk.gui.search import (
     ABCMatchItemGenerator,
     IndexBuilder,
     IndexNotFoundException,
@@ -42,9 +29,20 @@ from cmk.gui.watolib.search import (
     may_see_url,
     PermissionsHandler,
 )
-from cmk.gui.watolib.search import (
+from cmk.gui.search import (
     match_item_generator_registry as real_match_item_generator_registry,
 )
+from cmk.gui.search.engines import setup as search
+from cmk.gui.session import _UserContext
+from cmk.gui.type_defs import SearchResult, SearchResultsByTopic
+from cmk.gui.wato._omd_configuration import (
+    ConfigDomainApache,
+    ConfigDomainDiskspace,
+    ConfigDomainRRDCached,
+)
+from cmk.gui.watolib.config_domains import ConfigDomainOMD
+from cmk.gui.watolib.hosts_and_folders import folder_tree
+from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
 
 
 @pytest.fixture(scope="function")
@@ -183,7 +181,7 @@ def fixture_match_item_generator_registry() -> MatchItemGeneratorRegistry:
 
 
 @pytest.fixture(name="clean_redis_client")
-def fixture_clean_redis_client() -> "Redis[str]":
+def fixture_clean_redis_client() -> "Redis":
     client = FakeRedis(decode_responses=True)
     client.flushall()
     return client
@@ -192,14 +190,14 @@ def fixture_clean_redis_client() -> "Redis[str]":
 @pytest.fixture(name="index_builder")
 def fixture_index_builder(
     match_item_generator_registry: MatchItemGeneratorRegistry,
-    clean_redis_client: "Redis[str]",
+    clean_redis_client: "Redis",
 ) -> IndexBuilder:
     return IndexBuilder(match_item_generator_registry, clean_redis_client)
 
 
 @pytest.fixture(name="index_searcher")
 def fixture_index_searcher(
-    clean_redis_client: "Redis[str]",
+    clean_redis_client: "Redis",
 ) -> IndexSearcher:
     return IndexSearcher(clean_redis_client, PermissionsHandler())
 
@@ -208,7 +206,7 @@ class TestIndexBuilder:
     @pytest.mark.usefixtures("with_admin_login")
     def test_update_only_not_built(
         self,
-        clean_redis_client: "Redis[str]",
+        clean_redis_client: "Redis",
         index_builder: IndexBuilder,
     ) -> None:
         index_builder.build_changed_sub_indices(["something"])
@@ -253,7 +251,7 @@ class TestIndexBuilderAndSearcher:
         index_searcher: IndexSearcher,
     ) -> None:
         index_builder.build_full_index()
-        assert self._evaluate_search_results_by_topic(index_searcher.search("**")) == [
+        assert self._evaluate_search_results_by_topic(index_searcher.search("**", Config())) == [
             ("Change-dependent", [SearchResult(title="change_dependent", url="")]),
             ("Localization-dependent", [SearchResult(title="localization_dependent", url="")]),
         ]
@@ -266,7 +264,7 @@ class TestIndexBuilderAndSearcher:
     ) -> None:
         index_builder._mark_index_as_built()
         index_builder.build_changed_sub_indices(["something"])
-        assert not self._evaluate_search_results_by_topic(index_searcher.search("**"))
+        assert not self._evaluate_search_results_by_topic(index_searcher.search("**", Config()))
 
     @pytest.mark.usefixtures("with_admin_login")
     def test_update_and_search_with_update(
@@ -276,7 +274,7 @@ class TestIndexBuilderAndSearcher:
     ) -> None:
         index_builder._mark_index_as_built()
         index_builder.build_changed_sub_indices(["some_change_dependent_whatever"])
-        assert self._evaluate_search_results_by_topic(index_searcher.search("**")) == [
+        assert self._evaluate_search_results_by_topic(index_searcher.search("**", Config())) == [
             ("Change-dependent", [SearchResult(title="change_dependent", url="")]),
         ]
 
@@ -304,7 +302,7 @@ class TestIndexBuilderAndSearcher:
         )
 
         index_builder.build_changed_sub_indices(["some_change_dependent_whatever"])
-        assert self._evaluate_search_results_by_topic(index_searcher.search("**")) == [
+        assert self._evaluate_search_results_by_topic(index_searcher.search("**", Config())) == [
             ("Localization-dependent", [SearchResult(title="localization_dependent", url="")]),
         ]
 
@@ -318,32 +316,32 @@ class TestIndexBuilderAndSearcher:
 @pytest.fixture(name="created_host_url")
 def fixture_created_host_url() -> str:
     folder = folder_tree().root_folder()
-    folder.create_hosts([(HostName("host"), {}, [])], pprint_value=False)
+    folder.create_hosts([(HostName("host"), {}, [])], pprint_value=False, use_git=False)
     return "wato.py?folder=&host=host&mode=edit_host"
 
 
 @pytest.mark.usefixtures("request_context")
 def test_may_see_url_false() -> None:
-    assert not may_see_url("wato.py?folder=&mode=service_groups")
+    assert not may_see_url("wato.py?folder=&mode=service_groups", Config())
 
 
 @pytest.mark.usefixtures("with_admin_login")
 def test_may_see_url_true() -> None:
-    assert may_see_url("wato.py?folder=&mode=service_groups")
+    assert may_see_url("wato.py?folder=&mode=service_groups", Config())
 
 
 @pytest.mark.usefixtures("with_admin_login")
 def test_may_see_url_host_true(
     created_host_url: str,
 ) -> None:
-    assert may_see_url(created_host_url)
+    assert may_see_url(created_host_url, Config())
 
 
 @pytest.mark.usefixtures("with_admin_login")
 def test_may_see_url_host_false(monkeypatch: MonkeyPatch, created_host_url: str) -> None:
     with monkeypatch.context() as m:
         m.setattr(user, "may", lambda pname: False)
-        assert not may_see_url(created_host_url)
+        assert not may_see_url(created_host_url, Config())
 
 
 class TestPermissionHandler:
@@ -356,17 +354,21 @@ class TestPermissionHandler:
 
 class TestIndexSearcher:
     @pytest.mark.usefixtures("with_admin_login", "inline_background_jobs")
-    def test_search_no_index(self, clean_redis_client: "Redis[str]", mocker: MockerFixture) -> None:
+    def test_search_no_index(self, clean_redis_client: "Redis", mocker: MockerFixture) -> None:
         get_config = mocker.patch(
             "cmk.gui.wato.pages.global_settings.ABCConfigDomain.get_all_default_globals"
         )
 
         with pytest.raises(IndexNotFoundException):
-            list(IndexSearcher(clean_redis_client, PermissionsHandler()).search("change_dep"))
+            list(
+                IndexSearcher(clean_redis_client, PermissionsHandler()).search(
+                    "change_dep", Config()
+                )
+            )
         get_config.assert_called()
 
     def test_sort_search_results(self) -> None:
-        def fake_permissions_check(_url: str) -> bool:
+        def fake_permissions_check(_url: str, config: Config) -> bool:
             return True
 
         assert list(
@@ -472,11 +474,18 @@ class TestRealisticSearch:
     )
     def test_real_search_without_exception(
         self,
-        clean_redis_client: "Redis[str]",
+        clean_redis_client: "Redis",
     ) -> None:
         IndexBuilder(real_match_item_generator_registry, clean_redis_client).build_full_index()
         assert IndexBuilder.index_is_built(clean_redis_client)
-        assert len(list(IndexSearcher(clean_redis_client, PermissionsHandler()).search("Host"))) > 4
+        assert (
+            len(
+                list(
+                    IndexSearcher(clean_redis_client, PermissionsHandler()).search("Host", Config())
+                )
+            )
+            > 4
+        )
 
     def _livestatus_mock(
         self,
@@ -496,7 +505,7 @@ class TestRealisticSearch:
     )
     def test_index_is_built_as_super_user(
         self,
-        clean_redis_client: "Redis[str]",
+        clean_redis_client: "Redis",
     ) -> None:
         """
         We test that the index is always built as a super user.
@@ -511,7 +520,7 @@ class TestRealisticSearch:
             IndexSearcher(
                 clean_redis_client,
                 PermissionsHandler(),
-            ).search("custom host attributes")
+            ).search("custom host attributes", Config())
         )
 
     @pytest.mark.usefixtures(
@@ -525,7 +534,7 @@ class TestRealisticSearch:
     def test_dcd_not_found_if_not_super_user(
         self,
         monkeypatch: MonkeyPatch,
-        clean_redis_client: "Redis[str]",
+        clean_redis_client: "Redis",
     ) -> None:
         """
         This test ensures that test_index_is_built_as_super_user makes sense, ie. that if we do not
@@ -549,5 +558,5 @@ class TestRealisticSearch:
             IndexSearcher(
                 clean_redis_client,
                 PermissionsHandler(),
-            ).search("custom host attributes")
+            ).search("custom host attributes", Config())
         )

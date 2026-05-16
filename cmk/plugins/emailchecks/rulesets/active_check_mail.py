@@ -8,11 +8,7 @@ from collections.abc import Mapping
 from typing import Literal
 
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils import paths
-
-from cmk.gui.mkeventd import syslog_facilities  # pylint: disable=cmk-module-layer-violation
-
+from cmk.gui.mkeventd import syslog_facilities
 from cmk.plugins.emailchecks.forwarding_option import ECForwarding
 from cmk.rulesets.v1 import Help, Title
 from cmk.rulesets.v1.form_specs import (
@@ -31,6 +27,7 @@ from cmk.rulesets.v1.form_specs import (
     validators,
 )
 from cmk.rulesets.v1.rule_specs import ActiveCheck, Topic
+from cmk.utils.paths import omd_root
 
 from .options import fetching, timeout
 
@@ -65,7 +62,7 @@ def _valuespec_active_checks_mail() -> Dictionary:
             ),
             **(
                 {}
-                if edition(paths.omd_root) is Edition.CSE
+                if edition(omd_root) is Edition.CSE
                 else {"forward": DictElement(parameter_form=_forward_to_ec_form())}
             ),
         },

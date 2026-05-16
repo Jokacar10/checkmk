@@ -5,50 +5,48 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 
 <script setup lang="ts">
+import {
+  type GraphLine,
+  type GraphLines,
+  type GraphOptions,
+  type Operation,
+  type Transformation
+} from 'cmk-shared-typing/typescript/graph_designer'
+import { type Ref, computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+
+import usei18n from '@/lib/i18n'
+import useDragging from '@/lib/useDragging'
+
 import CmkColorPicker from '@/components/CmkColorPicker.vue'
+import CmkDropdown from '@/components/CmkDropdown.vue'
 import CmkSwitch from '@/components/CmkSwitch.vue'
+import type { Suggestion } from '@/components/suggestions'
+import CmkCheckbox from '@/components/user-input/CmkCheckbox.vue'
+import CmkInput from '@/components/user-input/CmkInput.vue'
+
 import FixedMetricRowRenderer from '@/graph-designer/components/FixedMetricRowRenderer.vue'
-import FormEdit from '@/form/components/FormEdit.vue'
-import FormLineType from '@/graph-designer/components/FormLineType.vue'
 import FormMetricCells, { type Metric } from '@/graph-designer/components/FormMetricCells.vue'
 import FormTitle from '@/graph-designer/components/FormTitle.vue'
+import GraphOptionsEditor from '@/graph-designer/components/GraphOptionsEditor.vue'
 import MetricRowRenderer from '@/graph-designer/components/MetricRowRenderer.vue'
 import TopicsRenderer from '@/graph-designer/components/TopicsRenderer.vue'
-import {
-  makeBooleanChoice,
-  makeCascadingSingleChoice,
-  makeDictionary,
-  makeFixedValue,
-  makeFloat,
-  makeSingleChoice,
-  makeString
-} from '@/graph-designer/specs'
-import { computed, onMounted, onBeforeUnmount, ref, type Ref, watch } from 'vue'
 import {
   convertFromExplicitVerticalRange,
   convertFromUnit,
   convertToExplicitVerticalRange,
   convertToUnit
 } from '@/graph-designer/converters'
-import {
-  type GraphLine,
-  type GraphLines,
-  type GraphOptions,
-  type I18N,
-  type Operation,
-  type Transformation
-} from 'cmk-shared-typing/typescript/graph_designer'
-import { type SpecLineType, type Topic } from '@/graph-designer/type_defs'
-import { type ValidationMessages } from '@/form'
-import useDragging from '@/lib/useDragging'
 import { fetchMetricColor } from '@/graph-designer/fetch_metric_color'
 import { type GraphRenderer } from '@/graph-designer/graph'
+
+import type { Topic } from './type_defs'
+
+const { _t } = usei18n()
 
 const props = defineProps<{
   graph_id: string
   graph_lines: GraphLines
   graph_options: GraphOptions
-  i18n: I18N
   graph_renderer: GraphRenderer
 }>()
 
@@ -77,202 +75,61 @@ onBeforeUnmount(() => {
 // Specs
 
 const dataConsolidationType = ref<'average' | 'min' | 'max'>('max')
-const specConsolidationType = makeSingleChoice('', [
-  { name: 'average', title: props.i18n.average },
-  { name: 'min', title: props.i18n.minimum },
-  { name: 'max', title: props.i18n.maximum }
-])
-const backendValidationConsolidationType: ValidationMessages = []
+const consolidationTypeSuggestions: Suggestion[] = [
+  { name: 'average', title: _t('Average') },
+  { name: 'min', title: _t('Minimum') },
+  { name: 'max', title: _t('Maximum') }
+]
 
 const dataScalarType = ref<'warn' | 'crit' | 'min' | 'max'>('crit')
-const specScalarType = makeSingleChoice('', [
-  { name: 'warn', title: props.i18n.warning },
-  { name: 'crit', title: props.i18n.critical },
-  { name: 'min', title: props.i18n.minimum },
-  { name: 'max', title: props.i18n.maximum }
-])
-const backendValidationScalarType: ValidationMessages = []
+const scalarTypeSuggestions: Suggestion[] = [
+  { name: 'warn', title: _t('Warning') },
+  { name: 'crit', title: _t('Critical') },
+  { name: 'min', title: _t('Minimum') },
+  { name: 'max', title: _t('Maximum') }
+]
 
-const dataConstant = ref(1)
-const specConstant = makeFloat('', '')
-const backendValidationConstant: ValidationMessages = []
+const dataConstant: Ref<number> = ref(1)
 
-const specLineType: SpecLineType = {
-  line: props.i18n.line,
-  area: props.i18n.area,
-  stack: props.i18n.stack
-}
+const formLineTypeSuggestions: Suggestion[] = [
+  { name: 'line', title: _t('Line') },
+  { name: 'area', title: _t('Area') },
+  { name: 'stack', title: _t('Stack') }
+]
 
-const dataTransformation = ref(95)
-const specTransformation = makeFloat('', props.i18n.percentile)
-const backendValidationTransformation: ValidationMessages = []
+const dataTransformation: Ref<number> = ref(95)
 
 const dataUnit = ref(convertToUnit(props.graph_options.unit))
-const specUnit = makeCascadingSingleChoice('', [
-  {
-    name: 'first_entry_with_unit',
-    title: props.i18n.unit_first_entry_with_unit,
-    parameter_form: makeFixedValue(),
-    default_value: null
-  },
-  {
-    name: 'custom',
-    title: props.i18n.unit_custom,
-    parameter_form: makeDictionary('', [
-      {
-        name: 'notation',
-        render_only: false,
-        required: true,
-        parameter_form: makeCascadingSingleChoice(props.i18n.unit_custom_notation, [
-          {
-            name: 'decimal',
-            title: props.i18n.unit_custom_notation_decimal,
-            parameter_form: makeString(props.i18n.unit_custom_notation_symbol, 'symbol', null),
-            default_value: ''
-          },
-          {
-            name: 'si',
-            title: props.i18n.unit_custom_notation_si,
-            parameter_form: makeString(props.i18n.unit_custom_notation_symbol, 'symbol', null),
-            default_value: ''
-          },
-          {
-            name: 'iec',
-            title: props.i18n.unit_custom_notation_iec,
-            parameter_form: makeString(props.i18n.unit_custom_notation_symbol, 'symbol', null),
-            default_value: ''
-          },
-          {
-            name: 'standard_scientific',
-            title: props.i18n.unit_custom_notation_standard_scientific,
-            parameter_form: makeString(props.i18n.unit_custom_notation_symbol, 'symbol', null),
-            default_value: ''
-          },
-          {
-            name: 'engineering_scientific',
-            title: props.i18n.unit_custom_notation_engineering_scientific,
-            parameter_form: makeString(props.i18n.unit_custom_notation_symbol, 'symbol', null),
-            default_value: ''
-          },
-          {
-            name: 'time',
-            title: props.i18n.unit_custom_notation_time,
-            parameter_form: makeFixedValue(),
-            default_value: null
-          }
-        ]),
-        default_value: { notation: ['decimal', null] },
-        group: null
-      },
-      {
-        name: 'precision',
-        render_only: false,
-        required: true,
-        parameter_form: makeDictionary(props.i18n.unit_custom_precision, [
-          {
-            name: 'type',
-            render_only: false,
-            required: true,
-            parameter_form: makeSingleChoice(props.i18n.unit_custom_precision_type, [
-              {
-                name: 'auto',
-                title: props.i18n.unit_custom_precision_type_auto
-              },
-              {
-                name: 'strict',
-                title: props.i18n.unit_custom_precision_type_strict
-              }
-            ]),
-            default_value: 'auto',
-            group: null
-          },
-          {
-            name: 'digits',
-            render_only: false,
-            required: true,
-            parameter_form: makeFloat(props.i18n.unit_custom_precision_digits, ''),
-            default_value: 2,
-            group: null
-          }
-        ]),
-        default_value: { type: 'auto', digits: 2 },
-        group: null
-      }
-    ]),
-    default_value: { notation: ['decimal', ''], precision: { type: 'auto', digits: 2 } }
-  }
-])
-const backendValidationUnit: ValidationMessages = []
 
 const dataExplicitVerticalRange = ref(
   convertToExplicitVerticalRange(props.graph_options.explicit_vertical_range)
 )
-const specExplicitVerticalRange = makeCascadingSingleChoice('', [
-  {
-    name: 'auto',
-    title: props.i18n.explicit_vertical_range_auto,
-    parameter_form: makeFixedValue(),
-    default_value: null
-  },
-  {
-    name: 'explicit',
-    title: props.i18n.explicit_vertical_range_explicit,
-    parameter_form: makeDictionary('', [
-      {
-        name: 'lower',
-        render_only: false,
-        required: true,
-        parameter_form: makeFloat(props.i18n.explicit_vertical_range_explicit_lower, ''),
-        default_value: 0.0,
-        group: null
-      },
-      {
-        name: 'upper',
-        render_only: false,
-        required: true,
-        parameter_form: makeFloat(props.i18n.explicit_vertical_range_explicit_upper, ''),
-        default_value: 1.0,
-        group: null
-      }
-    ]),
-    default_value: { lower: 0.0, upper: 1.0 }
-  }
-])
-const backendValidationExplicitVerticalRange: ValidationMessages = []
 
 const dataOmitZeroMetrics = ref(props.graph_options.omit_zero_metrics)
-const specOmitZeroMetrics = makeBooleanChoice()
-const backendValidationOmitZeroMetrics: ValidationMessages = []
 
 const topics: Topic[] = [
   {
     ident: 'graph_lines',
-    title: props.i18n.graph_lines,
+    title: _t('Graph lines'),
     elements: [
-      { ident: 'metric', title: props.i18n.metric },
-      { ident: 'scalar', title: props.i18n.scalar },
-      { ident: 'constant', title: props.i18n.constant }
+      { ident: 'metric', title: _t('Metric') },
+      { ident: 'scalar', title: _t('Scalar') },
+      { ident: 'constant', title: _t('Constant') }
     ]
   },
   {
     ident: 'graph_operations',
-    title: props.i18n.graph_operations,
+    title: _t('Operations on selected graph lines'),
     elements: [
-      { ident: 'operations', title: props.i18n.operations },
-      { ident: 'transformation', title: props.i18n.transformation }
+      { ident: 'operations', title: _t('Operations') },
+      { ident: 'transformation', title: _t('Transformation') }
     ]
   },
   {
     ident: 'graph_options',
-    title: props.i18n.graph_options,
-    elements: [
-      { ident: 'unit', title: props.i18n.unit },
-      { ident: 'explicit_vertical_range', title: props.i18n.explicit_vertical_range },
-      {
-        ident: 'omit_zero_metrics',
-        title: props.i18n.omit_zero_metrics
-      }
-    ]
+    title: _t('Graph options'),
+    elements: [],
+    customContent: true
   }
 ]
 
@@ -285,21 +142,21 @@ function formulaOf(graphLine: GraphLine): string {
     case 'constant':
       return ''
     case 'sum':
-      return `${props.i18n.sum} ${props.i18n.of}`
+      return `${_t('Sum')} ${_t('of')}`
     case 'product':
-      return `${props.i18n.product} ${props.i18n.of}`
+      return `${_t('Product')} ${_t('of')}`
     case 'difference':
-      return `${props.i18n.difference} ${props.i18n.of}`
+      return `${_t('Difference')} ${_t('of')}`
     case 'fraction':
-      return `${props.i18n.fraction} ${props.i18n.of}`
+      return `${_t('Fraction')} ${_t('of')}`
     case 'average':
-      return `${props.i18n.average} ${props.i18n.of}`
+      return `${_t('Average')} ${_t('of')}`
     case 'minimum':
-      return `${props.i18n.minimum} ${props.i18n.of}`
+      return `${_t('Minimum')} ${_t('of')}`
     case 'maximum':
-      return `${props.i18n.maximum} ${props.i18n.of}`
+      return `${_t('Maximum')} ${_t('of')}`
     case 'transformation':
-      return `${props.i18n.percentile} ${props.i18n.of}`
+      return `${_t('Percentile')} ${_t('of')}`
     default:
       return ''
   }
@@ -318,6 +175,14 @@ const dataScalar = ref<Metric>({
 
 const graphLines: Ref<GraphLines> = ref(props.graph_lines)
 const selectedGraphLines: Ref<GraphLines> = ref([])
+
+function changeSelection(graphLine: GraphLine, newValue: boolean) {
+  if (newValue) {
+    selectedGraphLines.value = [...selectedGraphLines.value, graphLine]
+  } else {
+    selectedGraphLines.value = selectedGraphLines.value.filter((g) => g.id !== graphLine.id)
+  }
+}
 
 function nextIndex(): number {
   if (graphLines.value.length === 0) {
@@ -475,10 +340,10 @@ function updateGraphLineAutoTitle(graphLine: GraphLine) {
       break
     }
     case 'constant':
-      graphLine.auto_title = `${props.i18n.constant} ${graphLine.value}`
+      graphLine.auto_title = `${_t('Constant')} ${graphLine.value}`
       break
     case 'transformation':
-      graphLine.auto_title = `${props.i18n.percentile} ${graphLine.percentile} ${props.i18n.of} ${graphLine.operand.auto_title}`
+      graphLine.auto_title = `${_t('Percentile')} ${graphLine.percentile} ${_t('of')} ${graphLine.operand.auto_title}`
   }
 }
 
@@ -569,7 +434,7 @@ function addConstant() {
     id: nextIndex(),
     type: 'constant',
     color: '#ff0000',
-    auto_title: `${props.i18n.constant} ${dataConstant.value}`,
+    auto_title: `${_t('Constant')} ${dataConstant.value}`,
     custom_title: '',
     visible: true,
     line_type: 'line',
@@ -607,7 +472,7 @@ function applySum() {
       id: nextIndex(),
       type: 'sum',
       color: firstOperand.color,
-      auto_title: `${props.i18n.sum} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Sum')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -624,7 +489,7 @@ function applyProduct() {
       id: nextIndex(),
       type: 'product',
       color: firstOperand.color,
-      auto_title: `${props.i18n.product} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Product')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -641,7 +506,7 @@ function applyDifference() {
       id: nextIndex(),
       type: 'difference',
       color: firstOperand.color,
-      auto_title: `${props.i18n.difference} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Difference')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -658,7 +523,7 @@ function applyFraction() {
       id: nextIndex(),
       type: 'fraction',
       color: firstOperand.color,
-      auto_title: `${props.i18n.fraction} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Fraction')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -675,7 +540,7 @@ function applyAverage() {
       id: nextIndex(),
       type: 'average',
       color: firstOperand.color,
-      auto_title: `${props.i18n.average} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Average')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -692,7 +557,7 @@ function applyMinimum() {
       id: nextIndex(),
       type: 'minimum',
       color: firstOperand.color,
-      auto_title: `${props.i18n.minimum} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Minimum')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -709,7 +574,7 @@ function applyMaximum() {
       id: nextIndex(),
       type: 'maximum',
       color: firstOperand.color,
-      auto_title: `${props.i18n.maximum} ${props.i18n.of} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
+      auto_title: `${_t('Maximum')} ${_t('of')} ${selectedGraphLines.value.map((l) => l.auto_title).join(', ')}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -726,7 +591,7 @@ function applyTransformation() {
       id: nextIndex(),
       type: 'transformation',
       color: firstOperand.color,
-      auto_title: `${props.i18n.percentile} ${dataTransformation.value} ${props.i18n.of} ${firstOperand.auto_title}`,
+      auto_title: `${_t('Percentile')} ${dataTransformation.value} ${_t('of')} ${firstOperand.auto_title}`,
       custom_title: '',
       visible: true,
       line_type: 'line',
@@ -740,11 +605,10 @@ function applyTransformation() {
 // Graph lines table
 
 function computeOddEven(index: number) {
-  // TODO n-th children
   return index % 2 === 0 ? 'even0' : 'odd0'
 }
 
-const { tableRef, dragStart, dragEnd, dragging } = useDragging()
+const { trContainerRef, dragStart, dragEnd, dragging } = useDragging()
 
 function dragElement(event: DragEvent) {
   const dragReturn = dragging(event)
@@ -763,6 +627,12 @@ function computeGraphOptions(): GraphOptions {
     explicit_vertical_range: convertFromExplicitVerticalRange(dataExplicitVerticalRange.value),
     omit_zero_metrics: dataOmitZeroMetrics.value
   }
+}
+
+function updateGraphOptionsState(opts: GraphOptions) {
+  dataUnit.value = convertToUnit(opts.unit)
+  dataExplicitVerticalRange.value = convertToExplicitVerticalRange(opts.explicit_vertical_range)
+  dataOmitZeroMetrics.value = opts.omit_zero_metrics
 }
 
 const graphContainerRef = ref()
@@ -815,21 +685,22 @@ const graphDesignerContentAsJson = computed(() => {
 
 <template>
   <div ref="graphContainerRef"></div>
-
-  <table ref="tableRef" class="data oddeven graph_designer_metrics">
-    <tbody>
+  <table class="data oddeven graph_designer_metrics">
+    <thead>
       <tr>
         <th class="header_narrow nowrap">#</th>
         <th class="header_buttons"></th>
-        <th class="header_buttons">{{ props.i18n.actions }}</th>
-        <th class="header_narrow">{{ props.i18n.color }}</th>
-        <th class="header_nobr narrow">{{ props.i18n.auto_title }}</th>
-        <th class="header_nobr narrow">{{ props.i18n.custom_title }}</th>
-        <th class="header_buttons">{{ props.i18n.visible }}</th>
-        <th class="header_narrow">{{ props.i18n.line_style }}</th>
-        <th class="header_buttons">{{ props.i18n.mirrored }}</th>
-        <th>{{ props.i18n.formula }}</th>
+        <th class="header_buttons">{{ _t('Actions') }}</th>
+        <th class="header_narrow">{{ _t('Color') }}</th>
+        <th class="header_nobr narrow">{{ _t('Title') }}</th>
+        <th class="header_nobr narrow">{{ _t('Custom title') }}</th>
+        <th class="header_buttons">{{ _t('Visible') }}</th>
+        <th class="header_narrow">{{ _t('Line style') }}</th>
+        <th class="header_buttons">{{ _t('Mirrored') }}</th>
+        <th>{{ _t('Formula') }}</th>
       </tr>
+    </thead>
+    <tbody ref="trContainerRef">
       <tr
         v-for="(graphLine, index) in graphLines"
         :key="graphLine.id"
@@ -838,32 +709,27 @@ const graphDesignerContentAsJson = computed(() => {
       >
         <td class="narrow nowrap">{{ graphLine.id }}</td>
         <td class="buttons">
-          <!-- TODO: use CmkCheckbox building block, see FormCheckboxListChoice how to utilize events!-->
-          <input
-            :id="graphLine.id.toString()"
-            v-model="selectedGraphLines"
-            :value="graphLine"
-            type="checkbox"
-            class="checkbox"
+          <CmkCheckbox
+            :model-value="selectedGraphLines.map((v) => v.id).includes(graphLine.id)"
+            @update:model-value="(newValue) => changeSelection(graphLine, newValue)"
           />
-          <label :for="graphLine.id.toString()"></label>
         </td>
         <td class="buttons">
           <img
             v-if="isDissolvable(graphLine)"
-            :title="props.i18n.dissolve_operation"
+            :title="_t('Dissolve operation')"
             src="themes/facelift/images/icon_dissolve_operation.png"
             class="icon iconbutton png"
             @click="dissolveGraphLine(graphLine)"
           />
           <img
-            :title="props.i18n.clone_this_entry"
+            :title="_t('Clone this entry')"
             src="themes/facelift/images/icon_clone.svg"
             class="icon iconbutton"
             @click="cloneGraphLine(graphLine)"
           />
           <img
-            :title="props.i18n.move_this_entry"
+            :title="_t('Move this entry')"
             src="themes/modern-dark/images/icon_drag.svg"
             class="icon iconbutton"
             @dragstart="dragStart"
@@ -871,7 +737,7 @@ const graphDesignerContentAsJson = computed(() => {
             @dragend="dragEnd"
           />
           <img
-            :title="props.i18n.delete_this_entry"
+            :title="_t('Delete this entry')"
             src="themes/facelift/images/icon_delete.svg"
             class="icon iconbutton"
             @click="deleteGraphLine(graphLine)"
@@ -881,9 +747,18 @@ const graphDesignerContentAsJson = computed(() => {
         <td class="nobr narrow">{{ graphLine.auto_title }}</td>
         <td class="nobr narrow"><FormTitle v-model:data="graphLine.custom_title" /></td>
         <td class="buttons"><CmkSwitch v-model:data="graphLine.visible" /></td>
+
         <td class="narrow">
-          <FormLineType v-model:data="graphLine.line_type" :spec="specLineType" />
+          <CmkDropdown
+            v-model:selected-option="graphLine.line_type"
+            :options="{
+              type: 'fixed',
+              suggestions: formLineTypeSuggestions
+            }"
+            :label="_t('Line style')"
+          />
         </td>
+
         <td class="buttons"><CmkSwitch v-model:data="graphLine.mirrored" /></td>
         <td>
           <div v-if="graphLine.type === 'metric'">
@@ -893,19 +768,19 @@ const graphDesignerContentAsJson = computed(() => {
                   v-model:host-name="graphLine.host_name"
                   v-model:service-name="graphLine.service_name"
                   v-model:metric-name="graphLine.metric_name"
-                  :placeholder_host_name="props.i18n.placeholder_host_name"
-                  :placeholder_service_name="props.i18n.placeholder_service_name"
-                  :placeholder_metric_name="props.i18n.placeholder_metric_name"
                   @update:host-name="updateGraphLineAutoTitle(graphLine)"
                   @update:service-name="updateGraphLineAutoTitle(graphLine)"
                   @update:metric-name="updateGraphLineAutoTitle(graphLine)"
                 />
               </template>
               <template #metric_type>
-                <FormEdit
-                  v-model:data="graphLine.consolidation_type"
-                  :spec="specConsolidationType"
-                  :backend-validation="backendValidationConsolidationType"
+                <CmkDropdown
+                  v-model:selected-option="graphLine.consolidation_type"
+                  :options="{
+                    type: 'fixed',
+                    suggestions: consolidationTypeSuggestions
+                  }"
+                  :label="_t('Formula')"
                 />
               </template>
             </FixedMetricRowRenderer>
@@ -917,40 +792,38 @@ const graphDesignerContentAsJson = computed(() => {
                   v-model:host-name="graphLine.host_name"
                   v-model:service-name="graphLine.service_name"
                   v-model:metric-name="graphLine.metric_name"
-                  :placeholder_host_name="props.i18n.placeholder_host_name"
-                  :placeholder_service_name="props.i18n.placeholder_service_name"
-                  :placeholder_metric_name="props.i18n.placeholder_metric_name"
                   @update:host-name="updateGraphLineAutoTitle(graphLine)"
                   @update:service-name="updateGraphLineAutoTitle(graphLine)"
                   @update:metric-name="updateGraphLineAutoTitle(graphLine)"
                 />
               </template>
               <template #metric_type>
-                <FormEdit
-                  v-model:data="graphLine.scalar_type"
-                  :spec="specScalarType"
-                  :backend-validation="backendValidationScalarType"
+                <CmkDropdown
+                  v-model:selected-option="graphLine.scalar_type"
+                  :options="{
+                    type: 'fixed',
+                    suggestions: scalarTypeSuggestions
+                  }"
+                  :label="_t('Scalar')"
                 />
               </template>
             </FixedMetricRowRenderer>
           </div>
           <div v-else-if="graphLine.type === 'constant'">
-            {{ props.i18n.constant }}
-            <FormEdit
-              v-model:data="graphLine.value"
-              :spec="specConstant"
-              :backend-validation="backendValidationConstant"
-              @update:data="updateGraphLineAutoTitle(graphLine)"
+            {{ _t('Constant') }}
+            <CmkInput
+              v-model="graphLine.value"
+              type="number"
+              @update:model-value="updateGraphLineAutoTitle(graphLine)"
             />
           </div>
           <div v-else-if="graphLine.type === 'transformation'">
-            <FormEdit
-              v-model:data="graphLine.percentile"
-              :spec="specTransformation"
-              :backend-validation="backendValidationTransformation"
-              @update:data="updateGraphLineAutoTitle(graphLine)"
+            <CmkInput
+              v-model="graphLine.percentile"
+              type="number"
+              @update:model-value="updateGraphLineAutoTitle(graphLine)"
             />
-            {{ props.i18n.of }}
+            {{ _t('of') }}
             <br />
             <div
               :style="{
@@ -985,26 +858,26 @@ const graphDesignerContentAsJson = computed(() => {
               v-model:host-name="dataMetric.hostName"
               v-model:service-name="dataMetric.serviceName"
               v-model:metric-name="dataMetric.metricName"
-              :placeholder_host_name="props.i18n.placeholder_host_name"
-              :placeholder_service_name="props.i18n.placeholder_service_name"
-              :placeholder_metric_name="props.i18n.placeholder_metric_name"
             />
           </template>
           <template #metric_type>
-            <FormEdit
-              v-model:data="dataConsolidationType"
-              :spec="specConsolidationType"
-              :backend-validation="backendValidationConsolidationType"
+            <CmkDropdown
+              v-model:selected-option="dataConsolidationType"
+              :options="{
+                type: 'fixed',
+                suggestions: consolidationTypeSuggestions
+              }"
+              :label="_t('Formula')"
             />
           </template>
           <template #metric_action>
             <button @click.prevent="addMetric">
               <img
-                :title="props.i18n.add"
+                :title="_t('Add')"
                 src="themes/facelift/images/icon_new.svg"
                 class="icon iconbutton"
               />
-              {{ props.i18n.add }}
+              {{ _t('Add') }}
             </button>
           </template>
         </MetricRowRenderer>
@@ -1018,26 +891,26 @@ const graphDesignerContentAsJson = computed(() => {
               v-model:host-name="dataScalar.hostName"
               v-model:service-name="dataScalar.serviceName"
               v-model:metric-name="dataScalar.metricName"
-              :placeholder_host_name="props.i18n.placeholder_host_name"
-              :placeholder_service_name="props.i18n.placeholder_service_name"
-              :placeholder_metric_name="props.i18n.placeholder_metric_name"
             />
           </template>
           <template #metric_type>
-            <FormEdit
-              v-model:data="dataScalarType"
-              :spec="specScalarType"
-              :backend-validation="backendValidationScalarType"
+            <CmkDropdown
+              v-model:selected-option="dataScalarType"
+              :options="{
+                type: 'fixed',
+                suggestions: scalarTypeSuggestions
+              }"
+              :label="_t('Scalar')"
             />
           </template>
           <template #metric_action>
             <button @click.prevent="addScalar">
               <img
-                :title="props.i18n.add"
+                :title="_t('Add')"
                 src="themes/facelift/images/icon_new.svg"
                 class="icon iconbutton"
               />
-              {{ props.i18n.add }}
+              {{ _t('Add') }}
             </button>
           </template>
         </MetricRowRenderer>
@@ -1045,72 +918,41 @@ const graphDesignerContentAsJson = computed(() => {
     </template>
     <template #constant>
       <div>
-        <FormEdit
-          v-model:data="dataConstant"
-          :spec="specConstant"
-          :backend-validation="backendValidationConstant"
-        />
+        <CmkInput v-model="dataConstant" type="number" />
         <button @click.prevent="addConstant">
           <img
-            :title="props.i18n.add"
+            :title="_t('Add')"
             src="themes/facelift/images/icon_new.svg"
             class="icon iconbutton"
           />
-          {{ props.i18n.add }}
+          {{ _t('Add') }}
         </button>
       </div>
     </template>
     <template #operations>
       <div v-if="operationIsApplicable()">
-        <button @click="applySum">{{ props.i18n.sum }}</button>
-        <button @click="applyProduct">{{ props.i18n.product }}</button>
-        <button @click="applyDifference">
-          {{ props.i18n.difference }} {{ showSelectedIds('-') }}
-        </button>
-        <button @click="applyFraction">{{ props.i18n.fraction }} {{ showSelectedIds('/') }}</button>
-        <button @click="applyAverage">{{ props.i18n.average }}</button>
-        <button @click="applyMinimum">{{ props.i18n.minimum }}</button>
-        <button @click="applyMaximum">{{ props.i18n.maximum }}</button>
+        <button @click="applySum">{{ _t('Sum') }}</button>
+        <button @click="applyProduct">{{ _t('Product') }}</button>
+        <button @click="applyDifference">{{ _t('Difference') }} {{ showSelectedIds('-') }}</button>
+        <button @click="applyFraction">{{ _t('Fraction') }} {{ showSelectedIds('/') }}</button>
+        <button @click="applyAverage">{{ _t('Average') }}</button>
+        <button @click="applyMinimum">{{ _t('Minimum') }}</button>
+        <button @click="applyMaximum">{{ _t('Maximum') }}</button>
       </div>
-      <div v-else>{{ props.i18n.no_selected_graph_lines }}</div>
+      <div v-else>{{ _t('Select at least two graph lines to edit') }}</div>
     </template>
     <template #transformation>
       <div v-if="transformationIsApplicable()">
-        <FormEdit
-          v-model:data="dataTransformation"
-          :spec="specTransformation"
-          :backend-validation="backendValidationTransformation"
-        />
-        <button @click="applyTransformation">{{ props.i18n.apply }}</button>
+        <CmkInput v-model="dataTransformation" type="number" />
+        <button @click="applyTransformation">{{ _t('Apply') }}</button>
       </div>
-      <div v-else>{{ props.i18n.no_selected_graph_line }}</div>
+      <div v-else>{{ _t('Select one graph line to edit') }}</div>
     </template>
-    <template #unit>
-      <div>
-        <FormEdit
-          v-model:data="dataUnit"
-          :spec="specUnit"
-          :backend-validation="backendValidationUnit"
-        />
-      </div>
-    </template>
-    <template #explicit_vertical_range>
-      <div>
-        <FormEdit
-          v-model:data="dataExplicitVerticalRange"
-          :spec="specExplicitVerticalRange"
-          :backend-validation="backendValidationExplicitVerticalRange"
-        />
-      </div>
-    </template>
-    <template #omit_zero_metrics>
-      <div>
-        <FormEdit
-          v-model:data="dataOmitZeroMetrics"
-          :spec="specOmitZeroMetrics"
-          :backend-validation="backendValidationOmitZeroMetrics"
-        />
-      </div>
+    <template #graph_options_custom>
+      <GraphOptionsEditor
+        :graph_options="computeGraphOptions()"
+        @update:graph-options="updateGraphOptionsState"
+      />
     </template>
   </TopicsRenderer>
 

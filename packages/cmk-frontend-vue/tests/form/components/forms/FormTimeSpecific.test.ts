@@ -4,8 +4,10 @@
  * conditions defined in the file COPYING, which is part of this source code package.
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
-import FormEdit from '@/form/components/FormEdit.vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
+import FormEdit from '@/form/components/FormEdit.vue'
+
 import { renderFormWithData } from '../cmk-form-helper'
 
 const embeddedSpec: FormSpec.String = {
@@ -13,7 +15,6 @@ const embeddedSpec: FormSpec.String = {
   title: 'barTitle',
   help: 'barHelp',
   label: null,
-  i18n_base: { required: 'required' },
   validators: [],
   input_hint: '',
   autocompleter: null,
@@ -37,8 +38,6 @@ const enabledSpec: FormSpec.Dictionary = {
   type: 'dictionary',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
-  layout: 'one_column',
   validators: [],
   groups: [],
   additional_static_elements: null,

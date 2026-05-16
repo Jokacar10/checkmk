@@ -18,9 +18,9 @@ import livestatus
 
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
-
+from cmk.graphing.v1 import graphs as graphs_api
 from cmk.gui import pdf
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKNotFound, MKUnauthenticatedException, MKUserError
 from cmk.gui.graphing._graph_templates import (
     get_template_graph_specification,
@@ -31,9 +31,9 @@ from cmk.gui.i18n import _
 from cmk.gui.log import logger
 from cmk.gui.logged_in import LoggedInSuperUser, user
 from cmk.gui.pages import Page
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import SizePT
-
-from cmk.graphing.v1 import graphs as graphs_api
+from cmk.gui.utils.roles import UserPermissions
 
 from ._artwork import compute_graph_artwork, compute_graph_artwork_curves, GraphArtwork
 from ._from_api import graphs_from_api, metrics_from_api, RegisteredMetric
@@ -58,23 +58,26 @@ from ._utils import get_graph_data_from_livestatus
 # of a host or service.
 #    # Needed by mail notification plug-in (-> no authentication from localhost)
 class AjaxGraphImagesForNotifications(Page):
-    @classmethod
-    def ident(cls) -> str:
-        return "ajax_graph_images"
-
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         """Registered as `ajax_graph_images`."""
         if not isinstance(user, LoggedInSuperUser):
             # This page used to be noauth but restricted to local ips.
             # Now we use the SiteInternalSecret for this.
             raise MKUnauthenticatedException(_("You are not allowed to access this page."))
 
-        _answer_graph_image_request(metrics_from_api, graphs_from_api)
+        _answer_graph_image_request(
+            metrics_from_api,
+            graphs_from_api,
+            UserPermissions.from_config(config, permission_registry),
+            config.debug,
+        )
 
 
 def _answer_graph_image_request(
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
+    debug: bool,
 ) -> None:
     try:
         host_name = request.get_validated_type_input_mandatory(HostName, "host")
@@ -95,7 +98,7 @@ def _answer_graph_image_request(
                 host_name,
                 service_description,
             )
-            if active_config.debug:
+            if debug:
                 raise
             return
 
@@ -120,6 +123,7 @@ def _answer_graph_image_request(
         ).recipes(
             registered_metrics,
             registered_graphs,
+            user_permissions,
         )
         num_graphs = request.get_integer_input("num_graphs") or len(graph_recipes)
 
@@ -141,7 +145,7 @@ def _answer_graph_image_request(
         logger.error(
             "Call to ajax_graph_images.py failed: %s\n%s", e, "".join(traceback.format_stack())
         )
-        if active_config.debug:
+        if debug:
             raise
 
 
@@ -217,6 +221,7 @@ def graph_recipes_for_api_request(
     api_request: dict[str, Any],
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
 ) -> tuple[GraphDataRange, Sequence[GraphRecipe]]:
     # Get and validate the specification
     if not (raw_graph_spec := api_request.get("specification")):
@@ -249,8 +254,7 @@ def graph_recipes_for_api_request(
 
     try:
         graph_recipes = graph_specification.recipes(
-            registered_metrics,
-            registered_graphs,
+            registered_metrics, registered_graphs, user_permissions
         )
 
     except MKGraphNotFound:
@@ -272,12 +276,14 @@ def graph_spec_from_request(
     api_request: dict[str, Any],
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
 ) -> dict[str, Any]:
     try:
         graph_data_range, graph_recipes = graph_recipes_for_api_request(
             api_request,
             registered_metrics,
             registered_graphs,
+            user_permissions,
         )
         graph_recipe = graph_recipes[0]
 

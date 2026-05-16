@@ -20,9 +20,6 @@ from collections.abc import Mapping
 from typing import Any
 
 from cmk.ccc.exceptions import MKGeneralException
-
-from cmk.utils.tags import AuxTag, AuxTagInUseError, TagID
-
 from cmk.gui.config import active_config
 from cmk.gui.http import Response
 from cmk.gui.logged_in import user
@@ -41,6 +38,7 @@ from cmk.gui.openapi.restful_objects.type_defs import DomainObject
 from cmk.gui.openapi.utils import problem, serve_json
 from cmk.gui.utils import permission_verification as permissions
 from cmk.gui.watolib.tags import load_all_tag_config_read_only, load_tag_config, update_tag_config
+from cmk.utils.tags import AuxTag, AuxTagInUseError, TagID
 
 PERMISSIONS = permissions.Perm("wato.hosttags")
 
@@ -199,9 +197,9 @@ def _serialize_aux_tag(aux_tag: AuxTag) -> DomainObject:
     )
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(show_aux_tag)
-    endpoint_registry.register(show_aux_tags)
-    endpoint_registry.register(create_aux_tag)
-    endpoint_registry.register(put_aux_tag)
-    endpoint_registry.register(delete_aux_tag)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(show_aux_tag, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(show_aux_tags, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(create_aux_tag, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(put_aux_tag, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(delete_aux_tag, ignore_duplicates=ignore_duplicates)

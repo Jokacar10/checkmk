@@ -5,12 +5,13 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
 import FormDualListChoiceComponent from '@/form/components/forms/FormDualListChoice.vue'
 
 const spec: FormSpec.DualListChoice = {
   type: 'dual_list_choice',
   title: 'fooTitle',
-  help: 'fooHelp',
+  help: '',
   elements: [
     { name: 'choice1', title: 'Choice 1' },
     { name: 'choice2', title: 'Choice 2' },
@@ -18,19 +19,19 @@ const spec: FormSpec.DualListChoice = {
     { name: 'choice4', title: 'Choice 4' }
   ],
   i18n: {
-    add_all: 'Add all',
-    remove_all: 'Remove all',
-    add: 'Add',
-    remove: 'Remove',
-    available_options: 'Available options',
-    selected_options: 'Selected options',
-    selected: 'Selected',
-    no_elements_available: 'No elements available',
-    no_elements_selected: 'No elements selected',
-    autocompleter_loading: 'Loading',
-    search_selected_options: 'i18n search selected options',
-    search_available_options: 'i18n search available options',
-    and_x_more: 'and %s more'
+    add_all: '',
+    remove_all: '',
+    add: '',
+    remove: '',
+    available_options: '',
+    selected_options: '',
+    selected: '',
+    no_elements_available: '',
+    no_elements_selected: '',
+    autocompleter_loading: '',
+    search_selected_options: '',
+    search_available_options: '',
+    and_x_more: ''
   },
   validators: [],
   show_toggle_all: false
@@ -81,7 +82,7 @@ describe('FormDualListChoice', () => {
     })
 
     const filterActiveElements = screen.getByRole('textbox', {
-      name: 'i18n search selected options'
+      name: 'Filter Selected options'
     })
     await fireEvent.update(filterActiveElements, 'Choice 1')
     expect(
@@ -89,11 +90,11 @@ describe('FormDualListChoice', () => {
     ).equal(1)
 
     const filterInactiveElements = screen.getByRole('textbox', {
-      name: 'i18n search available options'
+      name: 'Filter Available options'
     })
 
     await fireEvent.update(filterInactiveElements, 'Choice 1')
-    expect(screen.getByText('No elements available')).toBeInTheDocument()
+    expect(screen.getByText('No elements')).toBeInTheDocument()
   })
 
   test('add all while filter on available options', async () => {
@@ -109,10 +110,10 @@ describe('FormDualListChoice', () => {
     })
 
     const filterInactiveElements = screen.getByRole('textbox', {
-      name: 'i18n search available options'
+      name: 'Filter Available options'
     })
     await fireEvent.update(filterInactiveElements, 'Choice 1')
-    const addAll = screen.getByRole<HTMLButtonElement>('button', { name: 'Add all' })
+    const addAll = screen.getByRole<HTMLButtonElement>('button', { name: 'Add all >>' })
     await fireEvent.click(addAll)
     expect(
       screen.getByRole<HTMLSelectElement>('listbox', { name: 'Selected options' }).options.length
@@ -133,16 +134,16 @@ describe('FormDualListChoice', () => {
     })
 
     const filterActiveElements = screen.getByRole('textbox', {
-      name: 'i18n search selected options'
+      name: 'Filter Selected options'
     })
     await fireEvent.update(filterActiveElements, 'Choice 1')
-    const removeAll = screen.getByRole<HTMLButtonElement>('button', { name: 'Remove all' })
+    const removeAll = screen.getByRole<HTMLButtonElement>('button', { name: '<< Remove all' })
     await fireEvent.click(removeAll)
     expect(
       screen.getByRole<HTMLSelectElement>('listbox', { name: 'Available options' }).options.length
     ).equal(2)
 
-    expect(screen.getByText('No elements selected')).toBeInTheDocument()
+    expect(screen.getByText('No elements')).toBeInTheDocument()
   })
 
   test('add by double click on available item', async () => {

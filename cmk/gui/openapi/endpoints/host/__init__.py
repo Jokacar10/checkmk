@@ -42,9 +42,7 @@ import ast
 from collections.abc import Generator, Mapping, Sequence
 from typing import Any
 
-from cmk.utils.livestatus_helpers.queries import Query, ResultRow
-from cmk.utils.livestatus_helpers.tables import Hosts
-
+from cmk import fields
 from cmk.gui import fields as gui_fields
 from cmk.gui import sites
 from cmk.gui.fields.utils import BaseSchema
@@ -54,8 +52,8 @@ from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.restful_objects.type_defs import DomainObject
 from cmk.gui.openapi.utils import problem, serve_json
 from cmk.gui.utils import permission_verification as permissions
-
-from cmk import fields
+from cmk.utils.livestatus_helpers.queries import Query, ResultRow
+from cmk.utils.livestatus_helpers.tables import Hosts
 
 
 class HostParameters(BaseSchema):
@@ -230,7 +228,7 @@ def fixup_inventory_column(
             yield row
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(list_hosts_deprecated)
-    endpoint_registry.register(list_hosts)
-    endpoint_registry.register(show_host)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(list_hosts_deprecated, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(list_hosts, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(show_host, ignore_duplicates=ignore_duplicates)

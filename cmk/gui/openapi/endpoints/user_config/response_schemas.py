@@ -9,16 +9,16 @@ from typing import Any
 from marshmallow import fields as _fields
 from marshmallow import post_load
 
+from cmk import fields
+from cmk.fields import base
 from cmk.gui import fields as gui_fields
+from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.fields.base import MultiNested, ValueTypedDictSchema
 from cmk.gui.fields.definitions import ensure_string
 from cmk.gui.fields.utils import BaseSchema
 from cmk.gui.openapi.restful_objects.response_schemas import DomainObject, DomainObjectCollection
 from cmk.gui.userdb import get_user_attributes
-
-from cmk import fields
-from cmk.fields import base
 
 _logger = logging.getLogger(__name__)
 
@@ -68,10 +68,18 @@ class ConcreteUserInterfaceAttributes(BaseSchema):
         enum=["hide", "show"],
         example="hide",
     )
+    # TODO: DEPRECATED(18295) remove "mega_menu_icons"
     mega_menu_icons = fields.String(
         required=False,
+        description="Deprecated - use `main_menu_icons` instead.",
+        enum=["topic", "entry"],
+        example="topic",
+        deprecated=True,
+    )
+    main_menu_icons = fields.String(
+        required=False,
         description="This option decides if colored icon should be shown foe every entry in the "
-        "mega menus or alternatively only for the headlines (the 'topics')",
+        "main menus or alternatively only for the headlines (the 'topics')",
         enum=["topic", "entry"],
         example="topic",
     )
@@ -200,6 +208,11 @@ class BaseUserAttributes(BaseSchema):
         ConcreteUserInterfaceAttributes,
         required=False,
     )
+    start_url = fields.String(
+        description="The URL that the user should be redirected to after login. There is a "
+        "'default_start_url', a 'welcome_page', and any other will be treated as a custom URL",
+        example="welcome_page",
+    )
 
 
 class CustomUserAttributes(ValueTypedDictSchema):
@@ -219,7 +232,7 @@ class CustomUserAttributes(ValueTypedDictSchema):
         # because our own data can be inherently inconsistent.
 
         # use the user_attribute_registry directly?
-        db_user_attributes = dict(get_user_attributes())
+        db_user_attributes = dict(get_user_attributes(active_config.wato_user_attrs))
         for name, value in user_attributes.items():
             try:
                 attribute = db_user_attributes[name].valuespec()

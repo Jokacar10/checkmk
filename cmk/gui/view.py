@@ -7,9 +7,6 @@ from collections.abc import Iterable, Mapping, Sequence
 
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
-
-from cmk.utils.servicename import ServiceName
-
 from cmk.gui import pagetypes, visuals
 from cmk.gui.breadcrumb import Breadcrumb, BreadcrumbItem, make_topic_breadcrumb
 from cmk.gui.config import active_config
@@ -19,7 +16,7 @@ from cmk.gui.exceptions import MKUserError
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.painter.v0 import all_painters, Cell, JoinCell, Painter
 from cmk.gui.type_defs import (
     ColumnSpec,
@@ -30,18 +27,26 @@ from cmk.gui.type_defs import (
     ViewSpec,
     VisualContext,
 )
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.view_breadcrumbs import make_host_breadcrumb, make_service_breadcrumb
 from cmk.gui.views.layout import Layout, layout_registry
 from cmk.gui.views.sort_url import compute_sort_url_parameter
 from cmk.gui.views.sorter import all_sorters, Sorter, SorterEntry
 from cmk.gui.visuals import get_missing_single_infos_group_aware, view_title
+from cmk.utils.servicename import ServiceName
 
 
 class View:
     """Manages processing of a single view, e.g. during rendering"""
 
-    def __init__(self, view_name: str, view_spec: ViewSpec, context: VisualContext) -> None:
+    def __init__(
+        self,
+        view_name: str,
+        view_spec: ViewSpec,
+        context: VisualContext,
+        user_permissions: UserPermissions,
+    ) -> None:
         super().__init__()
         self.name = view_name
         self.spec = view_spec
@@ -52,6 +57,7 @@ class View:
         self._want_checkboxes: bool = False
         self._warning_messages: list[str] = []
         self.process_tracking = ViewProcessTracking()
+        self._user_permissions = user_permissions
 
     @property
     def datasource(self) -> ABCDataSource:
@@ -81,7 +87,7 @@ class View:
         """Regular cells are displaying information about the rows of the type the view is about"""
         cells: list[Cell] = []
         registered_sorters = all_sorters(active_config)
-        registered_painters = all_painters(active_config)
+        registered_painters = all_painters(active_config.tags.tag_groups)
         for e in self.spec["painters"]:
             if e.name not in registered_painters:
                 continue
@@ -94,6 +100,7 @@ class View:
                             e, registered_sorters, registered_painters
                         ),
                         registered_painters,
+                        self._user_permissions,
                     )
                 )
             elif col_type == "column":
@@ -104,6 +111,7 @@ class View:
                             e, registered_sorters, registered_painters
                         ),
                         registered_painters,
+                        self._user_permissions,
                     )
                 )
             else:
@@ -115,12 +123,13 @@ class View:
     def group_cells(self) -> list[Cell]:
         """Group cells are displayed as titles of grouped rows"""
         registered_sorters = all_sorters(active_config)
-        registered_painters = all_painters(active_config)
+        registered_painters = all_painters(active_config.tags.tag_groups)
         return [
             Cell(
                 e,
                 self._compute_sort_url_parameter(e, registered_sorters, registered_painters),
                 registered_painters,
+                self._user_permissions,
             )
             for e in self.spec["group_painters"]
             if e.name in registered_painters
@@ -158,6 +167,7 @@ class View:
             self._user_sorters or [],
             registered_sorters,
             registered_painters,
+            self._user_permissions,
         )
 
     def _get_sorter_entries(
@@ -298,8 +308,10 @@ class View:
             )
 
             breadcrumb = make_topic_breadcrumb(
-                mega_menu_registry.menu_monitoring(),
-                pagetypes.PagetypeTopics.get_topic(self.spec["topic"]).title(),
+                main_menu_registry.menu_monitoring(),
+                pagetypes.PagetypeTopics.get_topic(
+                    self.spec["topic"], self._user_permissions
+                ).title(),
             )
             breadcrumb.append(
                 BreadcrumbItem(
@@ -310,9 +322,9 @@ class View:
             return breadcrumb
 
         # Now handle the views within the host view hierarchy
-        return self._host_hierarchy_breadcrumb()
+        return self._host_hierarchy_breadcrumb(self._user_permissions)
 
-    def _host_hierarchy_breadcrumb(self) -> Breadcrumb:
+    def _host_hierarchy_breadcrumb(self, user_permissions: UserPermissions) -> Breadcrumb:
         """Realize the host hierarchy breadcrumb
 
         All hosts
@@ -329,7 +341,7 @@ class View:
             host_name = HostName(self.context["host"]["host"])
         except ValueError:
             raise MKUserError("host", _("Invalid host name"))
-        breadcrumb = make_host_breadcrumb(host_name)
+        breadcrumb = make_host_breadcrumb(host_name, user_permissions)
 
         if self.name == "host":
             # In case we are on the host homepage, we have the final breadcrumb
@@ -350,7 +362,7 @@ class View:
             return breadcrumb
 
         breadcrumb = make_service_breadcrumb(
-            host_name, ServiceName(self.context["service"]["service"])
+            host_name, ServiceName(self.context["service"]["service"]), user_permissions
         )
 
         if self.name == "service":

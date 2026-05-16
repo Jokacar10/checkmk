@@ -3,14 +3,15 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 import pprint
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TypedDict
 
 from cmk.ccc import store
-
 from cmk.gui import userdb
-from cmk.gui.config import load_config
+from cmk.gui.config import active_config
 from cmk.gui.type_defs import CustomHostAttrSpec, CustomUserAttrSpec
+from cmk.gui.userdb import UserAttribute
 from cmk.gui.watolib.config_domain_name import wato_fileheader
 from cmk.gui.watolib.hosts_and_folders import folder_tree
 from cmk.gui.watolib.utils import multisite_dir
@@ -21,12 +22,18 @@ class CustomAttrSpecs(TypedDict):
     host: list[CustomHostAttrSpec]
 
 
-def update_user_custom_attrs(now: datetime) -> None:
-    userdb.rewrite_users(now)
+def update_user_custom_attrs(
+    user_attributes: Sequence[tuple[str, UserAttribute]], now: datetime
+) -> None:
+    userdb.rewrite_users(user_attributes, now)
 
 
-def update_host_custom_attrs(*, pprint_value: bool) -> None:
-    load_config()
+def update_host_custom_attrs(
+    custom_attributes: Sequence[CustomHostAttrSpec], *, pprint_value: bool
+) -> None:
+    # Patch the current requests config with the changed config
+    active_config.wato_host_attrs = custom_attributes
+
     tree = folder_tree()
     tree.invalidate_caches()
     tree.root_folder().recursively_save_hosts(pprint_value=pprint_value)

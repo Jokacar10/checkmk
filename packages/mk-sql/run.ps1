@@ -24,6 +24,7 @@ $package_name = Split-Path -Path (Get-Location) -Leaf
 
 $exe_name = "$package_name.exe"
 $work_dir = "$pwd"
+$cargo_toolchain = "1.87.0" # to be in sync with rust toolchain/bazel/etc
 $cargo_target = "i686-pc-windows-msvc"
 
 $packBuild = $false
@@ -151,8 +152,8 @@ function Invoke-Cargo-With-Explicit-Package {
     Write-Host "${package_name}: $cmd --package $package_name $further_args_string" -ForegroundColor White
     & cargo $cmd --package $package_name $further_args
 
-    if ($lastexitcode -ne 0) {
-        Write-Error "${package_name}: Failed to $cmd --package $package_name $further_args_string with code $lastexitcode" -ErrorAction Stop
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "${package_name}: Failed to $cmd --package $package_name $further_args_string with code $LASTEXITCODE" -ErrorAction Stop
     }
 }
 
@@ -191,19 +192,14 @@ try {
     $mainStartTime = Get-Date
 
     & rustup --version > nul
-    if ($lastexitcode -ne 0) {
+    if ($LASTEXITCODE -ne 0) {
         Write-Error "rustup not found, please install it and/or add to PATH" -ErrorAction Stop
     }
     &rustup update
     &rustup install
-    &rustup target add $cargo_target
+    &rustup target add $cargo_target --toolchain $cargo_toolchain
     & rustc --target $cargo_target -V
     & cargo -V
-
-    # Disable assert()s in C/C++ parts (e.g. wepoll-ffi), they map to _assert()/_wassert(),
-    # which is not provided by libucrt. The latter is needed for static linking.
-    # https://github.com/rust-lang/cc-rs#external-configuration-via-environment-variables
-    $env:CFLAGS = "-DNDEBUG"
 
     # shorten path
     Start-ShortenPath "$shortenLink" "$shortenPath"

@@ -4,8 +4,13 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import FormButton from '@/form/components/forms/FormButton.vue'
 import CmkIconButton from '@/components/CmkIconButton.vue'
+
+import FormButton from '@/form/components/forms/FormButton.vue'
+
+defineOptions({
+  inheritAttrs: false
+})
 
 defineProps<{
   addElementLabel: string | undefined
@@ -14,8 +19,8 @@ defineProps<{
 </script>
 
 <template>
-  <FormButton v-if="addElementLabel!!" @click.prevent="addElement">
+  <FormButton v-if="addElementLabel!!" @click="addElement">
     {{ addElementLabel }}
   </FormButton>
-  <CmkIconButton v-else name="plus" @click.prevent="addElement" />
+  <CmkIconButton v-else name="plus" @click="addElement" />
 </template>

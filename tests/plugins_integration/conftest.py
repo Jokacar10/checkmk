@@ -7,19 +7,16 @@ import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Final
 
 import pytest
 
+from tests.plugins_integration import checks
 from tests.testlib.pytest_helpers.calls import exit_pytest_on_exceptions
 from tests.testlib.site import get_site_factory, Site, SiteFactory
-from tests.testlib.utils import run
+from tests.testlib.utils import is_cleanup_enabled, run
 from tests.testlib.version import CMKEdition, CMKPackageInfo, get_min_version
 
-from tests.plugins_integration import checks
-
 logger = logging.getLogger(__name__)
-cleanup: Final[bool] = os.getenv("CLEANUP", "1") == "1"
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -71,13 +68,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Response dir path",
         default=None,
     )
-    parser.addoption(
-        "--diff-dir",
-        action="store",
-        type=Path,
-        help="Diff dir path",
-        default=None,
-    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -104,7 +94,6 @@ def pytest_configure(config: pytest.Config) -> None:
         response_dir_integration=_response_dir_option
         if isinstance(_response_dir_option := config.getoption(name="--response-dir"), Path)
         else None,
-        diff_dir=_ if isinstance(_ := config.getoption(name="--diff-dir"), Path) else None,
         check_names=_ if isinstance(_ := config.getoption(name="--check-names"), list) else None,
     )
 
@@ -159,7 +148,7 @@ def _modify_dcd_global_settings(site: Site) -> Iterator[None]:
         )
         yield
     finally:
-        if cleanup:
+        if is_cleanup_enabled():
             # restore original global settings
             site.run(["cp", str(wato_dir / "global.mk.bak"), str(wato_dir / "global.mk")])
             logger.info("Restored original global settings in '%s'", wato_dir / "global.mk")
@@ -184,7 +173,7 @@ def _setup_datasource(site: Site) -> Iterator[None]:
         logger.info('Rule "%s" created!', ruleset_name)
         yield
     finally:
-        if cleanup:
+        if is_cleanup_enabled():
             if rule_id:
                 site.openapi.rules.delete(rule_id)
             site.run(["rm", "-rf", dump_path.as_posix()])

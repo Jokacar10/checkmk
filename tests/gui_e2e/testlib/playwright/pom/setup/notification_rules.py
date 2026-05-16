@@ -194,6 +194,13 @@ class BaseNotificationPage(QuickSetupPage):
     def apply_and_create_another_rule_button(self) -> Locator:
         return self.main_area.locator().get_by_text("Apply & create another rule")
 
+    def apply_and_create_another_rule(self) -> None:
+        self.apply_and_create_another_rule_button.click()
+        self.page.wait_for_url(
+            url=re.compile(rf"{quote_plus('wato.py?mode=notification_rule_quick_setup')}$"),
+            wait_until="load",
+        )
+
     def delete_all_service_events(self) -> None:
         for _ in self._service_events_rows.all():
             self._service_events_rows.nth(0).get_by_role("button").click()
@@ -331,6 +338,14 @@ class AddNotificationRule(BaseNotificationPage):
     """
 
     page_title = "Add notification rule"
+    _go_to_next_stage_buttons_text = {
+        1: "Next step: Specify host/services",
+        2: "Next step: Notification method (plug-in)",
+        3: "Next step: Recipient",
+        4: "Next step: Sending conditions",
+        5: "Next step: General properties",
+        6: "Next step: Review all settings",
+    }
 
     @override
     def navigate(self) -> None:

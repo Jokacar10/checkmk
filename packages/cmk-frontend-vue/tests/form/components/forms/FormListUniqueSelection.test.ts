@@ -5,8 +5,10 @@
  */
 import { fireEvent, queryByText, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { renderFormWithData } from '../cmk-form-helper'
+
 import FormEdit from '@/form/components/FormEdit.vue'
+
+import { renderFormWithData } from '../cmk-form-helper'
 
 const stringValidators: FormSpec.Validator[] = [
   {
@@ -22,7 +24,6 @@ const integerFormSpec: FormSpec.Integer = {
   title: 'nestedIntegerTitle',
   label: 'nestedIntegerLabel',
   help: 'nestedIntegerHelp',
-  i18n_base: { required: 'required' },
   validators: [],
   input_hint: null,
   unit: null
@@ -33,7 +34,6 @@ const stringFormSpec: FormSpec.String = {
   title: 'barTitle',
   help: 'barHelp',
   label: null,
-  i18n_base: { required: 'required' },
   validators: stringValidators,
   input_hint: '',
   autocompleter: null,
@@ -44,7 +44,6 @@ const cascadingSingleChoiceSpec: FormSpec.CascadingSingleChoice = {
   type: 'cascading_single_choice',
   title: 'fooTitle',
   label: 'fooLabel',
-  i18n_base: { required: 'required' },
   layout: 'horizontal',
   help: 'fooHelp',
   validators: [],
@@ -71,7 +70,6 @@ const singleChoiceSpec: FormSpec.SingleChoice = {
   title: 'fooTitle',
   input_hint: 'some input hint',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   no_elements_text: 'no_text',
   elements: [
     { name: 'choice1', title: 'Choice 1' },

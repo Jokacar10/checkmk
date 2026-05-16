@@ -138,7 +138,7 @@ class EWS(_Connection):
         for parent_folder in [self._account.inbox.parent, self._account.inbox]:
             i = 0
             for i, fname in enumerate(subfolder_names):
-                if f := next(parent_folder.glob(fname).resolve(), None):  # type: ignore[union-attr]
+                if f := next(parent_folder.glob(fname).resolve(), None):
                     if i == len(subfolder_names) - 1:  # full match - folder path already exists
                         return f
                     parent_folder = f
@@ -187,9 +187,11 @@ class EWS(_Connection):
         self, subject: str, mail_from: str, mail_to: str, now: int, key: int
     ) -> tuple[str, MailID]:
         """Send an email with provided content using EWS and provided oauth"""
+        subject = f"{subject} {now} {key}"
         m = EWSMessage(
             account=self._account,
-            subject=f"{subject} {now} {key}",
+            subject=subject,
+            body=subject,
             author=mail_from,
             to_recipients=[mail_to],
         )
@@ -307,10 +309,11 @@ class SMTP(_Connection):
     def _send_mail(
         self, subject: str, mail_from: str, mail_to: str, now: int, key: int
     ) -> tuple[str, MailID]:
-        mail = email.mime.text.MIMEText("")
+        subject = f"{subject} {now} {key}"
+        mail = email.mime.text.MIMEText(subject)
         mail["From"] = mail_from
         mail["To"] = mail_to
-        mail["Subject"] = f"{subject} {now} {key}"
+        mail["Subject"] = subject
         mail["Date"] = email.utils.formatdate(localtime=True)
 
         logging.debug(

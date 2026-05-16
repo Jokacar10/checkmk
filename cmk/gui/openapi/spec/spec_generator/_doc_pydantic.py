@@ -10,8 +10,9 @@ from typing import cast, Literal
 from apispec import APISpec
 from pydantic import PydanticInvalidForJsonSchema, TypeAdapter
 
+from cmk.gui.openapi._type_adapter import get_cached_type_adapter
 from cmk.gui.openapi.framework.endpoint_model import EndpointModel
-from cmk.gui.openapi.framework.model.api_field import api_field
+from cmk.gui.openapi.framework.model import api_field
 from cmk.gui.openapi.framework.model.headers import (
     CONTENT_TYPE,
     ETAG_HEADER,
@@ -66,7 +67,7 @@ class PydanticSchemaDefinitions:
     ) -> TypeAdapter | None:
         if (type_ := self.get_type(schema_type)) is not None:
             # TypeAdapter performance: this is only used during spec generation
-            return TypeAdapter(type_)  # nosemgrep: type-adapter-detected
+            return get_cached_type_adapter(type_)
 
         return None
 
@@ -118,17 +119,22 @@ def pydantic_endpoint_to_doc_endpoint(
         does_redirects=bool(expected_status_codes & {201, 301, 302, 303}),
         supported_editions=endpoint.doc_supported_editions,
     )
-    return DocEndpoint(
-        path=endpoint.path,
-        effective_path=endpoint.path,
-        method=endpoint.method,
-        family_name=endpoint.family,
-        doc_group=endpoint.doc_group,
-        doc_sort_index=endpoint.doc_sort_index,
-        operation_object=_to_operation_dict(
-            spec, spec_endpoint, schema_definitions, site_name, endpoint.deprecated_werk_id
-        ),
-    )
+    try:
+        return DocEndpoint(
+            path=endpoint.path,
+            effective_path=endpoint.path,
+            method=endpoint.method,
+            family_name=endpoint.family,
+            doc_group=endpoint.doc_group,
+            doc_sort_index=endpoint.doc_sort_index,
+            operation_object=_to_operation_dict(
+                spec, spec_endpoint, schema_definitions, site_name, endpoint.deprecated_werk_id
+            ),
+        )
+    except ValueError as e:
+        raise ValueError(
+            f"Failed to generate OpenAPI spec for endpoint {endpoint.operation_id}: {e}"
+        ) from e
 
 
 def _to_operation_dict(
@@ -138,10 +144,6 @@ def _to_operation_dict(
     site_name: str,
     werk_id: int | None = None,
 ) -> OperationObject:
-    assert spec_endpoint.operation_id is not None, (
-        "This object must be used in a decorator environment."
-    )
-
     response_headers: dict[str, OpenAPIParameter] = {}
     for header_to_add in [CONTENT_TYPE, HEADER_CHECKMK_EDITION, HEADER_CHECKMK_VERSION]:
         openapi_header = header_to_add.copy()
@@ -207,9 +209,7 @@ def _to_operation_dict(
         path_parameters = _get_parameters("path", schema_definitions.get_type("path"))
         query_parameters = _get_parameters("query", schema_definitions.get_type("query"))
     except PydanticInvalidForJsonSchema as e:
-        raise PydanticInvalidForJsonSchema(
-            f"Failed to generate schema for {spec_endpoint.operation_id} parameters: {e.message}"
-        ) from e
+        raise ValueError(f"Failed to generate parameter schemas: {e.message}") from e
 
     operation_spec["parameters"] = [*header_parameters, *path_parameters, *query_parameters]
 
@@ -244,15 +244,37 @@ def _to_operation_dict(
     return {spec_endpoint.method: operation_spec}
 
 
+def _inline_refs(value: object, defs: dict[str, dict[str, object]]) -> None:
+    """Inline all `$ref` references in the schema, so that `$defs` can be removed."""
+    if isinstance(value, dict):
+        while "$ref" in value:
+            # loop, since some defs just reference other defs
+            ref = str(value.pop("$ref")).removeprefix("#/$defs/")
+            value.update(defs[ref])
+        for _key, val in value.items():
+            _inline_refs(val, defs)
+
+    if isinstance(value, list):
+        for item in value:
+            _inline_refs(item, defs)
+
+
 def _get_parameters(location: LocationType, schema: type | None) -> Sequence[OpenAPIParameter]:
     out: list[OpenAPIParameter] = []
     if schema is not None:
         # TypeAdapter: this is only used during spec generation
-        json_schema = TypeAdapter(schema).json_schema(  # nosemgrep: type-adapter-detected
-            by_alias=True, mode="validation", schema_generator=CheckmkGenerateJsonSchema
+        json_schema = get_cached_type_adapter(
+            schema
+        ).json_schema(  # nosemgrep: type-adapter-detected
+            by_alias=True,
+            mode="validation",
+            schema_generator=CheckmkGenerateJsonSchema,
         )
-        # TODO: inline $defs
-        assert json_schema.get("$defs") is None, "$defs not yet supported in this context"
+
+        if defs := json_schema.pop("$defs", None):
+            # TODO: this is a workaround and should be cleaned up when we generate the spec manually
+            _inline_refs(json_schema, defs)
+
         assert json_schema["type"] == "object", f"expected dataclass, got: {schema.__name__}"
         for name, field in json_schema["properties"].items():
             param: OpenAPIParameter = {
@@ -353,7 +375,7 @@ class PydanticResponses:
     def generate_success_responses(
         expected_status_codes: set[StatusCodeInt],
         status_descriptions: Mapping[StatusCodeInt, str] | None,
-        content_type: str,
+        content_type: str | None,
         response_type_adapter: TypeAdapter | None,
         response_headers: dict[str, OpenAPIParameter],
     ) -> ResponseType:
@@ -362,6 +384,8 @@ class PydanticResponses:
 
         # 2xx responses
         if 200 in expected_status_codes:
+            if content_type is None:
+                raise ValueError("Content-Type must be set for 200 responses.")
             if response_type_adapter:
                 content: ContentObject = {content_type: {"schema": response_type_adapter}}
             elif content_type.startswith("application/") or content_type.startswith("image/"):
@@ -425,9 +449,9 @@ class PydanticResponses:
             schema = _api_error_schema("custom", status_code, description)
 
         error_schema = error_schemas.get(status_code, schema)
+        assert error_schema is not None, f"Expected error description for {status_code}"
         # TypeAdapter performance: this is only used during spec generation
-        type_adapter: TypeAdapter[ApiErrorDataclass]
-        type_adapter = TypeAdapter(error_schema)  # nosemgrep: type-adapter-detected
+        type_adapter = get_cached_type_adapter(error_schema)  # nosemgrep: type-adapter-detected
         response: PathItem = {
             "description": f"{http.client.responses[status_code]}: {description}",
             "content": {"application/problem+json": {"schema": type_adapter}},

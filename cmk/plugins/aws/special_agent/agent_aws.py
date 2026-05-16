@@ -19,7 +19,7 @@ import logging
 import re
 import sys
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum, StrEnum
@@ -41,13 +41,8 @@ import botocore
 from botocore.client import BaseClient
 from pydantic import BaseModel, ConfigDict, Field
 
-from cmk.ccc import store
-from cmk.ccc.exceptions import MKException
-
-from cmk.utils import password_store
-from cmk.utils.paths import tmp_dir
-
-from cmk.plugins.aws.constants import (  # pylint: disable=cmk-module-layer-violation
+from cmk.ccc.store import save_text_to_file
+from cmk.plugins.aws.constants import (
     AWSEC2InstFamilies,
     AWSEC2InstTypes,
     AWSEC2LimitsDefault,
@@ -68,6 +63,8 @@ from cmk.special_agents.v0_unstable.misc import (
     get_seconds_since_midnight,
     vcrtrace,
 )
+from cmk.utils.password_store import lookup as password_store_lookup
+from cmk.utils.paths import tmp_dir
 
 if TYPE_CHECKING:
     from mypy_boto3_logs.client import CloudWatchLogsClient
@@ -77,7 +74,7 @@ NOW = datetime.now()
 AWSStrings = bytes | str
 
 
-Dimension = dict[Literal["Name", "Value"], str | None]
+Dimension = Mapping[Literal["Name", "Value"], str | None]
 
 
 class MetricData(TypedDict):
@@ -378,7 +375,7 @@ class AWSConfig:
             return None
 
     def _write_config_hash(self) -> None:
-        store.save_text_to_file(self._config_hash_file, f"{self._current_config_hash}\n")
+        save_text_to_file(self._config_hash_file, f"{self._current_config_hash}\n")
 
 
 # .
@@ -1295,7 +1292,8 @@ class EC2Limits(AWSSectionLimits):
         EC2InstFamiliesquotas = {
             q["QuotaName"]: q["Value"]
             for q in quotas
-            if q["QuotaName"] in AWSEC2InstFamilies.values()
+            if q["QuotaName"]
+            in {name.localize(lambda x: x) for name in AWSEC2InstFamilies.values()}
         }
 
         self._add_instance_limits(
@@ -4825,12 +4823,13 @@ class WAFV2WebACL(AWSSectionCloudwatch):
                 "since metrics for CloudFront-WAFs can only be "
                 "accessed from this region"
             )
-        self._metric_dimensions: list[Dimension] = [
-            {"Name": "WebACL", "Value": None},
-            {"Name": "Rule", "Value": "ALL"},
-        ]
+
+        self._static_metric_dimensions: Collection[Dimension] = [{"Name": "Rule", "Value": "ALL"}]
         if is_regional:
-            self._metric_dimensions.append({"Name": "Region", "Value": self._region})
+            self._static_metric_dimensions = [
+                *self._static_metric_dimensions,
+                {"Name": "Region", "Value": self._region},
+            ]
 
     @property
     def name(self) -> str:
@@ -4854,8 +4853,6 @@ class WAFV2WebACL(AWSSectionCloudwatch):
         metrics: Metrics = []
 
         for idx, (piggyback_hostname, web_acl) in enumerate(colleague_contents.content.items()):
-            self._metric_dimensions[0]["Value"] = web_acl["Name"]
-
             for metric_name in ["AllowedRequests", "BlockedRequests"]:
                 metrics.append(
                     {
@@ -4865,7 +4862,10 @@ class WAFV2WebACL(AWSSectionCloudwatch):
                             "Metric": {
                                 "Namespace": "AWS/WAFV2",
                                 "MetricName": metric_name,
-                                "Dimensions": self._metric_dimensions,
+                                "Dimensions": [
+                                    {"Name": "WebACL", "Value": web_acl["Name"]},
+                                    *self._static_metric_dimensions,
+                                ],
                             },
                             "Period": self.period,
                             "Stat": "Sum",
@@ -7586,7 +7586,7 @@ def _get_proxy(args: argparse.Namespace) -> botocore.config.Config | None:
             proxy_password = args.proxy_password
         elif args.proxy_password_reference:
             pw_id, pw_file = args.proxy_password_reference.split(":", 1)
-            proxy_password = password_store.lookup(Path(pw_file), pw_id)
+            proxy_password = password_store_lookup(Path(pw_file), pw_id)
         else:
             proxy_password = None
         return botocore.config.Config(
@@ -7676,7 +7676,7 @@ def _create_session_from_args(
         secret_access_key = args.secret_access_key
     elif args.secret_access_key_reference:
         pw_id, pw_file = args.secret_access_key_reference.split(":", 1)
-        secret_access_key = password_store.lookup(Path(pw_file), pw_id)
+        secret_access_key = password_store_lookup(Path(pw_file), pw_id)
 
     if args.assume_role:
         return _sts_assume_role(
@@ -7783,7 +7783,7 @@ def agent_aws_main(args: Args) -> int:
     return 1 if has_exceptions else 0
 
 
-class AwsAccessError(MKException):
+class AwsAccessError(Exception):
     pass
 
 

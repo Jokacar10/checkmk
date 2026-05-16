@@ -75,9 +75,9 @@ where
 #[derive(Parser, Debug)]
 #[command(about = "check_cert", version = version::VERSION)]
 struct Args {
-    /// URL to check
-    #[arg(short, long)]
-    url: String,
+    /// DNS resolvable hostname or IP address to be checked
+    #[arg(short = 'H', long)]
+    hostname: String,
 
     /// Port
     #[arg(short, long, default_value_t = 443)]
@@ -209,7 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info("contact host...");
     let start = Instant::now();
     let chain = match fetcher::fetch_server_cert(
-        &args.url,
+        &args.hostname,
         args.port,
         FetcherConfig::builder()
             .timeout((args.timeout != 0).then_some(StdDuration::new(args.timeout, 0)))
@@ -236,7 +236,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info(" 1/3 - check fetching process");
     let mut check = info::collect(
         InfoConfig::builder()
-            .server(&args.url)
+            .server(&args.hostname)
             .port(args.port)
             .build(),
     );

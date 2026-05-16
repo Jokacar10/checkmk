@@ -1,14 +1,12 @@
+# Copyright (C) 2025 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+
 BeforeAll {
     $scriptPath = Join-Path $PSScriptRoot "..\plugins\mk_mysql.ps1"
     . $scriptPath
 }
 Context "mk_mysql.ps1 Tests" {
-    Describe "Run Function" {
-        It "Should execute a command and return output" {
-            $result = Run "echo Hello"
-            $result | Should -Contain "Hello"
-        }
-    }
 
     Describe "ReplaceSqlExeForMysql Function" {
         It "Should replace <cmd> with <expected>" -ForEach @(

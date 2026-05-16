@@ -7,6 +7,7 @@
 import argparse
 import ast
 import datetime
+import errno
 import fcntl
 import os
 import shlex
@@ -28,7 +29,7 @@ from . import load_werk as cmk_werks_load_werk
 from . import parse_werk
 from .config import Config, load_config, try_load_current_version_from_defines_make
 from .convert import werkv1_metadata_to_werkv2_metadata
-from .format import format_as_werk_v1, format_as_werk_v2
+from .format import format_as_werk_v2
 from .parse import WerkV2ParseResult
 
 T = TypeVar("T", bound="Stash")
@@ -52,10 +53,9 @@ class Stash(BaseModel):
         """
         try:
             return WerkId(sorted(self.ids_by_project[project])[0])
-        except IndexError as e:
+        except (KeyError, IndexError) as e:
             raise RuntimeError(
-                "You have no werk IDS left. "
-                "You can reserve 10 additional Werk IDS with 'werk ids 10'."
+                "You have no Werk IDs. You can reserve 10 additional Werk IDs with 'werk ids 10'."
             ) from e
 
     def free_id(self, werk_id: "WerkId") -> None:
@@ -464,7 +464,11 @@ def save_werk(werk: Werk, werk_version: WerkVersion, destination: Path | None = 
         if werk_version == "v2":
             f.write(format_as_werk_v2(werk.content))
         else:
-            f.write(format_as_werk_v1(werk.content))
+            raise NotImplementedError(
+                "Writing v1 werks is no longer supported. "
+                "Please use the werk tool of the 2.2.0 branch.\n"
+                "Contact the component owner of 'Development Tools' if this blocks you."
+            )
 
     save_last_werkid(werk.id)
 
@@ -1055,7 +1059,12 @@ def current_branch() -> str:
 
 
 def current_repo() -> str:
-    return list(os.popen("git config --get remote.origin.url"))[0].strip().split("@")[-1]
+    return (
+        list(os.popen("git config --get remote.origin.url"))[0]
+        .strip()
+        .split("@")[-1]
+        .removesuffix(".git")
+    )
 
 
 def _reserve_werk_ids(
@@ -1098,7 +1107,8 @@ def main_fetch_ids(args: argparse.Namespace) -> None:
 
     if current_branch() != get_config().branch or current_repo() != get_config().repo:
         bail_out(
-            f"Werk IDs can only be reserved on the '{get_config().branch}' branch of the repository, not '{current_branch()}'."
+            f"Werk IDs can only be reserved on the '{get_config().branch}' branch on "
+            f"'{get_config().repo}', not '{current_branch()}' on '{current_repo()}'."
         )
 
     # Get the start werk_id to reserve
@@ -1174,7 +1184,7 @@ def get_werk_file_version() -> WerkVersion:
     for path in Path(".").iterdir():
         if path.name.endswith(".md") and path.name.removesuffix(".md").isdigit():
             return "v2"
-    if set(p.name for p in Path(".").iterdir()) == {"config", "first_free"}:
+    if {p.name for p in Path(".").iterdir()} == {"config", "first_free"}:
         # folder is empty, there are only mandatory files
         return "v2"
     return "v1"
@@ -1193,9 +1203,14 @@ def get_werk_filename(werk_id: WerkId, werk_version: WerkVersion) -> Path:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    goto_werksdir()
-    main_args = parse_arguments(argv or sys.argv[1:])
-    main_args.func(main_args)
+    try:
+        goto_werksdir()
+        main_args = parse_arguments(argv or sys.argv[1:])
+        main_args.func(main_args)
+    except OSError as e:
+        # ignore BrokenPipeError: [Errno 32] Broken pipe
+        if e.errno != errno.EPIPE:
+            raise
 
 
 if __name__ == "__main__":

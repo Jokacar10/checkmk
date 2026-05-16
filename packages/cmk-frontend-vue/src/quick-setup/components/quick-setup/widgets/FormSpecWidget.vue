@@ -5,10 +5,15 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import FormEdit from '@/form/components/FormEdit.vue'
-import { type FormSpecWidgetProps } from './widget_types'
-import type { ValidationMessages } from '@/form'
+
+import { untranslated } from '@/lib/i18n'
+
 import HelpText from '@/components/HelpText.vue'
+
+import type { ValidationMessages } from '@/form'
+import FormEdit from '@/form/components/FormEdit.vue'
+
+import { type FormSpecWidgetProps } from './widget_types'
 
 const props = defineProps<FormSpecWidgetProps>()
 const emit = defineEmits(['update'])
@@ -34,11 +39,11 @@ watch(
 </script>
 
 <template>
-  <table class="qs-formspec-widget">
+  <table class="qs-form-spec-widget">
     <tbody>
       <tr>
         <td>
-          <HelpText :help="form_spec.spec.help" />
+          <HelpText :help="untranslated(form_spec.spec.help)" />
           <FormEdit
             v-model:data="internal"
             :spec="form_spec.spec"
@@ -51,7 +56,7 @@ watch(
 </template>
 
 <style scoped>
-table.qs-formspec-widget {
+table.qs-form-spec-widget {
   border-spacing: 0;
 }
 </style>

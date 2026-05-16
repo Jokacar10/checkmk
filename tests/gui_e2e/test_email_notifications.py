@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.gui_e2e.testlib.playwright.plugin import manage_new_page_from_browser_context
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.plugin import PageGetter
 from tests.gui_e2e.testlib.playwright.pom.email import EmailPage
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.monitor.service_search import ServiceSearchPage
 from tests.gui_e2e.testlib.playwright.pom.setup.add_rule_filesystems import AddRuleFilesystems
 from tests.gui_e2e.testlib.playwright.pom.setup.notification_configuration import (
@@ -67,12 +67,13 @@ def _modify_notification_rule(test_site: Site, linux_hosts: list[str]) -> Iterat
 
 @pytest.mark.skip(reason="CMK-22883; Investigation ongoing ...")
 def test_filesystem_email_notifications(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     linux_hosts: list[str],
     notification_user: tuple[str, str],
     email_manager: EmailManager,
     test_site: Site,
     tmp_path: Path,
+    get_new_page: PageGetter,
 ) -> None:
     """Test that email notification is sent and contain expected data.
 
@@ -160,9 +161,10 @@ def test_filesystem_email_notifications(
         notification_configuration_page.check_total_sent_notifications_has_changed(total_sent)
         notification_configuration_page.check_failed_notifications_has_not_changed(total_failures)
 
-        with manage_new_page_from_browser_context(service_search_page.page.context) as new_page:
-            email_page = EmailPage(new_page, html_file_path)
-            email_page.check_table_content(expected_content)
+        new_page = get_new_page(dashboard_page.page.context)
+        email_page = EmailPage(new_page, html_file_path)
+        email_page.check_table_content(expected_content)
+        new_page.close()
 
     finally:
         logger.info("Delete the created rule")
@@ -193,7 +195,7 @@ def test_filesystem_email_notifications(
 
 def test_email_notifications_host_filters(
     modify_notification_rule: str,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
 ) -> None:
     """Test to verify that the host filter is working as expected.
 

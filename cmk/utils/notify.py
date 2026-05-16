@@ -11,14 +11,14 @@ from collections.abc import Mapping
 from logging import Logger
 from pathlib import Path
 
+from cmk.ccc.config_path import VersionedConfigPath
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.i18n import _
 from cmk.ccc.store import load_object_from_file, save_object_to_file
-
-from cmk.utils.config_path import VersionedConfigPath
 from cmk.utils.labels import Labels
 from cmk.utils.notify_types import NotificationContext as NotificationContext
+from cmk.utils.paths import omd_root
 from cmk.utils.servicename import ServiceName
 from cmk.utils.tags import TagGroupID, TagID
 
@@ -117,7 +117,7 @@ def read_notify_host_file(
 
 
 def _get_host_file_path(config_path: Path | None = None, host_name: HostName | None = None) -> Path:
-    root_path = config_path if config_path else VersionedConfigPath.LATEST_CONFIG
+    root_path = config_path if config_path else VersionedConfigPath.make_latest_path(omd_root)
     if host_name:
         return root_path / "notify" / "host_config" / host_name
     return root_path / "notify" / "host_config"

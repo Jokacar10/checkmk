@@ -4,13 +4,17 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { useValidation, type ValidationMessages } from '../utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
 import type {
   CheckboxListChoice,
   MultipleChoiceElement
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import CmkCheckbox from '@/components/CmkCheckbox.vue'
+
+import { untranslated } from '@/lib/i18n'
+
+import CmkCheckbox from '@/components/user-input/CmkCheckbox.vue'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, useValidation } from '../utils/validation'
 
 const props = defineProps<{
   spec: CheckboxListChoice
@@ -43,7 +47,7 @@ function change(element: MultipleChoiceElement, newValue: boolean) {
     <div v-for="element in props.spec.elements" :key="element.name" class="container">
       <CmkCheckbox
         role="option"
-        :label="element.title"
+        :label="untranslated(element.title)"
         :model-value="value.map((v) => v.name).includes(element.name)"
         @update:model-value="(newValue) => change(element, newValue)"
       />
@@ -54,6 +58,7 @@ function change(element: MultipleChoiceElement, newValue: boolean) {
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 div.container:not(:last-of-type) {
   padding-bottom: 8px;
 }

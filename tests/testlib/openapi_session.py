@@ -38,12 +38,10 @@ from typing import Any, NamedTuple
 
 import requests
 
-from tests.testlib.version import CMKVersion
-
+from cmk import trace
 from cmk.gui.http import HTTPMethod
 from cmk.gui.watolib.broker_connections import BrokerConnectionInfo
-
-from cmk import trace
+from tests.testlib.version import CMKVersion
 
 logger = logging.getLogger("rest-session")
 tracer = trace.get_tracer()
@@ -112,6 +110,7 @@ class CMKOpenApiSession(requests.Session):
 
         self.changes = ChangesAPI(self)
         self.users = UsersAPI(self)
+        self.user_role = UserRoleAPI(self)
         self.folders = FoldersAPI(self)
         self.hosts = HostsAPI(self)
         self.host_groups = HostGroupsAPI(self)
@@ -127,17 +126,20 @@ class CMKOpenApiSession(requests.Session):
         self.ldap_connection = LDAPConnectionAPI(self)
         self.passwords = PasswordsAPI(self)
         self.license = LicenseAPI(self)
+        self.otel_collector = OtelCollectorAPI(self)
+        self.event_console = EventConsoleAPI(self)
+        self.saml2 = Saml2API(self)
 
     def set_authentication_header(self, user: str, password: str) -> None:
         self.headers["Authorization"] = f"Bearer {user} {password}"
 
-    def request(  # type: ignore[no-untyped-def]
+    def request(  # type: ignore[override]
         self,
         method: str | bytes,
         url: str | bytes,
-        *args,
+        *args: Any,
         timeout: float | tuple[float, float] | tuple[float, None] | None = 300.0,
-        **kwargs,
+        **kwargs: Any,
     ) -> requests.Response:
         """
         Suggested method to use a base url with a requests.Session
@@ -424,7 +426,7 @@ class UsersAPI(BaseAPI):
             raise UnexpectedResponse.from_response(response)
         return [User(title=user_dict["title"]) for user_dict in response.json()["value"]]
 
-    def get(self, username: str) -> tuple[dict[Any, str], str] | None:
+    def get(self, username: str) -> tuple[dict[str, Any], str] | None:
         """
         Returns
             a tuple with the user details and the Etag header if the user was found
@@ -453,6 +455,15 @@ class UsersAPI(BaseAPI):
 
     def delete(self, username: str) -> None:
         response = self.session.delete(f"/objects/user_config/{username}")
+        if response.status_code != 204:
+            raise UnexpectedResponse.from_response(response)
+
+
+class UserRoleAPI(BaseAPI):
+    """Wrap REST-API interface to interact with `user role`."""
+
+    def delete(self, role_id: str) -> None:
+        response = self.session.delete(f"/objects/user_role/{role_id}")
         if response.status_code != 204:
             raise UnexpectedResponse.from_response(response)
 
@@ -497,6 +508,27 @@ class FoldersAPI(BaseAPI):
             response.headers["Etag"],
         )
 
+    def delete(self, folder: str, delete_mode: str = "recursive") -> None:
+        """Delete a folder.
+
+        Args:
+            folder: The path of the folder to delete. Path delimiters should be '/'.
+            delete_mode: Delete policy. Options:
+                - 'recursive': Deletes the folder and all elements it contains (default)
+                - 'abort_on_nonempty': Deletes the folder only if it is empty
+        Raises:
+            UnexpectedResponse: If the delete operation fails
+        """
+        # Convert folder path delimiters from '/' to '~' for the API
+        folder_path = folder.replace("/", "~")
+
+        response = self.session.delete(
+            f"/objects/folder_config/{folder_path}", params={"delete_mode": delete_mode}
+        )
+
+        if response.status_code != 204:
+            raise UnexpectedResponse.from_response(response)
+
 
 class HostsAPI(BaseAPI):
     def create(
@@ -531,10 +563,10 @@ class HostsAPI(BaseAPI):
         )
         if response.status_code != 200:
             raise UnexpectedResponse.from_response(response)
-        value: list[dict[str, Any]] = response.json()
+        value: list[dict[str, Any]] = response.json()["value"]
         return value
 
-    def get(self, hostname: str) -> tuple[dict[Any, str], str] | None:
+    def get(self, hostname: str) -> tuple[dict[str, Any], str] | None:
         """
         Returns
             a tuple with the host details and the Etag header if the host was found
@@ -575,8 +607,20 @@ class HostsAPI(BaseAPI):
         value: list[dict[str, Any]] = response.json()["value"]
         return value
 
-    def get_all_names(self) -> list[str]:
-        return [host["id"] for host in self.get_all()]
+    def get_all_names(
+        self, ignore: list[str] | None = None, allow: list[str] | None = None
+    ) -> list[str]:
+        """Get all host names from the API.
+
+        Args:
+            ignore: List of host names not to be returned, even if found in the system (optional).
+            allow: List of host names to be returned, if found in the system (optional).
+        """
+        return [
+            host_name
+            for host_name in [host["id"] for host in self.get_all()]
+            if (not ignore or host_name not in ignore) and (not allow or host_name in allow)
+        ]
 
     def delete(self, hostname: str) -> None:
         response = self.session.delete(f"/objects/host_config/{hostname}")
@@ -833,6 +877,7 @@ class RulesAPI(BaseAPI):
         ruleset_name: str | None = None,
         folder: str = "/",
         conditions: dict[str, Any] | None = None,
+        properties: dict[str, Any] | None = None,
     ) -> str:
         response = self.session.post(
             "/domain-types/rule/collections/all",
@@ -840,11 +885,9 @@ class RulesAPI(BaseAPI):
                 {
                     "ruleset": ruleset_name,
                     "folder": folder,
-                    "properties": {
-                        "disabled": False,
-                    },
                     "value_raw": repr(value),
                     "conditions": conditions or {},
+                    "properties": properties or {"disabled": False},
                 }
                 if ruleset_name
                 else value
@@ -871,15 +914,54 @@ class RulesAPI(BaseAPI):
             response.headers["Etag"],
         )
 
+    def update(
+        self,
+        rule_id: str,
+        value_raw: object | None = None,
+        properties: dict[str, Any] | None = None,
+        conditions: dict[str, Any] | None = None,
+        etag: str = "*",
+    ) -> None:
+        """Update an existing rule."""
+        update_data: dict[str, Any] = {}
+        if value_raw is not None:
+            update_data["value_raw"] = repr(value_raw)
+        if properties is not None:
+            update_data["properties"] = properties
+        if conditions is not None:
+            update_data["conditions"] = conditions
+
+        response = self.session.put(
+            f"/objects/rule/{rule_id}",
+            json=update_data,
+            headers={"If-Match": etag},
+        )
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
+
     def delete(self, rule_id: str) -> None:
         response = self.session.delete(f"/objects/rule/{rule_id}")
         if response.status_code != 204:
             raise UnexpectedResponse.from_response(response)
 
-    def get_all(self, ruleset_name: str) -> list[dict[str, Any]]:
+    def get_all(
+        self,
+        ruleset_name: str | None = None,
+        folder: str | None = None,
+        include_extensions: bool = True,
+    ) -> list[dict[str, Any]]:
+        """Get all rules, optionally filtered by ruleset and folder."""
+        params = {}
+        if ruleset_name:
+            params["ruleset_name"] = ruleset_name
+        if folder:
+            params["folder"] = folder
+        if not include_extensions:
+            params["include_extensions"] = "false"
+
         response = self.session.get(
             "/domain-types/rule/collections/all",
-            params={"ruleset_name": ruleset_name},
+            params=params,
         )
         if response.status_code != 200:
             raise UnexpectedResponse.from_response(response)
@@ -888,6 +970,21 @@ class RulesAPI(BaseAPI):
 
     def get_all_names(self, ruleset_name: str) -> list[str]:
         return [_["id"] for _ in self.get_all(ruleset_name)]
+
+    def move(
+        self,
+        rule_id: str,
+        folder: str,
+    ) -> None:
+        """Move a rule to a different folder."""
+        move_data = {"folder": folder}
+
+        response = self.session.post(
+            f"/objects/rule/{rule_id}/actions/move/invoke",
+            json=move_data,
+        )
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
 
 
 class RulesetsAPI(BaseAPI):
@@ -1083,6 +1180,19 @@ class DcdAPI(BaseAPI):
         if resp.status_code != 200:
             raise UnexpectedResponse.from_response(resp)
 
+    def get(self, dcd_id: str) -> dict[str, Any] | None:
+        """
+        Returns
+            the DCD details if the dcd_id was found
+            None if the dcd_id was not found
+        """
+        response = self.session.get(f"/objects/dcd/{dcd_id}")
+        if response.status_code not in (200, 404):
+            raise UnexpectedResponse.from_response(response)
+        if response.status_code == 404:
+            return None
+        return response.json()
+
     def delete(self, dcd_id: str) -> None:
         """Delete a DCD connection via REST API."""
         resp = self.session.delete(f"/objects/dcd/{dcd_id}")
@@ -1240,3 +1350,117 @@ class LicenseAPI(BaseAPI):
         if response.status_code != 200:
             raise UnexpectedResponse.from_response(response)
         return response
+
+
+class OtelCollectorAPI(BaseAPI):
+    def __init__(self, session: CMKOpenApiSession) -> None:
+        super().__init__(session)
+        # Hack to use the "unstable" version of the API endpoint
+        self.base_url = f"http://{self.session.host}:{self.session.port}/{self.session.site}/check_mk/api/unstable"
+
+    def create(
+        self,
+        ident: str,
+        title: str,
+        disabled: bool,
+        receiver_protocol_grpc: dict[str, Any] | None = None,
+        receiver_protocol_http: dict[str, Any] | None = None,
+        prometheus_scrape_configs: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Create an OpenTelemetry collector via REST API."""
+        body = {
+            "ident": ident,
+            "disabled": disabled,
+            "site": [self.session.site],
+            "title": title,
+        }
+        if receiver_protocol_grpc:
+            body["receiver_protocol_grpc"] = receiver_protocol_grpc
+        if receiver_protocol_http:
+            body["receiver_protocol_http"] = receiver_protocol_http
+        if prometheus_scrape_configs:
+            body["prometheus_scrape_configs"] = prometheus_scrape_configs
+
+        # hack to use the "unstable" version of the API endpoint
+        response = self.session.post(
+            url=self.base_url + "/domain-types/otel_collector_config/collections/all",
+            json=body,
+        )
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
+
+    def delete(self, ident: str) -> None:
+        """Delete an OpenTelemetry collector via REST API."""
+        response = self.session.delete(self.base_url + f"/objects/otel_collector_config/{ident}")
+        if response.status_code != 204:
+            raise UnexpectedResponse.from_response(response)
+
+
+class EventConsoleAPI(BaseAPI):
+    def get_all(self) -> list[dict[str, Any]]:
+        response = self.session.get(
+            "/domain-types/event_console/collections/all",
+        )
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
+        value: list[dict[str, Any]] = response.json()["value"]
+        return value
+
+    def archive_events_by_params(self, filters: dict[str, Any]) -> None:
+        """Archive EC events by using 'params' filter type."""
+        body = {"filter_type": "params", "filters": filters}
+        response = self.session.post(
+            url="/domain-types/event_console/actions/delete/invoke", json=body
+        )
+        if response.status_code != 204:
+            raise UnexpectedResponse.from_response(response)
+
+
+class Saml2API(BaseAPI):
+    def get_all(self) -> list[dict[str, Any]]:
+        response = self.session.get("/domain-types/saml_connection/collections/all")
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
+        return response.json()["value"]
+
+    def get(self, connection_id: str) -> tuple[dict[str, Any], str]:
+        """Returns a tuple with the connection details and the Etag header"""
+        response = self.session.get(f"/objects/saml_connection/{connection_id}")
+
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
+
+        return (response.json()["extensions"], response.headers["Etag"])
+
+    def create(self, connection_id: str, connection_config: dict[str, Any]) -> dict[str, Any]:
+        connection = {
+            "general_properties": {
+                "id": connection_id,
+                "name": "Test SAML Auth",
+            },
+            "connection_config": connection_config,
+            "security": {
+                "signing_certificate": {"type": "builtin"},
+                "decrypt_auth_certificate": {"type": "builtin"},
+            },
+            "users": {
+                "id_attribute": "user_id",
+            },
+        }
+
+        response = self.session.post(
+            "/domain-types/saml_connection/collections/all",
+            json=connection,
+        )
+        if response.status_code != 200:
+            raise UnexpectedResponse.from_response(response)
+        return response.json()
+
+    def delete(self, connection_id: str, etag: str) -> None:
+        response = self.session.delete(
+            f"/objects/saml_connection/{connection_id}",
+            headers={"If-Match": etag},
+        )
+
+        if response.status_code != 204:
+            raise UnexpectedResponse.from_response(response)

@@ -19,33 +19,32 @@ from unittest.mock import patch
 import pytest
 from fakeredis import FakeRedis
 
-from tests.unit.mocks_and_helpers import DummyLicensingHandler, FixPluginLegacy
-
 import livestatus
 
 import cmk.ccc.debug
 import cmk.ccc.version as cmk_version
-from cmk.ccc import tty
-from cmk.ccc.site import omd_site, SiteId
-
+import cmk.crypto.password_hashing
 import cmk.utils.caching
 import cmk.utils.paths
+from cmk.ccc import tty
+from cmk.ccc.crash_reporting import make_crash_report_base_path
+from cmk.ccc.site import omd_site, SiteId
+from cmk.checkengine.plugins import (  # pylint: disable=cmk-module-layer-violation
+    AgentBasedPlugins,
+)
 from cmk.utils import redis
 from cmk.utils.livestatus_helpers.testing import (
     mock_livestatus_communication,
     MockLiveStatusConnection,
 )
-
-from cmk.checkengine.plugins import (  # pylint: disable=cmk-module-layer-violation
-    AgentBasedPlugins,
-)
-
-import cmk.crypto.password_hashing
+from tests.unit.mocks_and_helpers import DummyLicensingHandler, FixPluginLegacy
 
 # TODO: Can we somehow push some of the registrations below to the subdirectories?
 # Needs to be executed before the import of those modules
 pytest.register_assert_rewrite(
-    "tests.testlib", "tests.unit.checks.checktestlib", "tests.unit.checks.generictests.run"
+    "tests.testlib",
+    "tests.unit.cmk.base.legacy_checks.checktestlib",
+    "tests.unit.checks.generictests.run",
 )
 
 
@@ -96,6 +95,12 @@ def _fake_version_and_paths() -> None:
         "local_dashboards_dir",
         "local_views_dir",
         "local_reports_dir",
+        # This starts with /etc and will not be changed by the code below
+        "cse_config_dir",
+        # these start with /opt and will not be changed in the code below
+        "rrd_multiple_dir",
+        "rrd_single_dir",
+        "mkbackup_lock_dir",
     }
 
     # patch `cmk.utils.paths` before `cmk.ccc.versions`
@@ -108,6 +113,7 @@ def _fake_version_and_paths() -> None:
         if name.startswith("_") or not isinstance(value, str | Path) or name in unpatched_paths:
             continue
 
+        assert Path(value).is_relative_to(original_omd_root)
         try:
             monkeypatch.setattr(
                 f"cmk.utils.paths.{name}",
@@ -382,7 +388,7 @@ def cleanup_after_test():
 
     # Fail the execution in case any crash reports were created
     try:
-        _report_crashes(cmk.utils.paths.crash_dir)
+        _report_crashes()
     finally:
         # Ensure there is no file left over in the unit test fake site
         # to prevent tests involving each other
@@ -399,8 +405,8 @@ def cleanup_after_test():
                 logger.debug("Failed to cleanup %s after test: %s. Keep going anyway", entry, e)
 
 
-def _report_crashes(crash_dir: Path) -> None:
-    for crash_file in crash_dir.glob("**/crash.info"):
+def _report_crashes() -> None:
+    for crash_file in make_crash_report_base_path(cmk.utils.paths.omd_root).glob("**/crash.info"):
         crash = json.loads(crash_file.read_text())
         pytest.fail(
             f"Crash report detected! {crash.get('exc_type', '')}: {crash.get('exc_value', '')}\n"

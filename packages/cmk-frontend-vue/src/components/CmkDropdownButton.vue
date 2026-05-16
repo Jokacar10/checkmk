@@ -9,9 +9,10 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 
 <script setup lang="ts">
-import { useTemplateRef } from 'vue'
-import CmkButton from './CmkButton.vue'
 import { type VariantProps, cva } from 'class-variance-authority'
+import { useTemplateRef } from 'vue'
+
+import CmkButton from './CmkButton.vue'
 
 export interface ButtonProps {
   group?: ButtonVariants['group']
@@ -79,7 +80,7 @@ defineExpose({
 .cmk-dropdown-button {
   height: var(--form-field-height);
   margin: 0;
-  padding: 3px 6px 4px 6px;
+  padding: 3px 6px 4px;
   vertical-align: baseline;
   background-color: var(--default-form-element-bg-color);
   border: none;
@@ -87,6 +88,7 @@ defineExpose({
   font-weight: var(--font-weight-default);
   cursor: pointer;
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   &.wide {
     min-width: 10em;
   }
@@ -95,27 +97,35 @@ defineExpose({
     background-color: var(--input-hover-bg-color);
   }
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   &.disabled {
     cursor: auto;
     color: var(--font-color-dimmed);
+
     &:hover {
       background-color: var(--default-form-element-bg-color);
     }
   }
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   &.no_value {
     color: var(--font-color-dimmed);
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     > .cmk-dropdown-button_arrow {
       color: var(--font-color);
     }
   }
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   &.no_choices {
     cursor: auto;
+
     &:hover {
       background-color: var(--default-form-element-bg-color);
     }
+
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     > .cmk-dropdown-button_arrow {
       opacity: 0.4;
     }

@@ -18,8 +18,8 @@ from typing import NoReturn
 
 from jinja2 import Environment, FileSystemLoader
 
-from cmk.ccc.exceptions import MKException
-
+from cmk.notification_plugins import utils
+from cmk.notification_plugins.utils import get_password_from_env_or_context, render_cmk_graphs
 from cmk.utils.escaping import escape_permissive
 from cmk.utils.mail import (
     Attachment,
@@ -29,9 +29,6 @@ from cmk.utils.mail import (
     send_mail_sendmail,
 )
 from cmk.utils.paths import omd_root, web_dir
-
-from cmk.notification_plugins import utils
-from cmk.notification_plugins.utils import get_password_from_env_or_context, render_cmk_graphs
 
 # Elements to be put into the mail body. Columns:
 # 1. Name
@@ -262,10 +259,6 @@ TMPL_SERVICE_SUBJECT = "Checkmk: $HOSTNAME$/$SERVICEDESC$ $EVENT_TXT$"
 
 opt_debug = "-d" in sys.argv
 bulk_mode = "--bulk" in sys.argv
-
-
-class GraphException(MKException):
-    pass
 
 
 class TemplateRenderer:
@@ -526,12 +519,6 @@ def extend_context(context: dict[str, str], is_bulk: bool = False) -> None:
         context["HOSTNAME_AND_ALIAS_TXT"] = "$HOSTNAME$"
         context["HOSTNAME_AND_ALIAS_HTML"] = "$LINKEDHOSTNAME$"
 
-    event_template_txt = txt_event_template(context["NOTIFICATIONTYPE"])
-
-    context["EVENT_TXT"] = utils.substitute_context(
-        event_template_txt.replace("@", context["WHAT"]), context
-    )
-
     if "HOSTOUTPUT" in context:
         context["HOSTOUTPUT_HTML"] = context["HOSTOUTPUT"]
 
@@ -550,32 +537,6 @@ def extend_context(context: dict[str, str], is_bulk: bool = False) -> None:
     else:
         tmpl = context.get("PARAMETER_SERVICE_SUBJECT") or TMPL_SERVICE_SUBJECT
         context["SUBJECT"] = utils.substitute_context(tmpl, context)
-
-
-def txt_event_template(notification_type: str) -> str:
-    # Returns an event summary
-    if notification_type in ["PROBLEM", "RECOVERY"]:
-        return "$PREVIOUS@HARDSHORTSTATE$ -> $@SHORTSTATE$"
-    if notification_type == "FLAPPINGSTART":
-        return "Started Flapping"
-    if notification_type == "FLAPPINGSTOP":
-        return "Stopped Flapping ($@SHORTSTATE$)"
-    if notification_type == "FLAPPINGDISABLED":
-        return "Disabled Flapping ($@SHORTSTATE$)"
-    if notification_type == "DOWNTIMESTART":
-        return "Downtime Start ($@SHORTSTATE$)"
-    if notification_type == "DOWNTIMEEND":
-        return "Downtime End ($@SHORTSTATE$)"
-    if notification_type == "DOWNTIMECANCELLED":
-        return "Downtime Cancelled ($@SHORTSTATE$)"
-    if notification_type == "ACKNOWLEDGEMENT":
-        return "Acknowledged ($@SHORTSTATE$)"
-    if notification_type == "CUSTOM":
-        return "Custom Notification ($@SHORTSTATE$)"
-    if notification_type.startswith("ALERTHANDLER"):
-        # The notification_type here is "ALERTHANDLER (exit_code)"
-        return notification_type
-    return notification_type
 
 
 def body_templates(

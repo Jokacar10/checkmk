@@ -6,14 +6,13 @@
 
 import abc
 import re
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from datetime import datetime
-from typing import Generic, TypeVar
 
 import cmk.gui.watolib.changes as _changes
 from cmk.gui import forms
 from cmk.gui.breadcrumb import Breadcrumb
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
@@ -37,6 +36,7 @@ from cmk.gui.type_defs import (
     CustomUserAttrSpec,
     PermissionName,
 )
+from cmk.gui.userdb import get_user_attributes
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import make_confirm_delete_link, makeactionuri, makeuri, makeuri_contextless
 from cmk.gui.watolib.custom_attributes import (
@@ -64,11 +64,8 @@ def custom_attr_types() -> Choices:
     ]
 
 
-_T_CustomAttrSpec = TypeVar("_T_CustomAttrSpec", bound=CustomAttrSpec)
-
-
 # TODO: Refactor to be valuespec based
-class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
+class ModeEditCustomAttr[T: CustomAttrSpec](WatoMode):
     def _from_vars(self):
         self._name = request.get_ascii_input("edit")  # missing -> new custom attr
         self._new = self._name is None
@@ -82,7 +79,7 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
             matching_attrs = [a for a in self._attrs if a["name"] == self._name]
             if not matching_attrs:
                 raise MKUserError(None, _("The attribute does not exist."))
-            self._attr: _T_CustomAttrSpec = matching_attrs[0]
+            self._attr: T = matching_attrs[0]
         else:
             self._attr = self._default_value
 
@@ -93,7 +90,7 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
 
     @property
     @abc.abstractmethod
-    def _attrs(self) -> list[_T_CustomAttrSpec]: ...
+    def _attrs(self) -> list[T]: ...
 
     @property
     @abc.abstractmethod
@@ -102,7 +99,7 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
 
     @property
     @abc.abstractmethod
-    def _default_value(self) -> _T_CustomAttrSpec: ...
+    def _default_value(self) -> T: ...
 
     @property
     @abc.abstractmethod
@@ -115,7 +112,7 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def _update_config(self) -> None:
+    def _update_config(self, custom_attributes: Sequence[T], *, pprint_value: bool) -> None:
         raise NotImplementedError()
 
     @abc.abstractmethod
@@ -133,7 +130,7 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
     def title(self) -> str:
         raise NotImplementedError()
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return make_simple_form_page_menu(
             _("Attribute"), breadcrumb, form_name="attr", button_name="_save"
         )
@@ -144,7 +141,7 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
     def _add_extra_form_sections(self) -> None:
         pass
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         if not transactions.check_transaction():
             return None
 
@@ -198,14 +195,14 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
                 action_name="edit-%sattr" % self._type,
                 text=_("Create new %s attribute %s") % (self._type, self._name),
                 user_id=user.id,
-                use_git=active_config.wato_use_git,
+                use_git=config.wato_use_git,
             )
         else:
             _changes.add_change(
                 action_name="edit-%sattr" % self._type,
                 text=_("Modified %s attribute %s") % (self._type, self._name),
                 user_id=user.id,
-                use_git=active_config.wato_use_git,
+                use_git=config.wato_use_git,
             )
             self._attr["title"] = title
             self._attr["topic"] = topic
@@ -216,11 +213,11 @@ class ModeEditCustomAttr(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
         self._add_extra_attrs_from_html_vars()
 
         save_custom_attrs_to_mk_file(self._all_attrs)
-        self._update_config()
+        self._update_config(self._attrs, pprint_value=config.wato_pprint_config)
 
         return redirect(mode_url(self._type + "_attrs"))
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         # TODO: remove subclass specific things specifict things (everything with _type == 'user')
         with html.form_context("attr"):
             forms.header(_("Properties"))
@@ -328,8 +325,10 @@ class ModeEditCustomUserAttr(ModeEditCustomAttr[CustomUserAttrSpec]):
     def _macro_label(self) -> str:
         return _("Make this variable available in notifications")
 
-    def _update_config(self) -> None:
-        update_user_custom_attrs(datetime.now())
+    def _update_config(
+        self, custom_attributes: Sequence[CustomUserAttrSpec], *, pprint_value: bool
+    ) -> None:
+        update_user_custom_attrs(get_user_attributes(custom_attributes), datetime.now())
 
     def _show_in_table_option(self) -> None:
         self._render_table_option(
@@ -414,8 +413,10 @@ class ModeEditCustomHostAttr(ModeEditCustomAttr[CustomHostAttrSpec]):
             "Make this custom attribute available to check commands, notifications and the status GUI"
         )
 
-    def _update_config(self) -> None:
-        update_host_custom_attrs(pprint_value=active_config.wato_pprint_config)
+    def _update_config(
+        self, custom_attributes: Sequence[CustomHostAttrSpec], *, pprint_value: bool
+    ) -> None:
+        update_host_custom_attrs(custom_attributes, pprint_value=pprint_value)
 
     def _show_in_table_option(self) -> None:
         self._render_table_option(
@@ -434,7 +435,7 @@ class ModeEditCustomHostAttr(ModeEditCustomAttr[CustomHostAttrSpec]):
         return _("Edit host attribute")
 
 
-class ModeCustomAttrs(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
+class ModeCustomAttrs[T_CustomAttrSpec: CustomAttrSpec](WatoMode):
     def __init__(self) -> None:
         super().__init__()
         # TODO: Inappropriate Intimacy: custom host attributes should not now about
@@ -449,17 +450,19 @@ class ModeCustomAttrs(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
 
     @property
     @abc.abstractmethod
-    def _attrs(self) -> list[_T_CustomAttrSpec]: ...
+    def _attrs(self) -> list[T_CustomAttrSpec]: ...
 
     @abc.abstractmethod
     def title(self) -> str:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def _update_config(self):
+    def _update_config(
+        self, custom_attributes: Sequence[T_CustomAttrSpec], *, pprint_value: bool
+    ) -> None:
         raise NotImplementedError()
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return PageMenu(
             dropdowns=[
                 PageMenuDropdown(
@@ -503,7 +506,7 @@ class ModeCustomAttrs(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
     def _page_menu_entries_related(self) -> Iterable[PageMenuEntry]:
         raise NotImplementedError()
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         if not transactions.check_transaction():
             request.del_var("_transid")
             return redirect(makeuri(request=request, addvars=list(request.itervars())))
@@ -517,17 +520,22 @@ class ModeCustomAttrs(WatoMode, abc.ABC, Generic[_T_CustomAttrSpec]):
             if attr["name"] == delname:
                 self._attrs.pop(index)
         save_custom_attrs_to_mk_file(self._all_attrs)
-        remove_custom_attribute_from_all_users(delname, user_features_registry.features().sites)
-        self._update_config()
+        remove_custom_attribute_from_all_users(
+            delname,
+            user_features_registry.features().sites,
+            get_user_attributes(config.wato_user_attrs),
+            use_git=config.wato_use_git,
+        )
+        self._update_config(self._attrs, pprint_value=config.wato_pprint_config)
         _changes.add_change(
             action_name="edit-%sattrs" % self._type,
             text=_("Deleted attribute %s") % (delname),
             user_id=user.id,
-            use_git=active_config.wato_use_git,
+            use_git=config.wato_use_git,
         )
         return redirect(self.mode_url())
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         if not self._attrs:
             html.div(_("No custom attributes are defined yet."), class_="info")
             return
@@ -573,8 +581,10 @@ class ModeCustomUserAttrs(ModeCustomAttrs[CustomUserAttrSpec]):
     def _attrs(self) -> list[CustomUserAttrSpec]:
         return self._all_attrs["user"]
 
-    def _update_config(self) -> None:
-        update_user_custom_attrs(datetime.now())
+    def _update_config(
+        self, custom_attributes: Sequence[CustomUserAttrSpec], *, pprint_value: bool
+    ) -> None:
+        update_user_custom_attrs(get_user_attributes(custom_attributes), datetime.now())
 
     def title(self) -> str:
         return _("Custom user attributes")
@@ -610,8 +620,10 @@ class ModeCustomHostAttrs(ModeCustomAttrs[CustomHostAttrSpec]):
     def _attrs(self) -> list[CustomHostAttrSpec]:
         return self._all_attrs["host"]
 
-    def _update_config(self) -> None:
-        update_host_custom_attrs(pprint_value=active_config.wato_pprint_config)
+    def _update_config(
+        self, custom_attributes: Sequence[CustomHostAttrSpec], *, pprint_value: bool
+    ) -> None:
+        update_host_custom_attrs(custom_attributes, pprint_value=pprint_value)
 
     def title(self) -> str:
         return _("Custom host attributes")

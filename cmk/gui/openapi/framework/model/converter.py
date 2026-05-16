@@ -3,24 +3,33 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 import ipaddress
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import PlainValidator
 
 from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils.livestatus_helpers.queries import Query
-from cmk.utils.livestatus_helpers.tables import Hostgroups, Servicegroups
-from cmk.utils.tags import TagGroupID, TagID
-
 from cmk.gui import sites, userdb
+from cmk.gui.config import active_config, builtin_role_ids
+from cmk.gui.customer import customer_api
 from cmk.gui.groups import GroupName, GroupType
+from cmk.gui.logged_in import user
 from cmk.gui.openapi.framework.model import ApiOmitted
+from cmk.gui.permissions import load_dynamic_permissions, permission_registry
+from cmk.gui.userdb import connection_choices
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.watolib import groups_io, tags
 from cmk.gui.watolib.hosts_and_folders import Host
+from cmk.gui.watolib.passwords import load_passwords
+from cmk.gui.watolib.userroles import role_exists, RoleID
+from cmk.utils.livestatus_helpers.queries import Query
+from cmk.utils.livestatus_helpers.tables import Hostgroups, Servicegroups
+from cmk.utils.regex import regex, REGEX_ID
+from cmk.utils.tags import TagGroupID, TagID
 
 
 def TypedPlainValidator[T](input_type: type[T], validator: Callable[[T], object]) -> PlainValidator:
@@ -49,6 +58,42 @@ def TypedPlainValidator[T](input_type: type[T], validator: Callable[[T], object]
         func=_with_type_check,
         json_schema_input_type=input_type,
     )
+
+
+@dataclass(slots=True)
+class RegistryConverter[T]:
+    registry_or_getter: Mapping[str, T] | Callable[[UserPermissions], Mapping[str, T]]
+    custom_error_message: str | None = None
+
+    @property
+    def _registry(self) -> Mapping[str, T]:
+        if not isinstance(self.registry_or_getter, Mapping):
+            self.registry_or_getter = self.registry_or_getter(
+                UserPermissions.from_config(active_config, permission_registry)
+            )
+
+        return self.registry_or_getter
+
+    def validate(self, value: str) -> str:
+        """Validates that the given value is in the registry."""
+        if value not in self._registry:
+            valid_options = sorted(self._registry)
+            if len(valid_options) > 20:
+                valid_options_string = ", ".join(f"'{x}'" for x in valid_options[:19])
+                valid_options_string += ", ... (more options available)"
+            else:
+                valid_options_string = ", ".join(f"'{x}'" for x in valid_options)
+            raise ValueError(
+                self.custom_error_message
+                or f"Value {value!r} is not allowed, valid options are: {valid_options_string}"
+            )
+
+        return value
+
+    def value(self, value: str) -> T:
+        """Returns the value from the registry."""
+        self.validate(value)
+        return self._registry[value]
 
 
 @dataclass(slots=True)
@@ -152,12 +197,16 @@ class GroupConverter:
 
 class UserConverter:
     @staticmethod
-    def active(user: str) -> UserId:
-        user_id = UserId.parse(user)
+    def active(raw_user_id: str) -> UserId:
+        user_id = UserId.parse(raw_user_id)
         users = userdb.load_users(lock=False)
         if user_id not in users:
-            raise ValueError(f"User {user!r} does not exist.")
+            raise ValueError(f"User {raw_user_id!r} does not exist.")
         return user_id
+
+    @staticmethod
+    def valid_user_id(raw_user_id: str) -> UserId:
+        return UserId.parse(raw_user_id)
 
 
 class TagConverter:
@@ -205,3 +254,151 @@ class HostAddressConverter:
                     raise ValueError(f"IPv6 address '{value}' is not allowed.")
 
         return address
+
+
+@dataclass(slots=True)
+class UserRoleIdConverter:
+    type PermissionType = Literal["wato.users", "wato.edit"]
+
+    permission_type: PermissionType = "wato.users"
+
+    def should_exist(self, user_role: str) -> RoleID:
+        self._verify_user_permissions()
+        role_id = RoleID(user_role)
+        if not role_exists(role_id):
+            raise ValueError(f"The role should exist but it doesn't: '{user_role}'")
+        return role_id
+
+    def should_be_custom_and_should_exist(self, user_role: str) -> RoleID:
+        role_id = self.should_exist(user_role)
+        if role_id in builtin_role_ids:
+            raise ValueError(f"The role should be a custom role but it's not: '{user_role}'")
+        return role_id
+
+    def should_not_exist(self, user_role: str) -> RoleID:
+        self._verify_user_permissions()
+        role_id = RoleID(user_role)
+        if role_exists(role_id):
+            raise ValueError(f"The role should not exist but it does: '{user_role}'")
+        return role_id
+
+    def should_be_builtin(self, user_role: str) -> RoleID:
+        self._verify_user_permissions()
+        if user_role not in builtin_role_ids:
+            raise ValueError(f"The role should be a built-in role but it's not: '{user_role}'")
+        return RoleID(user_role)
+
+    def _verify_user_permissions(self) -> None:
+        # TODO: clean this up (CMK-17068)
+        load_dynamic_permissions()
+        user.need_permission("wato.users")
+
+        if self.permission_type == "wato.edit":
+            user.need_permission("wato.edit")
+
+
+class PermissionsConverter:
+    @staticmethod
+    def validate(value: dict[str, str]) -> dict[str, str]:
+        _validation_errors = []
+        for key, val in value.items():
+            if key not in permission_registry:
+                _validation_errors.append(f"The specified permission name doesn't exist: {key}")
+            if val not in ["yes", "no", "default"]:
+                _validation_errors.append(
+                    f"Invalid permission value: {val}.  Only 'yes', 'no', and 'default' are allowed."
+                )
+
+        if _validation_errors:
+            raise ValueError("Validation errors found:\n" + "\n".join(_validation_errors))
+
+        return value
+
+
+class SiteIdConverter:
+    @staticmethod
+    def should_exist(value: str) -> SiteId:
+        site_id = SiteId(value)
+        if site_id not in active_config.sites:
+            raise ValueError(f"Site {site_id!r} does not exist.")
+        return site_id
+
+    @staticmethod
+    def should_not_exist(value: str) -> SiteId:
+        site_id = SiteId(value)
+        if site_id in active_config.sites:
+            raise ValueError(f"Site {site_id!r} already exists.")
+        return site_id
+
+
+class PasswordConverter:
+    @staticmethod
+    def is_valid_id(ident: str) -> str:
+        pattern: re.Pattern[str] = regex(REGEX_ID, re.ASCII)
+        if pattern.match(ident) is None:
+            raise ValueError(
+                f"{ident!r} does not match pattern. An identifier must only consist of letters, digits, dash and underscore and it must start with a letter or underscore."
+            )
+        return ident
+
+    @staticmethod
+    def not_exists(ident: str) -> str:
+        if ident in load_passwords():
+            raise ValueError(f'Password "{ident}" already exists.')
+        return ident
+
+    @staticmethod
+    def exists(ident: str) -> str:
+        if ident not in load_passwords():
+            raise ValueError(f'Password "{ident}" is not known.')
+        return ident
+
+
+@dataclass(slots=True)
+class RelativeUrlConverter:
+    must_endwith_one: list[str] | None = None
+    must_startwith_one: list[str] | None = None
+
+    def validate(self, value: str) -> str:
+        if self.must_endwith_one is not None:
+            if not any({value.endswith(postfix) for postfix in self.must_endwith_one}):
+                raise ValueError(
+                    "The URL {value!r} does not end with one of {self.must_endwith_one!r}"
+                )
+
+        if self.must_startwith_one is not None:
+            if not any({value.startswith(prefix) for prefix in self.must_startwith_one}):
+                raise ValueError(
+                    "The URL {value!r} does not start with one of {self.must_startwith_one!r}"
+                )
+        return value
+
+
+class LDAPConnectionIDConverter:
+    @staticmethod
+    def should_exist(value: str) -> str:
+        ldap_connection_ids = [cnx_id for cnx_id, _ in connection_choices()]
+        if value not in ldap_connection_ids:
+            raise ValueError(f"The LDAP connection {value!r} should exist but it doesn't.")
+        return value
+
+    @staticmethod
+    def should_not_exist(value: str) -> str:
+        ldap_connection_ids = [cnx_id for cnx_id, _ in connection_choices()]
+        if value in ldap_connection_ids:
+            raise ValueError(f"The LDAP connection {value!r} should not exist but it does.")
+        return value
+
+
+@dataclass(slots=True)
+class CustomerConverter:
+    allow_global: bool = True
+
+    def should_exist(self, value: str) -> str:
+        if self.allow_global and value == "global":
+            return value
+
+        if value not in customer_api().customer_collection():
+            raise ValueError(f"Customer '{value}' does not exist.")
+
+        return value

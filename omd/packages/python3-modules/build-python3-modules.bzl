@@ -32,6 +32,10 @@ def build_python_module(name, srcs, outs, requirements = "", **kwargs):
         name = name + "_compile",
         srcs = srcs,
         outs = outs,
+        tools = [
+            "@//bazel/toolchains/rust:rustc",
+            "@//bazel/toolchains/rust:cargo",
+        ],
         cmd = select({
             "//conditions:default": build_cmd.format(
                 git_ssl_no_verify = "",
@@ -95,6 +99,14 @@ build_cmd = """
     # https://github.com/sfackler/rust-openssl/blob/10cee24f49cd3f37da1dbf663ba67bca6728db1f/openssl-sys/build/find_normal.rs#L8
     # TODO: we should ideally adjust the PKG_CONFIG_PATH to add the openssl pkgconfig files
 
+    # Resolve tool paths provided by Bazel:
+    export RUSTC="$$HOME/$(location //bazel/toolchains/rust:rustc)"
+    export CARGO="$$HOME/$(location //bazel/toolchains/rust:cargo)"
+    export PATH="$$PATH:$$(dirname "$$RUSTC"):$$(dirname "$$CARGO")"
+
+    # Keep cargo artifacts inside the sandbox (optional but nice):
+    export CARGO_TARGET_DIR="$(@D)/cargo_out"
+
     export OPENSSL_LIB_DIR="$$HOME/$$EXT_DEPS_PATH/{openssl_dir}/openssl/lib"
     export OPENSSL_INCLUDE_DIR="$$HOME/$$EXT_DEPS_PATH/{openssl_dir}/openssl/include"
 
@@ -105,12 +117,11 @@ build_cmd = """
     export CC="$$(which gcc)"
 
     # install requirements
-    export CPPFLAGS="-I$$HOME/$$EXT_DEPS_PATH/{openssl_dir}/openssl/include -I$$HOME/$$EXT_DEPS_PATH/{freetds_dir}/freetds/include -I$$HOME/$$EXT_DEPS_PATH/{python_dir}/python/include/python{pyMajMin}/"
+    export CPPFLAGS="-I$$HOME/$$EXT_DEPS_PATH/{openssl_dir}/openssl/include -I$$HOME/$$EXT_DEPS_PATH/{freetds_dir}/freetds/include -I$$HOME/$$EXT_DEPS_PATH/{python_dir}/python/include/python{pyMajMin}/ -Wno-error=incompatible-pointer-types"
     export LDFLAGS="-L$$HOME/$$EXT_DEPS_PATH/{openssl_dir}/openssl/lib -L$$HOME/$$EXT_DEPS_PATH/{freetds_dir}/freetds/lib -L$$HOME/$$EXT_DEPS_PATH/{python_dir}/python/lib -Wl,--strip-debug"
     {git_ssl_no_verify}\\
     $$PYTHON_EXECUTABLE -m pip install \\
      `: dont use precompiled things, build with our build env ` \\
-      --verbose \\
       --no-binary=":all:" \\
       --no-deps \\
       --compile \\
@@ -120,5 +131,5 @@ build_cmd = """
       --prefix="$$HOME/$$MODULE_NAME" \\
       {requirements} 2>&1 | tee "$$HOME/""$$MODULE_NAME""_pip_install.stdout"
 
-    tar cf $@ $$MODULE_NAME
+    tar cf $@ -C $$MODULE_NAME .
 """

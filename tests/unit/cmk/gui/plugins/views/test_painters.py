@@ -15,12 +15,6 @@ import time_machine
 
 import cmk.ccc.version as cmk_version
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
-from cmk.utils.paths import default_config_dir
-from cmk.utils.structured_data import deserialize_tree
-
 from cmk.gui import sites
 from cmk.gui.config import active_config
 from cmk.gui.http import request
@@ -29,9 +23,14 @@ from cmk.gui.painter.v0 import all_painters
 from cmk.gui.painter.v0.painters import _paint_custom_notes
 from cmk.gui.type_defs import ColumnSpec, Row
 from cmk.gui.utils.html import HTML
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.view import View
 from cmk.gui.views.page_edit_view import painters_of_datasource
 from cmk.gui.visual_link import render_link_to_view
+from cmk.inventory.structured_data import deserialize_tree
+from cmk.utils import paths
+from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
+from cmk.utils.paths import default_config_dir
 
 
 @pytest.fixture(name="live")
@@ -71,7 +70,7 @@ def fixture_livestatus_test_config(
 
 @pytest.mark.usefixtures("load_config")
 def test_registered_painters() -> None:
-    painters = all_painters(active_config).keys()
+    painters = all_painters(active_config.tags.tag_groups).keys()
     expected_painters = [
         "aggr_acknowledged",
         "aggr_assumed_state",
@@ -248,8 +247,8 @@ def test_registered_painters() -> None:
         "inv_hardware_components_unknowns",
         "inv_hardware_cpu",
         "inv_hardware_cpu_arch",
-        "inv_hardware_cpu_bus_speed",
-        "inv_hardware_cpu_cache_size",
+        "inv_hardware_cpu_bus_speed_canonical",
+        "inv_hardware_cpu_cache_size_canonical",
         "inv_hardware_cpu_cores",
         "inv_hardware_cpu_cores_per_cpu",
         "inv_hardware_cpu_cpu_max_capa",
@@ -257,7 +256,7 @@ def test_registered_painters() -> None:
         "inv_hardware_cpu_entitlement",
         "inv_hardware_cpu_implementation_mode",
         "inv_hardware_cpu_logical_cpus",
-        "inv_hardware_cpu_max_speed",
+        "inv_hardware_cpu_max_speed_canonical",
         "inv_hardware_cpu_model",
         "inv_hardware_cpu_nodes",
         "inv_hardware_cpu_sharing_mode",
@@ -271,9 +270,9 @@ def test_registered_painters() -> None:
         "inv_hardware_memory",
         "inv_hardware_memory_arrays",
         "inv_hardware_memory_arrays_devices",
-        "inv_hardware_memory_total_ram_usable",
-        "inv_hardware_memory_total_swap",
-        "inv_hardware_memory_total_vmalloc",
+        "inv_hardware_memory_total_ram_usable_canonical",
+        "inv_hardware_memory_total_swap_canonical",
+        "inv_hardware_memory_total_vmalloc_canonical",
         "inv_hardware_nwadapter",
         "inv_hardware_storage",
         "inv_hardware_storage_controller",
@@ -444,6 +443,25 @@ def test_registered_painters() -> None:
         "inv_software_applications_oracle_sga",
         "inv_software_applications_oracle_systemparameter",
         "inv_software_applications_oracle_tablespaces",
+        "inv_software_applications_podman",
+        "inv_software_applications_podman_container",
+        "inv_software_applications_podman_container_hostname",
+        "inv_software_applications_podman_container_labels",
+        "inv_software_applications_podman_container_pod",
+        "inv_software_applications_podman_containers",
+        "inv_software_applications_podman_containers_exited",
+        "inv_software_applications_podman_containers_paused",
+        "inv_software_applications_podman_containers_running",
+        "inv_software_applications_podman_containers_stopped",
+        "inv_software_applications_podman_images",
+        "inv_software_applications_podman_images_num",
+        "inv_software_applications_podman_mode",
+        "inv_software_applications_podman_network",
+        "inv_software_applications_podman_network_gateway",
+        "inv_software_applications_podman_network_ip_address",
+        "inv_software_applications_podman_network_mac_address",
+        "inv_software_applications_podman_registry",
+        "inv_software_applications_podman_version",
         "inv_software_applications_synthetic_monitoring",
         "inv_software_applications_synthetic_monitoring_plans",
         "inv_software_applications_synthetic_monitoring_tests",
@@ -883,7 +901,7 @@ def test_registered_painters() -> None:
 
 @pytest.fixture(name="service_painter_idents")
 def fixture_service_painter_names() -> list[str]:
-    return sorted(list(painters_of_datasource("services").keys()))
+    return sorted(list(painters_of_datasource("services", UserPermissions({}, {}, {}, [])).keys()))
 
 
 @pytest.mark.usefixtures("request_context", "patch_theme")
@@ -936,9 +954,10 @@ def _test_painter(painter_ident: str, live: MockLiveStatusConnection) -> None:
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         context={},
+        user_permissions=UserPermissions({}, {}, {}, []),
     )
 
     row = _service_row()

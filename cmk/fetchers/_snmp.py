@@ -4,40 +4,75 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import dataclasses
+import json
 import logging
 import time
-from collections.abc import Collection, Iterable, Iterator, Mapping, MutableMapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    Sequence,
+)
 from pathlib import Path
 from typing import Any, Final
 
 from cmk.ccc import store
-from cmk.ccc.exceptions import MKFetcherError, MKTimeout
-
-from cmk.utils.sectionname import SectionMap, SectionName
-
+from cmk.ccc.exceptions import MKTimeout, OnError
+from cmk.ccc.hostaddress import HostName
+from cmk.helper_interface import FetcherError
 from cmk.snmplib import (
     get_snmp_table,
     SNMPBackend,
+    SNMPBackendEnum,
     SNMPHostConfig,
     SNMPRawData,
     SNMPRawDataElem,
     SNMPRowInfo,
+    SNMPSectionMarker,
+    SNMPSectionName,
+    SNMPTimeout,
 )
-
-from cmk.checkengine.parser import SectionStore
 
 from ._abstract import Fetcher, Mode
 from ._snmpscan import gather_available_raw_section_names, SNMPScanConfig
 from .snmp import make_backend, SNMPPluginStore
 
-__all__ = ["SNMPFetcher", "SNMPSectionMeta", "SNMPScanConfig"]
+__all__ = [
+    "SNMPFetcher",
+    "SNMPFetcherConfig",
+    "SNMPScanConfig",
+    "SNMPSectionMeta",
+    "NoSelectedSNMPSections",
+]
+
+
+class NoSelectedSNMPSections: ...
+
+
+@dataclasses.dataclass(frozen=True)
+class SNMPFetcherConfig:
+    on_error: OnError
+    missing_sys_description: Callable[[HostName], bool]
+    oid_cache_dir: Path
+    selected_sections: frozenset[SNMPSectionName] | NoSelectedSNMPSections
+    backend_override: SNMPBackendEnum | None
+    stored_walk_path: Path
+    walk_cache_path: Path
+    caching_config: Callable[[HostName], Mapping[SNMPSectionName, int]]
+    section_cache_path: Callable[[HostName], Path]
 
 
 class WalkCache(MutableMapping[tuple[str, str, bool], SNMPRowInfo]):
     """A cache on a per-fetchoid basis
 
-    This cache is different from section stores in that is per-fetchoid,
-    which means it deduplicates fetch operations across section definitions.
+    This serves two purposes (which is poor design):
+     * deduplicate the fetch operations in case multiple sections
+       are using the same OIDs
+     * persist some fetched OIDS (`OIDCached`) to update the values only
+       during discovery, never during checking.
 
     The fetched data is always saved to a file *if* the respective OID is marked as being cached
     by the plug-in using `OIDCached` (that is: if the save_to_cache attribute of the OID object
@@ -120,6 +155,63 @@ class WalkCache(MutableMapping[tuple[str, str, bool], SNMPRowInfo]):
             self._write_row(path, rowinfo)
 
 
+class ConfiguredFetchIntervallCache:
+    """Implement the (increased) fetch interval that can be configured by the users.
+
+    This works on a "per-section" basis.
+    Note that this is not the same as the walk cache, and not the same as the datasource
+    caches.
+    """
+
+    def __init__(self, path: Path | str, config: Mapping[SNMPSectionName, int], now: float) -> None:
+        self._path = Path(path)
+        self._config = config
+        self._now = now
+
+    @staticmethod
+    def _serialize(fetched_section: tuple[float, SNMPRawDataElem]) -> str:
+        return json.dumps(fetched_section)
+
+    @staticmethod
+    def _deserialize(raw: str) -> tuple[float, SNMPRawDataElem]:
+        return tuple(json.loads(raw))
+
+    def _read(self, section: SNMPSectionName) -> str | None:
+        try:
+            return (self._path / section).read_text()
+        except FileNotFoundError:
+            return None
+
+    def _write(self, section: SNMPSectionName, content: str) -> None:
+        store.save_text_to_file(self._path / section, content)
+
+    def load(self) -> Mapping[SNMPSectionName, tuple[float, SNMPRawDataElem]]:
+        return {
+            name: cached
+            for name, validity_period in self._config.items()
+            if (raw := self._read(name)) is not None
+            and (cached := self._deserialize(raw))[0] + validity_period > self._now
+        }
+
+    def store(self, fetched_sections: Mapping[SNMPSectionName, SNMPRawDataElem]) -> None:
+        for section_name in self._config:
+            try:
+                self._write(
+                    section_name, self._serialize((self._now, fetched_sections[section_name]))
+                )
+            except KeyError:
+                pass
+
+    def section_marker(
+        self, section_name: SNMPSectionName, creation_time: float
+    ) -> SNMPSectionMarker:
+        try:
+            validity = self._config[section_name]
+        except KeyError:
+            return SNMPSectionMarker(section_name)
+        return SNMPSectionMarker(f"{section_name}:cached({int(creation_time)},{int(validity)})")
+
+
 @dataclasses.dataclass(kw_only=True)
 class SNMPSectionMeta:
     """Metadata for the section names."""
@@ -138,34 +230,34 @@ class SNMPSectionMeta:
 
 class SNMPFetcher(Fetcher[SNMPRawData]):
     CPU_SECTIONS_WITHOUT_CPU_IN_NAME = {
-        SectionName("brocade_sys"),
-        SectionName("bvip_util"),
+        SNMPSectionName("brocade_sys"),
+        SNMPSectionName("bvip_util"),
     }
-    plugin_store: SNMPPluginStore = SNMPPluginStore()
 
     def __init__(
         self,
         *,
-        sections: SectionMap[SNMPSectionMeta],
+        sections: Mapping[SNMPSectionName, SNMPSectionMeta],
+        plugin_store: SNMPPluginStore,
         scan_config: SNMPScanConfig,
         do_status_data_inventory: bool,
-        section_store_path: Path | str,
+        section_cache_path: Path | str,
         stored_walk_path: Path | str,
         walk_cache_path: Path | str,
+        caching_config: Mapping[SNMPSectionName, int],
         snmp_config: SNMPHostConfig,
     ) -> None:
         super().__init__()
         self.sections: Final = sections
+        self.plugin_store: Final = plugin_store
         self.scan_config: Final = scan_config
         self.do_status_data_inventory: Final = do_status_data_inventory
         self.stored_walk_path: Final = Path(stored_walk_path)
         self.walk_cache_path: Final = Path(walk_cache_path)
+        self.section_cache_path: Final = Path(section_cache_path)
+        self.caching_config: Final = caching_config
         self.snmp_config: Final = snmp_config
         self._logger: Final = logging.getLogger("cmk.helper.snmp")
-        self._section_store = SectionStore[SNMPRawDataElem](
-            section_store_path,
-            logger=self._logger,
-        )
         self._backend: SNMPBackend | None = None
 
     def __eq__(self, other: object) -> bool:
@@ -181,20 +273,16 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
         )
 
     @property
-    def disabled_sections(self) -> frozenset[SectionName]:
+    def disabled_sections(self) -> frozenset[SNMPSectionName]:
         return frozenset(name for name, meta in self.sections.items() if meta.disabled)
 
     @property
-    def checking_sections(self) -> frozenset[SectionName]:
+    def checking_sections(self) -> frozenset[SNMPSectionName]:
         return frozenset(name for name, meta in self.sections.items() if meta.checking)
 
     @property
-    def inventory_sections(self) -> frozenset[SectionName]:
+    def inventory_sections(self) -> frozenset[SNMPSectionName]:
         return frozenset(name for name, data in self.plugin_store.items() if data.inventory)
-
-    @property
-    def section_store_path(self) -> Path:
-        return self._section_store.path
 
     def __repr__(self) -> str:
         return (
@@ -204,9 +292,10 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
                     f"sections={self.sections!r}",
                     f"scan_config={self.scan_config!r}",
                     f"do_status_data_inventory={self.do_status_data_inventory!r}",
-                    f"section_store_path={self.section_store_path!r}",
+                    f"section_cache_path={self.section_cache_path!r}",
                     f"stored_walk_path={self.stored_walk_path!r}",
                     f"walk_cache_path={self.walk_cache_path!r}",
+                    f"caching_config={self.caching_config!r}",
                     f"snmp_config={self.snmp_config!r}",
                 )
             )
@@ -222,8 +311,8 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
         self._backend = None
 
     def _detect(
-        self, *, select_from: Collection[SectionName], backend: SNMPBackend
-    ) -> frozenset[SectionName]:
+        self, *, select_from: Collection[SNMPSectionName], backend: SNMPBackend
+    ) -> frozenset[SNMPSectionName]:
         """Detect the applicable sections for the device in question"""
         return gather_available_raw_section_names(
             sections=[(name, self.plugin_store[name].detect_spec) for name in select_from],
@@ -231,7 +320,7 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
             backend=backend,
         )
 
-    def _get_selection(self, mode: Mode) -> frozenset[SectionName]:
+    def _get_selection(self, mode: Mode) -> frozenset[SNMPSectionName]:
         """Determine the sections fetched unconditionally (without detection)"""
         if mode is Mode.CHECKING:
             return frozenset(
@@ -244,7 +333,7 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
 
         return frozenset()
 
-    def _get_detected_sections(self, mode: Mode) -> frozenset[SectionName]:
+    def _get_detected_sections(self, mode: Mode) -> frozenset[SNMPSectionName]:
         """Determine the sections fetched after successful detection"""
         if mode is Mode.CHECKING:
             return frozenset(
@@ -288,15 +377,19 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
         if self._backend is None:
             raise TypeError("missing backend")
 
-        now = int(time.time())
-        persisted_sections = self._section_store.load() if mode is Mode.CHECKING else {}
+        now = time.time()
+        sections_cache = ConfiguredFetchIntervallCache(
+            self.section_cache_path, self.caching_config, now=now
+        )
+        cached_data = sections_cache.load() if mode is Mode.CHECKING else {}
+
         section_names = self._get_selection(mode)
         section_names |= self._detect(
             select_from=self._get_detected_sections(mode) - section_names, backend=self._backend
         )
         if mode is Mode.DISCOVERY and not section_names:
             # Nothing to discover? That can't be right.
-            raise MKFetcherError("Got no data")
+            raise FetcherError("Got no data")
 
         walk_cache = WalkCache(self.walk_cache_path / str(self._backend.hostname), self._logger)
         if mode is Mode.CHECKING:
@@ -306,15 +399,12 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
             walk_cache.clear()
             walk_cache_msg = "SNMP walk cache cleared"
 
-        fetched_data: dict[SectionName, SNMPRawDataElem] = {}
+        fetched_data: dict[SNMPSectionName, SNMPRawDataElem] = {}
         for section_name in self._sort_section_names(section_names):
+            if section_name in cached_data:
+                continue
+            self._logger.debug("%s: Fetching data (%s)", section_name, walk_cache_msg)
             try:
-                _from, until, _section = persisted_sections[section_name]
-                if now > until:
-                    raise LookupError(section_name)
-            except LookupError:
-                self._logger.debug("%s: Fetching data (%s)", section_name, walk_cache_msg)
-
                 fetched_data[section_name] = [
                     get_snmp_table(
                         section_name=section_name,
@@ -325,16 +415,28 @@ class SNMPFetcher(Fetcher[SNMPRawData]):
                     )
                     for tree in self.plugin_store[section_name].trees
                 ]
+            except SNMPTimeout as exc:
+                raise FetcherError(str(exc)) from exc
 
         walk_cache.save()
+        sections_cache.store(fetched_data)
 
-        return fetched_data
+        return {
+            **{
+                sections_cache.section_marker(name, created): data
+                for name, (created, data) in cached_data.items()
+            },
+            **{
+                sections_cache.section_marker(name, now): data
+                for name, data in fetched_data.items()
+            },
+        }
 
     @classmethod
     def _sort_section_names(
         cls,
-        section_names: Iterable[SectionName],
-    ) -> Sequence[SectionName]:
+        section_names: Iterable[SNMPSectionName],
+    ) -> Sequence[SNMPSectionName]:
         # In former Checkmk versions (<=1.4.0) CPU check plug-ins were
         # checked before other check plug-ins like interface checks.
         # In Checkmk 1.5 the order was random and

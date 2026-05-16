@@ -7,23 +7,28 @@ import abc
 from collections.abc import Collection, Iterable
 from typing import final
 
+from cmk.ccc.resulttype import Error, Result
 from cmk.gui.breadcrumb import Breadcrumb, BreadcrumbItem
+from cmk.gui.config import Config
 from cmk.gui.htmllib.html import html
-from cmk.gui.http import request
+from cmk.gui.http import Request, request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.page_menu import PageMenu
-from cmk.gui.type_defs import ActionResult, HTTPVariables, MegaMenu, PermissionName
+from cmk.gui.type_defs import ActionResult, HTTPVariables, MainMenu, PermissionName
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.watolib.main_menu import main_module_registry
 
 
-class WatoMode(abc.ABC):
+class WatoMode[RequestOK](abc.ABC):
+    _request_data: Result[RequestOK, None]
+
     def __init__(self) -> None:
         super().__init__()
         self._from_vars()
+        self._request_data = self._parse_data_from_request(request)
 
     @staticmethod
     @abc.abstractmethod
@@ -78,14 +83,18 @@ class WatoMode(abc.ABC):
         """Override this method to set mode specific attributes based on the
         given HTTP variables."""
 
+    def _parse_data_from_request(self, request: Request) -> Result[RequestOK, None]:
+        """Parses request and returns a data structure of type T or None"""
+        return Error(None)
+
     def title(self) -> str:
         return _("(Untitled module)")
 
     # Currently only needed for a special Setup module "user_notifications_p" that
     # is not part of the Setup main menu but the user menu.
-    def main_menu(self) -> MegaMenu:
+    def main_menu(self) -> MainMenu:
         """Specify the top-level breadcrumb item of this mode"""
-        return mega_menu_registry.menu_setup()
+        return main_menu_registry.menu_setup()
 
     def breadcrumb(self) -> Breadcrumb:
         """Render the breadcrumb to the current mode
@@ -155,18 +164,16 @@ class WatoMode(abc.ABC):
         )
         yield from main_module.additional_breadcrumb_items()
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         """Returns the data structure representing the page menu for this mode"""
         return PageMenu(breadcrumb=breadcrumb)
 
-    def buttons(self) -> None:
-        pass
+    def buttons(self) -> None: ...
 
-    def action(self) -> ActionResult:
-        pass
+    def action(self, config: Config) -> ActionResult: ...
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         html.show_message(_("(This module is not yet implemented)"))
 
-    def handle_page(self) -> None:
-        return self.page()
+    def handle_page(self, config: Config) -> None:
+        return self.page(config)

@@ -4,32 +4,37 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 
 import pytest
 
-from tests.testlib.unit.base_configuration_scenario import Scenario
-
-from tests.unit.cmk.base.emptyconfig import EMPTYCONFIG
-
 import cmk.ccc.debug
-from cmk.ccc.hostaddress import HostAddress
-
-import cmk.utils.resulttype as result
-
+import cmk.ccc.resulttype as result
 from cmk.automations import results as automation_results
 from cmk.automations.results import DiagHostResult
-
-from cmk.fetchers import PiggybackFetcher
-
-from cmk.checkengine.plugins import AgentBasedPlugins
-
-from cmk.base import config, core_config
+from cmk.base import config
 from cmk.base.automations import check_mk
 from cmk.base.config import ConfigCache
-
+from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.checkengine.plugins import AgentBasedPlugins
 from cmk.discover_plugins import PluginLocation
+from cmk.fetchers import Fetcher, Mode, PiggybackFetcher, PlainFetcherTrigger
 from cmk.server_side_calls.v1 import ActiveCheckCommand, ActiveCheckConfig, replace_macros
 from cmk.server_side_calls_backend import load_active_checks
+from cmk.utils.tags import TagGroupID, TagID
+from tests.testlib.unit.base_configuration_scenario import Scenario
+from tests.unit.cmk.base.empty_config import EMPTY_CONFIG
+
+
+class _MockFetcherTrigger(PlainFetcherTrigger):
+    def __init__(self, payload: bytes) -> None:
+        super().__init__()
+        self._payload = payload
+
+    def _trigger(self, fetcher: Fetcher, mode: Mode) -> result.Result:
+        if isinstance(fetcher, PiggybackFetcher):
+            return result.OK(b"")
+        return result.OK(self._payload)
 
 
 class TestAutomationDiagHost:
@@ -50,24 +55,38 @@ class TestAutomationDiagHost:
         ts = Scenario()
         ts.add_host(hostname)
         ts.set_option("ipaddresses", {hostname: ipaddress})
-        ts.apply(monkeypatch)
-        return ts
+        return ts.apply(monkeypatch)
 
     @pytest.fixture
     def patch_fetch(self, raw_data, monkeypatch):
         monkeypatch.setattr(
-            check_mk,
-            "get_raw_data",
-            lambda _file_cache, fetcher, _mode: (
-                result.OK(b"") if isinstance(fetcher, PiggybackFetcher) else result.OK(raw_data)
-            ),
+            check_mk.config,  # type: ignore[attr-defined]
+            "make_fetcher_trigger",
+            lambda *args: _MockFetcherTrigger(raw_data.encode("utf-8")),
         )
 
-    @pytest.mark.usefixtures("scenario")
     @pytest.mark.usefixtures("patch_fetch")
-    def test_execute(self, hostname: str, ipaddress: str, raw_data: str) -> None:
+    def test_execute(
+        self, hostname: str, ipaddress: str, raw_data: str, scenario: ConfigCache
+    ) -> None:
         args = [hostname, "agent", ipaddress, "", "6557", "10", "5", "5", ""]
-        loaded_config = EMPTYCONFIG
+        configured_tags = {
+            HostName("testhost"): {
+                TagGroupID("checkmk-agent"): TagID("checkmk-agent"),
+                TagGroupID("piggyback"): TagID("auto-piggyback"),
+                TagGroupID("networking"): TagID("lan"),
+                TagGroupID("agent"): TagID("cmk-agent"),
+                TagGroupID("criticality"): TagID("prod"),
+                TagGroupID("snmp_ds"): TagID("no-snmp"),
+                TagGroupID("site"): TagID("unit"),
+                TagGroupID("address_family"): TagID("ip-v4-only"),
+                TagGroupID("tcp"): TagID("tcp"),
+                TagGroupID("ip-v4"): TagID("ip-v4"),
+            }
+        }
+
+        loaded_config = replace(EMPTY_CONFIG, host_tags=configured_tags)
+
         assert check_mk.AutomationDiagHost().execute(
             args,
             AgentBasedPlugins.empty(),
@@ -200,10 +219,10 @@ def test_automation_active_check(
 ) -> None:
     _patch_plugin_loading(monkeypatch, loaded_active_checks)
     monkeypatch.setattr(ConfigCache, "get_host_attributes", lambda *a, **kw: host_attrs)
-    monkeypatch.setattr(core_config, "get_service_attributes", lambda *a, **kw: service_attrs)
+    monkeypatch.setattr(check_mk, "get_service_attributes", lambda *a, **kw: service_attrs)
     monkeypatch.setattr(config, "get_resource_macros", lambda *a, **kw: {})
 
-    config_cache = config.ConfigCache(EMPTYCONFIG)
+    config_cache = config.ConfigCache(EMPTY_CONFIG)
     monkeypatch.setattr(config_cache, "active_checks", lambda *a, **kw: active_checks)
 
     active_check = AutomationActiveCheckTestable()
@@ -212,7 +231,7 @@ def test_automation_active_check(
             active_check_args,
             AgentBasedPlugins.empty(),
             config.LoadingResult(
-                loaded_config=EMPTYCONFIG,
+                loaded_config=EMPTY_CONFIG,
                 config_cache=config_cache,
             ),
         )
@@ -265,13 +284,12 @@ def test_automation_active_check_invalid_args(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _patch_plugin_loading(monkeypatch, loaded_active_checks)
-    monkeypatch.setattr(
-        config, config.lookup_ip_address.__name__, lambda *a, **kw: HostAddress("127.0.0.1")
-    )
     monkeypatch.setattr(ConfigCache, "get_host_attributes", lambda *a, **kw: host_attrs)
     monkeypatch.setattr(config, "get_resource_macros", lambda *a, **kw: {})
 
-    loaded_config = EMPTYCONFIG
+    loaded_config = replace(
+        EMPTY_CONFIG, ipaddresses={HostName("my_host"): HostAddress("127.0.0.1")}
+    )
     config_cache = config.ConfigCache(loaded_config)
     monkeypatch.setattr(config_cache, "active_checks", lambda *a, **kw: active_checks)
 

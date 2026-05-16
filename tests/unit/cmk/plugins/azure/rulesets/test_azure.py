@@ -4,11 +4,9 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 from typing import Final
 
-from cmk.ccc.version import Edition
-
-from cmk.gui.utils.rule_specs.legacy_converter import convert_to_legacy_rulespec
-
 import cmk.plugins.azure.rulesets.azure as azure_ruleset
+from cmk.ccc.version import Edition
+from cmk.gui.utils.rule_specs.legacy_converter import convert_to_legacy_rulespec
 
 AZURE_VS_RULESET_VALUE: Final = {
     "authority": "global",
@@ -32,8 +30,8 @@ AZURE_VS_RULESET_VALUE: Final = {
         "explicit": [{"group_name": "foobar", "resources": ["foo", "bar"]}],
         "tag_based": [("foobar", "exists"), ("foo", ("value", "bar"))],
     },
-    "piggyback_vms": "grouphost",
     "import_tags": ("filter_tags", "my_tag"),
+    "safe_hostnames": False,
 }
 
 AZURE_FS_RULESET_VALUE: Final = {
@@ -65,7 +63,6 @@ AZURE_FS_RULESET_VALUE: Final = {
             {"tag": "foo", "condition": ("equals", "bar")},
         ],
     },
-    "piggyback_vms": "grouphost",
     "import_tags": ("filter_tags", "my_tag"),
 }
 
@@ -88,7 +85,6 @@ def test_vs_to_fs_update() -> None:
     assert secret[2][1] == expected_secret[2][1]
     assert value["proxy"] == AZURE_FS_RULESET_VALUE["proxy"]
     assert value["config"] == AZURE_FS_RULESET_VALUE["config"]
-    assert value["piggyback_vms"] == AZURE_FS_RULESET_VALUE["piggyback_vms"]
     assert "import_tags" not in value
 
 

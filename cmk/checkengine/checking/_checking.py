@@ -9,38 +9,23 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Container, Iterable, Mapping, Sequence
 from typing import NamedTuple
 
-from cmk.ccc.hostaddress import HostName
-
 import cmk.utils.paths
-from cmk.utils.agentdatatype import AgentRawData
-from cmk.utils.everythingtype import EVERYTHING
-from cmk.utils.log import console
-from cmk.utils.regex import regex
-from cmk.utils.resulttype import Result
-from cmk.utils.sectionname import SectionMap, SectionName
-from cmk.utils.servicename import ServiceName
-from cmk.utils.structured_data import (
-    InventoryStore,
-)
-from cmk.utils.timeperiod import check_timeperiod, TimeperiodName
-
-from cmk.snmplib import SNMPRawData
-
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.resulttype import Result
+from cmk.checkengine.checkerplugin import AggregatedResult, CheckerPlugin, ConfiguredService
 from cmk.checkengine.checkresults import ActiveCheckResult, SubmittableServiceCheckResult
 from cmk.checkengine.exitspec import ExitSpec
-from cmk.checkengine.fetcher import HostKey, SourceInfo
+from cmk.checkengine.fetcher import HostKey
 from cmk.checkengine.inventory import (
     HWSWInventoryParameters,
     inventorize_status_data_of_real_host,
 )
 from cmk.checkengine.parser import group_by_host, ParserFunction
 from cmk.checkengine.plugins import (
-    AggregatedResult,
-    CheckerPlugin,
     CheckPluginName,
-    ConfiguredService,
     InventoryPlugin,
     InventoryPluginName,
+    SectionName,
 )
 from cmk.checkengine.sectionparser import (
     make_providers,
@@ -51,6 +36,16 @@ from cmk.checkengine.sectionparser import (
 from cmk.checkengine.sectionparserutils import check_parsing_errors
 from cmk.checkengine.submitters import Submittee, Submitter
 from cmk.checkengine.summarize import SummarizerFunction
+from cmk.helper_interface import AgentRawData, SourceInfo
+from cmk.inventory.structured_data import (
+    InventoryStore,
+)
+from cmk.snmplib import SNMPRawData
+from cmk.utils.everythingtype import EVERYTHING
+from cmk.utils.log import console
+from cmk.utils.regex import regex
+from cmk.utils.servicename import ServiceName
+from cmk.utils.timeperiod import check_timeperiod, TimeperiodName
 
 __all__ = [
     "execute_checkmk_checks",
@@ -84,7 +79,7 @@ def execute_checkmk_checks(
     ],
     parser: ParserFunction,
     summarizer: SummarizerFunction,
-    section_plugins: SectionMap[SectionPlugin],
+    section_plugins: Mapping[SectionName, SectionPlugin],
     check_plugins: Mapping[CheckPluginName, CheckerPlugin],
     inventory_plugins: Mapping[InventoryPluginName, InventoryPlugin],
     inventory_parameters: Callable[[HostName, InventoryPlugin], Mapping[str, object]],

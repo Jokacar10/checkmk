@@ -19,11 +19,9 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel
 
+from cmk import fields
 from cmk.ccc.i18n import _
 from cmk.ccc.site import SiteId
-
-from cmk.utils.encoding import json_encode
-
 from cmk.gui import i18n
 from cmk.gui.background_job import AlreadyRunningError
 from cmk.gui.config import active_config
@@ -69,8 +67,7 @@ from cmk.gui.quick_setup.v0_unstable.setups import (
 from cmk.gui.quick_setup.v0_unstable.type_defs import ParsedFormData, RawFormData, StageIndex
 from cmk.gui.site_config import site_is_local
 from cmk.gui.watolib.automations import do_remote_automation, RemoteAutomationConfig
-
-from cmk import fields
+from cmk.utils.encoding import json_encode
 
 from .. import background_job
 from .request_schemas import (
@@ -292,10 +289,12 @@ def quicksetup_run_stage_action(params: Mapping[str, Any]) -> Response:
             )
             assert site_id is not None
 
-        if site_id and not site_is_local(active_config.sites[SiteId(site_id)], SiteId(site_id)):
+        if site_id and not site_is_local(active_config.sites[SiteId(site_id)]):
             background_job_id = start_quick_setup_stage_action_job_on_remote(
-                site_id=site_id,
-                site_config=active_config.sites[SiteId(site_id)],
+                site_id=SiteId(site_id),
+                automation_config=RemoteAutomationConfig.from_site_config(
+                    active_config.sites[SiteId(site_id)]
+                ),
                 quick_setup_id=quick_setup_id,
                 action_id=stage_action_id,
                 stage_index=stage_index,
@@ -319,7 +318,7 @@ def quicksetup_run_stage_action(params: Mapping[str, Any]) -> Response:
         )
         response = Response(status=303)
         url = urlparse(background_job_status_link["href"]).path
-        if site_id and not site_is_local(active_config.sites[SiteId(site_id)], SiteId(site_id)):
+        if site_id and not site_is_local(active_config.sites[SiteId(site_id)]):
             url = f"{url}?{background_job.FieldSiteId.field_name}={site_id}"
         response.location = url
         return response
@@ -334,6 +333,7 @@ def quicksetup_run_stage_action(params: Mapping[str, Any]) -> Response:
         form_spec_map=form_spec_map,
         built_stages=built_stages,
         progress_logger=None,
+        site_configs=active_config.sites,
         debug=active_config.debug,
     )
     return _serve_action_result(
@@ -363,9 +363,7 @@ def fetch_quick_setup_stage_action_result(params: Mapping[str, Any]) -> Response
     """Fetch the Quick setup stage action background job result"""
     action_background_job_id = params["job_id"]
     site_id = params.get(FieldSiteId.field_name)
-    if site_id and not site_is_local(
-        site_config := active_config.sites[SiteId(site_id)], SiteId(site_id)
-    ):
+    if site_id and not site_is_local(site_config := active_config.sites[SiteId(site_id)]):
         action_result = StageActionResult.model_validate_json(
             str(
                 do_remote_automation(
@@ -476,6 +474,8 @@ def complete_quick_setup_action(params: Mapping[str, Any], mode: QuickSetupActio
                 mode=mode,
                 user_input_stages=body["stages"],
                 object_id=object_id,
+                use_git=active_config.wato_use_git,
+                pprint_value=active_config.wato_pprint_config,
             )
         except AlreadyRunningError:
             return _serve_error(
@@ -499,6 +499,8 @@ def complete_quick_setup_action(params: Mapping[str, Any], mode: QuickSetupActio
         input_stages=body["stages"],
         form_spec_map=form_spec_map,
         object_id=object_id,
+        use_git=active_config.wato_use_git,
+        pprint_value=active_config.wato_pprint_config,
     )
 
     if not result.redirect_url and not result.all_stage_errors:
@@ -581,11 +583,15 @@ def _serve_error(title: str, detail: str, status_code: int = 404) -> Response:
     return response
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(get_guided_stages_or_overview_stages)
-    endpoint_registry.register(quick_setup_get_stage_structure)
-    endpoint_registry.register(quicksetup_run_stage_action)
-    endpoint_registry.register(fetch_quick_setup_stage_action_result)
-    endpoint_registry.register(quick_setup_run_action)
-    endpoint_registry.register(edit_quick_setup_action)
-    endpoint_registry.register(fetch_quick_setup_action_result)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(
+        get_guided_stages_or_overview_stages, ignore_duplicates=ignore_duplicates
+    )
+    endpoint_registry.register(quick_setup_get_stage_structure, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(quicksetup_run_stage_action, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(
+        fetch_quick_setup_stage_action_result, ignore_duplicates=ignore_duplicates
+    )
+    endpoint_registry.register(quick_setup_run_action, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(edit_quick_setup_action, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(fetch_quick_setup_action_result, ignore_duplicates=ignore_duplicates)

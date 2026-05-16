@@ -10,16 +10,10 @@ import pytest
 from pydantic import AfterValidator
 from pytest_mock import MockerFixture
 
-from tests.unit.cmk.gui.users import create_and_destroy_user
-
+from cmk.automations.results import DeleteHostsResult
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.user import UserId
-
-from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
-from cmk.utils.tags import TagGroup, TagGroupID, TagID
-
-from cmk.automations.results import DeleteHostsResult
-
+from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKAuthException
 from cmk.gui.groups import GroupType
 from cmk.gui.openapi.framework.model import ApiOmitted, json_dump_without_omitted
@@ -34,6 +28,9 @@ from cmk.gui.session import SuperUserContext, UserContext
 from cmk.gui.watolib.groups import HostAttributeContactGroups
 from cmk.gui.watolib.host_attributes import HostAttributes
 from cmk.gui.watolib.hosts_and_folders import folder_tree
+from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
+from cmk.utils.tags import TagGroup, TagGroupID, TagID
+from tests.unit.cmk.gui.users import create_and_destroy_user
 
 
 def test_validators_dont_run_on_json_dump() -> None:
@@ -304,6 +301,7 @@ class TestHostConverter:
             root_folder.create_hosts(
                 [(HostName(host_name), HostAttributes(contactgroups=contact_groups), None)],
                 pprint_value=False,
+                use_git=False,
             )
         try:
             yield host_name
@@ -311,9 +309,10 @@ class TestHostConverter:
             with SuperUserContext():
                 root_folder.delete_hosts(
                     [HostName(host_name)],
-                    automation=lambda _site, _hosts, _debug: DeleteHostsResult(),
+                    automation=lambda _automation_config, _hosts, _debug: DeleteHostsResult(),
                     pprint_value=False,
                     debug=False,
+                    use_git=False,
                 )
 
     @pytest.mark.parametrize("permission_type", _permission_types())
@@ -351,7 +350,7 @@ class TestHostConverter:
 
     def test_exists_setup_write_edit_hosts(self, sample_host: str) -> None:
         # write also requires read permissions, could be changed in the future
-        with create_and_destroy_user() as (user_id, _password):
+        with create_and_destroy_user(config=active_config) as (user_id, _password):
             with UserContext(
                 user_id, explicit_permissions={"wato.see_all_folders", "wato.edit_hosts"}
             ):

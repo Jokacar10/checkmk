@@ -11,7 +11,7 @@ from typing import assert_never
 
 import pytest
 
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.setup.global_settings import (
     EditPiggybackHubGlobally,
     EditPiggybackHubSiteSpecific,
@@ -20,6 +20,7 @@ from tests.gui_e2e.testlib.playwright.pom.setup.global_settings import (
 )
 from tests.testlib.common.utils import wait_until
 from tests.testlib.site import Site
+from tests.testlib.utils import is_cleanup_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class HubDisableActions(enum.Enum):
 
 
 def _enable_hub_globally(
-    dashboard_page: Dashboard, enable_actions: HubEnableActions = HubEnableActions.SAVE
+    dashboard_page: MainDashboard, enable_actions: HubEnableActions = HubEnableActions.SAVE
 ) -> None:
     logger.info("Enable the piggyback-hub globally")
     match enable_actions:
@@ -68,7 +69,7 @@ def _enable_hub_globally(
 
 
 def _disable_hub_globally(
-    dashboard_page: Dashboard, disable_action: HubDisableActions = HubDisableActions.SAVE
+    dashboard_page: MainDashboard, disable_action: HubDisableActions = HubDisableActions.SAVE
 ) -> None:
     logger.info("Disable the piggyback-hub globally")
     match disable_action:
@@ -87,7 +88,7 @@ def _disable_hub_globally(
 
 
 def _enable_hub_site_specific(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     site_id: str,
     enable_action: HubEnableActions = HubEnableActions.SAVE,
 ) -> None:
@@ -107,7 +108,7 @@ def _enable_hub_site_specific(
 
 
 def _disable_hub_site_specific(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     site_id: str,
     disable_action: HubDisableActions = HubDisableActions.SAVE,
 ) -> None:
@@ -140,7 +141,7 @@ def _back_up_original_site_file_states(
 
     all_sites = [central_site] + remote_sites
     setting_files = (
-        [GLOBAL_SETTINGS_REL_PATH, SITE_SPECIFIC_SETTINGS_REL_PATH, Path("etc/omd/site.conf")]
+        [GLOBAL_SETTINGS_REL_PATH, SITE_SPECIFIC_SETTINGS_REL_PATH, SITE_CONF_REL_PATH]
         + [replication_changes_rel_path(site.id) for site in all_sites]
         + [replication_status_rel_path(site.id) for site in all_sites]
     )
@@ -159,10 +160,14 @@ def _setup_settings(
     central_site: Site,
     remote_sites: list[Site],
 ) -> Iterator[None]:
-    """Backup all relevant settings, apply global and site-specific settings that need to be set up
-    as precondition to the tests, then restore original settings after the test"""
-    setting_files, backed_settings = _back_up_original_site_file_states(central_site, remote_sites)
+    """Backup all relevant site-specific settings.
 
+    Apply global and site-specific settings that need to be set up as precondition to the tests,
+    then restore original settings after the test.
+    """
+    setting_files, backed_settings = _back_up_original_site_file_states(central_site, remote_sites)
+    list_of_files = ", ".join(map(str, setting_files))
+    logger.info("Backup settings within: '%s'", list_of_files)
     if global_settings:
         central_site.update_global_settings(GLOBAL_SETTINGS_REL_PATH, dict(global_settings))
     if site_specific_settings:
@@ -176,11 +181,13 @@ def _setup_settings(
     try:
         yield
     finally:
-        for path in setting_files:
-            if path in backed_settings:
-                central_site.write_file(path, backed_settings[path])
-            elif central_site.file_exists(path):
-                central_site.delete_file(path)
+        if is_cleanup_enabled():
+            logger.info("Restore settings within: '%s'", list_of_files)
+            for path in setting_files:
+                if path in backed_settings:
+                    central_site.write_file(path, backed_settings[path])
+                elif central_site.file_exists(path):
+                    central_site.delete_file(path)
 
 
 def _wait_for_file_change(site: Site, file_path: Path, original_mtime: float) -> None:
@@ -216,7 +223,7 @@ def _wait_for_file_change(site: Site, file_path: Path, original_mtime: float) ->
 def test_disabled_on_central__enable_on_remote__error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     global_settings: Mapping[str, object] | None,
     site_specific_settings: Mapping[str, Mapping[str, object]] | None,
     enable_action: HubEnableActions,
@@ -271,7 +278,7 @@ def test_disabled_on_central__enable_on_remote__error(
 def test_enabled_on_central__enable_on_remote__no_error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     global_settings: Mapping[str, object],
     site_specific_settings: Mapping[str, Mapping[str, object]] | None,
     enable_action: HubEnableActions,
@@ -322,7 +329,7 @@ def test_enabled_on_central__enable_on_remote__no_error(
 def test_enabled_on_remote__disable_on_remote__no_error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     global_settings: Mapping[str, object] | None,
     site_specific_settings: Mapping[str, Mapping[str, object]],
     disable_action: HubDisableActions,
@@ -375,7 +382,7 @@ def test_enabled_on_remote__disable_on_remote__no_error(
 def test_enabled_on_remote__disable_on_central__error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     global_settings: dict[str, object] | None,
     site_specific_settings: dict[str, dict[str, object]],
     disable_action: HubDisableActions,
@@ -412,7 +419,7 @@ def test_enabled_on_remote__disable_on_central__error(
 def test_enabled_on_remote__disable_on_central_by_reset__error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
 ) -> None:
     """Test that disabling the piggyback-hub site-specific for the central site by resetting to factory setting fails if it is enabled for a remote site"""
 
@@ -480,7 +487,7 @@ def test_enabled_on_remote__disable_on_central_by_reset__error(
 def test_disabled_on_remote_site__disable_on_central__no_error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     global_settings: dict[str, object] | None,
     site_specific_settings: dict[str, dict[str, object]],
     disable_action: HubDisableActions,
@@ -516,7 +523,7 @@ def test_disabled_on_remote_site__disable_on_central__no_error(
 def test_enabled_on_remote__disable_globally__error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     disable_action: HubDisableActions,
 ) -> None:
     """Test that disabling the piggyback-hub globally fails if it is enabled for any remote sites"""
@@ -567,7 +574,7 @@ def test_enabled_on_remote__disable_globally__error(
 def test_disabled_on_remote_or_enabled_on_central__disable_globally__no_error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     global_settings: Mapping[str, object] | None,
     site_specific_settings: Mapping[str, Mapping[str, object]] | None,
     disable_action: HubDisableActions,
@@ -599,16 +606,13 @@ def test_disabled_on_remote_or_enabled_on_central__disable_globally__no_error(
 def test_disabled_on_central__enable_globally__error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     enable_action: HubEnableActions,
 ) -> None:
     """Test that enabling the piggyback-hub globally fails if it is disabled for the central site"""
     # given
     with _setup_settings(
-        None,
-        {"gui_e2e_central": {"site_piggyback_hub": False}},
-        test_site,
-        [remote_site],
+        None, {"gui_e2e_central": {"site_piggyback_hub": False}}, test_site, [remote_site]
     ):
         original_settings = test_site.read_global_settings(GLOBAL_SETTINGS_REL_PATH)
 
@@ -634,7 +638,7 @@ def test_disabled_on_central__enable_globally__error(
 def test_unset_on_central_and_remote__enable_globally__no_error(
     test_site: Site,
     remote_site: Site,
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     enable_action: HubEnableActions,
 ) -> None:
     """Test that enabling the piggyback-hub globally works if it is not disabled for the central site"""

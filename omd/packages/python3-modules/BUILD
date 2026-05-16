@@ -4,6 +4,7 @@ load(":build-python3-modules.bzl", "build_python_module", "create_requirements_f
 
 config_setting(
     name = "git_ssl_no_verify",
+    tags = ["manual"],
     values = {"define": "git-ssl-no-verify=true"},
 )
 
@@ -27,6 +28,12 @@ config_setting(
     outs = [
         "compiled_%s.tar" % module,
     ],
+    tags = ["manual"],
+    visibility = [
+        "//omd/relay:__pkg__",
+        # Make setuptools available to net-snmp
+        "@net-snmp//:__pkg__",
+    ],
 ) for module in all_requirements]
 
 # TODO: Switch to official release when netapp has fixed their build process
@@ -43,22 +50,7 @@ build_python_module(
         "compiled_netapp-ontap.tar",
     ],
     requirements = "git+https://github.com/Checkmk/netapp-ontap-cmk.git@e38ce4ce357ad2ea8f47260c269757f8805bdbce",
-)
-
-# TODO: Switch to official release when pymssql is cython 3.1.0 compatible
-# see also https://github.com/pymssql/pymssql/pull/938
-build_python_module(
-    name = "pymssql",
-    srcs = [
-        "@freetds",
-        "@omd_packages//omd/packages/omd:use_system_openssl",
-        "@openssl",
-        "@python",
-    ],
-    outs = [
-        "compiled_pymssql.tar",
-    ],
-    requirements = "git+https://github.com/TimotheusBachinger/pymssql@2a02c839c59c2b87e2acdfad8bc0187b2b6c4fe9",
+    tags = ["manual"],
 )
 
 genrule(
@@ -67,7 +59,6 @@ genrule(
         "%s_compile" % module
         for module in all_requirements + [
             "netapp-ontap",
-            "pymssql",
         ]
     ],
     outs = [
@@ -76,7 +67,7 @@ genrule(
     cmd = """
         mkdir -p python3-modules
         for MODULE in $(SRCS); do
-            tar --strip-components 1 -xf $$MODULE -C python3-modules/
+            tar -xf $$MODULE -C python3-modules/
         done
 
         # For some highly obscure unknown reason some files end up world-writable. Fix that!
@@ -111,5 +102,6 @@ genrule(
         cd -
 	tar cf $@ -C python3-modules .
     """.format(pyMajMin = PYTHON_MAJOR_DOT_MINOR),
-    visibility = ["//visibility:public"],
+    tags = ["manual"],
+    visibility = ["//omd:__subpackages__"],
 )

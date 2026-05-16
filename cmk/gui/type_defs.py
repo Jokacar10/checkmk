@@ -10,28 +10,27 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Annotated, Any, Literal, NamedTuple, NewType, NotRequired, override, TypedDict
 
 from pydantic import BaseModel, PlainValidator, WithJsonSchema
 
+from cmk.ccc.cpu_tracking import Snapshot
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils.cpu_tracking import Snapshot
-from cmk.utils.labels import Labels
-from cmk.utils.metrics import MetricName
-from cmk.utils.notify_types import DisabledNotificationsOptions, EventRule
-from cmk.utils.structured_data import SDPath
-
-from cmk.gui.exceptions import FinalizeRequest
-from cmk.gui.utils.speaklater import LazyString
-
 from cmk.crypto.certificate import Certificate, CertificatePEM, CertificateWithPrivateKey
 from cmk.crypto.hash import HashAlgorithm
 from cmk.crypto.keys import EncryptedPrivateKeyPEM, PrivateKey
 from cmk.crypto.password import Password
 from cmk.crypto.password_hashing import PasswordHash
 from cmk.crypto.secrets import Secret
+from cmk.gui.exceptions import FinalizeRequest
+from cmk.gui.http import Request
+from cmk.gui.utils.speaklater import LazyString
+from cmk.inventory.structured_data import SDPath
+from cmk.utils.labels import Labels
+from cmk.utils.metrics import MetricName
+from cmk.utils.notify_types import DisabledNotificationsOptions, EventRule
 
 _ContactgroupName = str
 SizePT = NewType("SizePT", float)
@@ -45,6 +44,8 @@ ChoiceText = str
 ChoiceId = str | None
 Choice = tuple[ChoiceId, ChoiceText]
 Choices = list[Choice]  # TODO: Change to Sequence, perhaps DropdownChoiceEntries[str]
+ChoiceMapping = Mapping[str, ChoiceText]
+GraphPresentation = Literal["lines", "stacked", "sum", "average", "min", "max"]
 
 
 class TrustedCertificateAuthorities(TypedDict):
@@ -100,7 +101,7 @@ AuthType = Literal[
     "web_server",
 ]
 
-DismissableWarning = Literal["notification_fallback", "immediate_slideout_change"]
+DismissableWarning = Literal["notification_fallback", "immediate_slideout_change", "changes-info"]
 
 
 @dataclass
@@ -227,6 +228,7 @@ class UserSpec(TypedDict, total=False):
     serial: int
     service_notification_options: str
     store_automation_secret: bool
+    # TODO: do we need session_info in the user?
     session_info: dict[SessionId, SessionInfo]
     show_mode: NotRequired[
         Literal["default_show_less", "default_show_more", "enforce_show_more"] | None
@@ -245,13 +247,6 @@ class UserSpec(TypedDict, total=False):
     ldap_pw_last_changed: NotRequired[str]  # On attribute sync, this is added, then removed.
 
 
-class UserObjectValue(TypedDict):
-    attributes: UserSpec
-    is_new_user: bool
-
-
-UserObject = dict[UserId, UserObjectValue]
-
 AnnotatedUserId = Annotated[
     UserId,
     PlainValidator(UserId.parse),
@@ -259,6 +254,7 @@ AnnotatedUserId = Annotated[
 ]
 
 Users = dict[AnnotatedUserId, UserSpec]  # TODO: Improve this type
+
 
 # Visual specific
 FilterName = str
@@ -294,7 +290,7 @@ class Visual(TypedDict):
     public: bool | tuple[Literal["contact_groups", "sites"], Sequence[str]]
     packaged: bool
     link_from: LinkFromSpec
-    megamenu_search_terms: Sequence[str]
+    main_menu_search_terms: Sequence[str]
 
 
 class VisualLinkSpec(NamedTuple):
@@ -510,9 +506,35 @@ class InventoryJoinMacrosSpec(TypedDict):
     macros: list[tuple[str, str]]
 
 
+# NOTE: keep in sync with `DashboardEmbeddedViewSpec`
 class ViewSpec(Visual):
     datasource: str
     layout: str  # TODO: Replace with literal? See layout_registry.get_choices()
+    group_painters: Sequence[ColumnSpec]
+    painters: Sequence[ColumnSpec]
+    browser_reload: int
+    num_columns: int
+    column_headers: Literal["off", "pergroup", "repeat"]
+    sorters: Sequence[SorterSpec]
+    add_headers: NotRequired[str]
+    # View editor only adds them in case they are truish. In our built-in specs these flags are also
+    # partially set in case they are falsy
+    mobile: NotRequired[bool]
+    mustsearch: NotRequired[bool]
+    force_checkboxes: NotRequired[bool]
+    user_sortable: NotRequired[bool]
+    play_sounds: NotRequired[bool]
+    inventory_join_macros: NotRequired[InventoryJoinMacrosSpec]
+
+
+# NOTE: keep in sync with `ViewSpec`
+# Trimmed down version of `ViewSpec` for embedded views in dashboards
+class DashboardEmbeddedViewSpec(TypedDict):
+    # from Visual
+    single_infos: SingleInfos
+    # from ViewSpec
+    datasource: str
+    layout: str
     group_painters: Sequence[ColumnSpec]
     painters: Sequence[ColumnSpec]
     browser_reload: int
@@ -571,8 +593,8 @@ class SetOnceDict(dict):
         raise NotImplementedError("Deleting items are not supported.")
 
 
-class ABCMegaMenuSearch(ABC):
-    """Abstract base class for search fields in mega menus"""
+class ABCMainMenuSearch(ABC):
+    """Abstract base class for search fields in main menus"""
 
     def __init__(self, name: str) -> None:
         self._name = name
@@ -597,10 +619,8 @@ class _Icon(TypedDict):
 Icon = str | _Icon
 
 
-# TODO: rename prefixes and names "MegaMenu" and "TopicMenu" to "MainMenu"
-#       https://jira.lan.tribe29.com/browse/CMK-23667
 @dataclass(kw_only=True, slots=True)
-class _TopicMenuEntry:
+class _MainMenuEntry:
     name: str
     title: str
     sort_index: int
@@ -609,50 +629,55 @@ class _TopicMenuEntry:
 
 
 @dataclass(kw_only=True, slots=True)
-class TopicMenuItem(_TopicMenuEntry):
+class MainMenuItem(_MainMenuEntry):
     url: str
     target: str = "main"
     button_title: str | None = None
-    megamenu_search_terms: Sequence[str] = ()
+    main_menu_search_terms: Sequence[str] = ()
 
 
 @dataclass(kw_only=True, slots=True)
-class TopicMenuTopicSegment(_TopicMenuEntry):
+class MainMenuTopicSegment(_MainMenuEntry):
     mode: Literal["multilevel", "indented"]
-    entries: list[TopicMenuItem | TopicMenuTopicSegment]
+    entries: list[MainMenuItem | MainMenuTopicSegment]
     max_entries: int = 10
     hide: bool = False
 
 
-TopicMenuTopicEntries = list[TopicMenuItem | TopicMenuTopicSegment]
+MainMenuTopicEntries = list[MainMenuItem | MainMenuTopicSegment]
 
 
-class TopicMenuTopic(NamedTuple):
+class MainMenuTopic(NamedTuple):
     name: str
     title: str
-    entries: TopicMenuTopicEntries
+    entries: MainMenuTopicEntries
     max_entries: int = 10
     icon: Icon | None = None
     hide: bool = False
 
 
-class MegaMenuVueApp(NamedTuple):
+@dataclass()
+class MainMenuData: ...
+
+
+@dataclass
+class MainMenuVueApp:
     name: str
-    data: dict = {}
-    class_: list[str] = []
+    data: Callable[[Request], MainMenuData]
 
 
-class MegaMenu(NamedTuple):
+class MainMenu(NamedTuple):
     name: str
     title: str | LazyString
     icon: Icon
     sort_index: int
-    topics: Callable[[], list[TopicMenuTopic]] | None
-    search: ABCMegaMenuSearch | None = None
+    topics: Callable[[], list[MainMenuTopic]] | None
+    search: ABCMainMenuSearch | None = None
     info_line: Callable[[], str] | None = None
     hide: Callable[[], bool] = lambda: False
-    vue_app: MegaMenuVueApp | None = None
+    vue_app: MainMenuVueApp | None = None
     onopen: str | None = None
+    hint: str | None = None
 
 
 SearchQuery = str
@@ -668,6 +693,7 @@ class SearchResult:
 
 
 SearchResultsByTopic = Iterable[tuple[str, Iterable[SearchResult]]]
+
 
 # Metric & graph specific
 
@@ -800,3 +826,37 @@ class CustomHostAttrSpec(CustomAttrSpec): ...
 class CustomUserAttrSpec(CustomAttrSpec):
     # None case should be cleaned up to False
     user_editable: bool | None
+
+
+class VirtualHostTreeSpec(TypedDict):
+    id: str
+    title: str
+    exclude_empty_tag_choices: bool
+    tree_spec: Sequence[str]
+
+
+class RenderMode(Enum):
+    BACKEND = "backend"
+    FRONTEND = "frontend"
+    BACKEND_AND_FRONTEND = "backend_and_frontend"
+
+
+class ReadOnlySpec(TypedDict):
+    enabled: bool | tuple[float, float]
+    message: str
+    rw_users: Sequence[UserId]
+
+
+class AgentControllerCertificates(TypedDict):
+    lifetime_in_months: int
+
+
+class PasswordPolicy(TypedDict):
+    min_length: NotRequired[int]
+    num_groups: NotRequired[int]
+    max_age: NotRequired[int]
+
+
+class GraphTimerange(TypedDict):
+    title: str
+    duration: int

@@ -9,11 +9,8 @@ from datetime import datetime
 import pytest
 import time_machine
 
-from cmk.utils.sectionname import SectionName
-
-from cmk.checkengine.plugins import AgentBasedPlugins, CheckPluginName
-
 from cmk.agent_based.v2 import IgnoreResultsError, Metric, Result, Service, State, StringTable
+from cmk.checkengine.plugins import AgentBasedPlugins, CheckPluginName, SectionName
 from cmk.plugins.collection.agent_based import sap_hana_diskusage
 from cmk.plugins.lib.df import FILESYSTEM_DEFAULT_PARAMS
 

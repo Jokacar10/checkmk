@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from typing import Literal, TypedDict
 
 import cmk.utils.regex
-from cmk.utils.metrics import MetricName
-
 from cmk.gui.config import active_config, Config
 from cmk.gui.log import logger
 from cmk.gui.logged_in import user
 from cmk.gui.type_defs import Perfdata, PerfDataTuple, Row
+from cmk.utils.metrics import MetricName
+from cmk.utils.misc import pnp_cleanup
 
 from ._from_api import RegisteredMetric
 from ._legacy import check_metrics, CheckMetricEntry
@@ -30,7 +30,7 @@ def _parse_perf_values(
 ) -> tuple[str, str, tuple[str | None, str | None, str | None, str | None]]:
     "convert perf str into a tuple with values"
     varname, values = data_str.split("=", 1)
-    varname = cmk.utils.pnp_cleanup(varname.replace('"', "").replace("'", ""))
+    varname = pnp_cleanup(varname.replace('"', "").replace("'", ""))
 
     value_parts = values.split(";")
     value = value_parts.pop(0)

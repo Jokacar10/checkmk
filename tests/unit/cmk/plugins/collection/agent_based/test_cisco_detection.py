@@ -7,11 +7,8 @@ from collections.abc import Mapping
 
 import pytest
 
-from cmk.utils.sectionname import SectionName
-
+from cmk.checkengine.plugins import AgentBasedPlugins, SectionName
 from cmk.fetchers._snmpscan import _evaluate_snmp_detection as evaluate_snmp_detection
-
-from cmk.checkengine.plugins import AgentBasedPlugins
 
 
 @pytest.mark.parametrize(

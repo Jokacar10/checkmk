@@ -18,9 +18,8 @@ import livestatus
 
 import cmk.ccc.crash_reporting
 import cmk.ccc.version as cmk_version
-from cmk.ccc.crash_reporting import CrashInfo
+from cmk.ccc.crash_reporting import CrashInfo, SENSITIVE_KEYWORDS
 from cmk.ccc.site import SiteId
-
 from cmk.gui import forms, userdb
 from cmk.gui.breadcrumb import (
     Breadcrumb,
@@ -28,7 +27,7 @@ from cmk.gui.breadcrumb import (
     make_current_page_breadcrumb_item,
     make_topic_breadcrumb,
 )
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.debug_vars import debug_vars
 from cmk.gui.htmllib.generator import HTMLWriter
@@ -38,7 +37,7 @@ from cmk.gui.htmllib.tag_rendering import HTMLContent
 from cmk.gui.http import ContentDispositionType, request, response
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.page_menu import (
     make_simple_link,
     PageMenu,
@@ -46,10 +45,12 @@ from cmk.gui.page_menu import (
     PageMenuEntry,
     PageMenuTopic,
 )
-from cmk.gui.pages import Page, PageRegistry
+from cmk.gui.pages import Page, PageEndpoint, PageRegistry
 from cmk.gui.pagetypes import PagetypeTopics
+from cmk.gui.permissions import permission_registry
 from cmk.gui.utils import escaping
 from cmk.gui.utils.html import HTML
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import makeuri, makeuri_contextless, urlencode, urlencode_vars
 from cmk.gui.utils.user_errors import user_errors
@@ -62,8 +63,8 @@ CrashReportRow = dict[str, str]
 
 
 def register(page_registry: PageRegistry) -> None:
-    page_registry.register_page("crash")(PageCrash)
-    page_registry.register_page("download_crash_report")(PageDownloadCrashReport)
+    page_registry.register(PageEndpoint("crash", PageCrash))
+    page_registry.register(PageEndpoint("download_crash_report", PageDownloadCrashReport))
     report_renderer_registry.register(ReportRendererGeneric)
     report_renderer_registry.register(ReportRendererSection)
     report_renderer_registry.register(ReportRendererCheck)
@@ -116,12 +117,14 @@ class ABCCrashReportPage(Page, abc.ABC):
 
 
 class PageCrash(ABCCrashReportPage):
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         row = self._get_crash_row()
         crash_info = self._get_crash_info(row)
 
         title = _("Crash report: %s") % self._crash_id
-        breadcrumb = self._breadcrumb(title)
+        breadcrumb = self._breadcrumb(
+            title, UserPermissions.from_config(config, permission_registry)
+        )
         make_header(html, title, breadcrumb, self._page_menu(breadcrumb, crash_info))
 
         # Do not reveal crash context information to unauthenticated users or not permitted
@@ -140,7 +143,7 @@ class PageCrash(ABCCrashReportPage):
             return
 
         if request.has_var("_report") and transactions.check_transaction():
-            details = self._handle_report_form()
+            details = self._handle_report_form(config.crash_report_target, config.crash_report_url)
         else:
             details = ReportSubmitDetails(name="", mail="")
 
@@ -154,6 +157,7 @@ class PageCrash(ABCCrashReportPage):
                 )
             )
 
+        self._warn_about_sensitive_information(crash_info)
         self._warn_about_local_files(crash_info)
         self._show_report_form(crash_info, details)
         self._show_crash_report(crash_info)
@@ -161,10 +165,10 @@ class PageCrash(ABCCrashReportPage):
 
         html.footer()
 
-    def _breadcrumb(self, title: str) -> Breadcrumb:
+    def _breadcrumb(self, title: str, user_permissions: UserPermissions) -> Breadcrumb:
         breadcrumb = make_topic_breadcrumb(
-            mega_menu_registry.menu_monitoring(),
-            PagetypeTopics.get_topic("analyze").title(),
+            main_menu_registry.menu_monitoring(),
+            PagetypeTopics.get_topic("analyze", user_permissions).title(),
         )
 
         # Add the parent element: List of all crashes
@@ -230,7 +234,9 @@ class PageCrash(ABCCrashReportPage):
         renderer = self._crash_type_renderer(crash_info["crash_type"])
         yield from renderer.page_menu_entries_related_monitoring(crash_info, self._site_id)
 
-    def _handle_report_form(self) -> ReportSubmitDetails:
+    def _handle_report_form(
+        self, crash_report_target: str, crash_report_url: str
+    ) -> ReportSubmitDetails:
         details = ReportSubmitDetails(name="", mail="")
         try:
             vs = self._vs_crash_report()
@@ -281,18 +287,18 @@ class PageCrash(ABCCrashReportPage):
                 [
                     ("subject", "Checkmk Crash Report - " + self._get_version()),
                 ],
-                filename="mailto:" + self._get_crash_report_target(),
+                filename="mailto:" + crash_report_target,
             )
             html.show_error(
                 _(
                     "Failed to send the crash report. Please download it manually and send it "
                     'to <a href="%s">%s</a> or try again later.'
                 )
-                % (report_url, self._get_crash_report_target())
+                % (report_url, crash_report_target)
             )
             html.close_div()
             html.javascript(
-                f"cmk.transfer.submit_crash_report({json.dumps(active_config.crash_report_url)}, {json.dumps(url_encoded_params)});"
+                f"cmk.transfer.submit_crash_report({json.dumps(crash_report_url)}, {json.dumps(url_encoded_params)});"
             )
         except MKUserError as e:
             user_errors.add(e)
@@ -301,9 +307,6 @@ class PageCrash(ABCCrashReportPage):
 
     def _get_version(self) -> str:
         return cmk_version.__version__
-
-    def _get_crash_report_target(self) -> str:
-        return active_config.crash_report_target
 
     def _vs_crash_report(self):
         return Dictionary(
@@ -349,6 +352,25 @@ class PageCrash(ABCCrashReportPage):
             )
         )
         html.show_warning(warn_text)
+
+    def _warn_about_sensitive_information(self, crash_info: CrashInfo) -> None:
+        if not ((vars_ := crash_info.get("details") or {}).get("vars")):
+            return
+
+        if any(
+            sensitive_keyword in key.lower()
+            for sensitive_keyword in SENSITIVE_KEYWORDS
+            for key in vars_
+        ):
+            html.show_warning(
+                HTML.with_escaping(
+                    _(
+                        "Checkmk has identified and attempted to redact sensitive information in the crash "
+                        "report. It is advised that you manually review the content of this report and "
+                        "ensure any additional sensitive data is removed before sharing the crash report."
+                    )
+                )
+            )
 
     def _show_report_form(self, crash_info: CrashInfo, details: ReportSubmitDetails) -> None:
         if crash_info["crash_type"] == "gui":
@@ -689,7 +711,7 @@ def _show_agent_output(row: CrashReportRow) -> None:
 
 
 class PageDownloadCrashReport(ABCCrashReportPage):
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         user.need_permission("general.see_crash_reports")
 
         filename = "Checkmk_Crash_{}_{}_{}.tar.gz".format(

@@ -52,6 +52,16 @@ fn main_instance_name() -> InstanceName {
     InstanceName::from("MSSQLSERVER")
 }
 
+#[cfg(windows)]
+#[test]
+fn test_environment() {
+    // it seems we need this flag to properly link openssl on Windows
+    let env_value = std::env::var("CFLAGS")
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .unwrap();
+    assert_eq!(env_value, "-DNDEBUG");
+}
+
 #[test]
 fn test_section_select_query() {
     let work_dir = tools::create_temp_process_dir();
@@ -1053,6 +1063,19 @@ async fn test_check_config_exec_local() {
     assert!(res.is_err());
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn test_check_config_exec_integrated() {
+    let file = tools::create_integrated_config();
+    let res = CheckConfig::load_file(file.path());
+    #[cfg(windows)]
+    assert_eq!(
+        String::from(res.unwrap().ms_sql().unwrap().conn().hostname()),
+        "berlin.de".to_owned()
+    );
+    #[cfg(unix)]
+    assert!(res.is_err());
+}
+
 #[test]
 fn test_no_ms_sql() {
     const EXPECTED_ERROR: &str = "ERROR: Failed to gather SQL server instances";
@@ -1296,6 +1319,47 @@ async fn test_check_config_exec_piggyback_remote() {
     let check_config = CheckConfig::load_file(&dir.path().join("mk-sql.yml")).unwrap();
     let output = check_config.exec(&Env::default()).await.unwrap();
     assert!(!output.is_empty());
+}
+
+fn create_exclude_config(endpoint: SqlDbEndpoint, entry: &str) -> String {
+    format!(
+        r#"
+---
+mssql:
+  main:
+    authentication:
+       username: {}
+       password: {}
+       type: "sql_server"
+    connection:
+       hostname: {}
+       exclude_databases: {}
+    sections:
+      - instances:
+      - transactionlogs:
+      - datafiles:
+      - tablespaces:
+      - cluster:
+"#,
+        endpoint.user, endpoint.pwd, endpoint.host, entry
+    )
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn test_check_exclude() {
+    let with_exclude = create_exclude_config(
+        tools::get_remote_sql_from_env_var().unwrap(),
+        "[ tempdb, model]",
+    );
+    let empty_exclude = create_exclude_config(tools::get_remote_sql_from_env_var().unwrap(), "");
+    let excluded_config = CheckConfig::load_str(&with_exclude).unwrap();
+    let normal_config = CheckConfig::load_str(&empty_exclude).unwrap();
+    let excluded_data = excluded_config.exec(&Env::default()).await.unwrap();
+    let normal_data = normal_config.exec(&Env::default()).await.unwrap();
+    assert!(!excluded_data.contains("|tempdb|"));
+    assert!(!excluded_data.contains("|model|"));
+    assert_eq!(normal_data.matches("|tempdb|").count() as u32, 9);
+    assert_eq!(normal_data.matches("|model|").count() as u32, 6);
 }
 
 #[tokio::test(flavor = "multi_thread")]

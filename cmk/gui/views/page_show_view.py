@@ -16,12 +16,9 @@ from urllib.parse import quote_plus
 
 import livestatus
 
+from cmk.ccc.cpu_tracking import CPUTracker, Snapshot
 from cmk.ccc.site import omd_site, SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils.cpu_tracking import CPUTracker, Snapshot
-from cmk.utils.livestatus_helpers.queries import Query
-
 from cmk.gui import log, visuals
 from cmk.gui.config import active_config, Config
 from cmk.gui.ctx_stack import g
@@ -36,6 +33,7 @@ from cmk.gui.logged_in import user
 from cmk.gui.page_menu import make_external_link, PageMenuDropdown, PageMenuEntry, PageMenuTopic
 from cmk.gui.painter.v0 import Cell, columns_of_cells
 from cmk.gui.painter_options import PainterOptions
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import (
     ColumnName,
     PainterParameters,
@@ -45,6 +43,7 @@ from cmk.gui.type_defs import (
     SorterSpec,
     ViewSpec,
 )
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.view import View
 from cmk.gui.view_renderer import ABCViewRenderer, GUIViewRenderer
@@ -54,6 +53,7 @@ from cmk.gui.visuals import (
     get_only_sites_from_context,
 )
 from cmk.gui.visuals.filter import Filter
+from cmk.utils.livestatus_helpers.queries import Query
 
 from . import availability
 from .row_post_processing import post_process_rows
@@ -62,6 +62,7 @@ from .store import get_all_views, get_permitted_views
 
 
 def page_show_view(
+    config: Config,
     page_menu_dropdowns_callback: Callable[[View, Rows, list[PageMenuDropdown]], None],
 ) -> None:
     """Central entry point for the initial HTML page rendering of a view"""
@@ -76,11 +77,20 @@ def page_show_view(
         )
         _patch_view_context(view_spec)
 
+        user_permissions = UserPermissions.from_config(config, permission_registry)
         datasource = data_source_registry[view_spec["datasource"]]()
         context = visuals.active_context_from_request(datasource.infos, view_spec["context"])
 
-        view = View(view_name, view_spec, context)
-        view.row_limit = get_limit()
+        view = View(
+            view_name, view_spec, context, UserPermissions.from_config(config, permission_registry)
+        )
+        view.row_limit = get_limit(
+            request_limit_mode=request.get_ascii_input_mandatory("limit", "soft"),
+            soft_query_limit=config.soft_query_limit,
+            may_ignore_soft_limit=user.may("general.ignore_soft_limit"),
+            hard_query_limit=config.hard_query_limit,
+            may_ignore_hard_limit=user.may("general.ignore_hard_limit"),
+        )
 
         view.only_sites = get_only_sites_from_context(context)
 
@@ -104,14 +114,16 @@ def page_show_view(
                 show_buttons=True,
                 page_menu_dropdowns_callback=page_menu_dropdowns_callback,
             ),
-            debug=active_config.debug,
+            user_permissions,
+            debug=config.debug,
         )
 
-    _may_create_slow_view_log_entry(page_view_tracker, view)
+    _may_create_slow_view_log_entry(page_view_tracker, view, config.slow_views_duration_threshold)
 
 
-def _may_create_slow_view_log_entry(page_view_tracker: CPUTracker, view: View) -> None:
-    duration_threshold = active_config.slow_views_duration_threshold
+def _may_create_slow_view_log_entry(
+    page_view_tracker: CPUTracker, view: View, duration_threshold: int
+) -> None:
     if page_view_tracker.duration.process.elapsed < duration_threshold:
         return
 
@@ -170,19 +182,23 @@ def _patch_view_context(view_spec: ViewSpec) -> None:
     # with the current mode.
     if _is_ec_unrelated_host_view(view_spec):
         # Set the value for the event host filter
-        if not request.has_var("event_host") and request.has_var("host"):
+        if not request.var("event_host") and request.has_var("host"):
             request.set_var("event_host", request.get_str_input_mandatory("host"))
 
 
-def process_view(view_renderer: ABCViewRenderer, *, debug: bool) -> None:
+def process_view(
+    view_renderer: ABCViewRenderer, user_permissions: UserPermissions, *, debug: bool
+) -> None:
     """Rendering all kind of views"""
     if request.var("mode") == "availability":
         _process_availability_view(view_renderer, debug=debug)
     else:
-        _process_regular_view(view_renderer, debug=debug)
+        _process_regular_view(view_renderer, user_permissions, debug=debug)
 
 
-def _process_regular_view(view_renderer: ABCViewRenderer, *, debug: bool) -> None:
+def _process_regular_view(
+    view_renderer: ABCViewRenderer, user_permissions: UserPermissions, *, debug: bool
+) -> None:
     all_active_filters = get_all_active_filters(view_renderer.view)
     with livestatus.intercept_queries() as queries:
         unfiltered_amount_of_rows, rows = _get_view_rows(
@@ -197,7 +213,7 @@ def _process_regular_view(view_renderer: ABCViewRenderer, *, debug: bool) -> Non
         return
 
     _add_rest_api_menu_entries(view_renderer, intercepted_queries)
-    _show_view(view_renderer, unfiltered_amount_of_rows, rows, debug=debug)
+    _show_view(view_renderer, unfiltered_amount_of_rows, rows, user_permissions, debug=debug)
 
 
 def _add_rest_api_menu_entries(view_renderer: ABCViewRenderer, queries: list[str]) -> None:
@@ -392,7 +408,12 @@ def _fetch_rows_from_livestatus(view: View, all_active_filters: list[Filter]) ->
 
 
 def _show_view(
-    view_renderer: ABCViewRenderer, unfiltered_amount_of_rows: int, rows: Rows, *, debug: bool
+    view_renderer: ABCViewRenderer,
+    unfiltered_amount_of_rows: int,
+    rows: Rows,
+    user_permissions: UserPermissions,
+    *,
+    debug: bool,
 ) -> None:
     view = view_renderer.view
 
@@ -425,6 +446,7 @@ def _show_view(
             num_columns,
             show_filters,
             unfiltered_amount_of_rows,
+            user_permissions,
             debug=debug,
         )
     view.process_tracking.duration_view_render = view_render_tracker.duration
@@ -617,14 +639,20 @@ def get_want_checkboxes() -> bool:
     return request.get_integer_input_mandatory("show_checkboxes", 0) == 1
 
 
-def get_limit() -> int | None:
+def get_limit(
+    *,
+    request_limit_mode: str,
+    soft_query_limit: int,
+    may_ignore_soft_limit: bool,
+    hard_query_limit: int,
+    may_ignore_hard_limit: bool,
+) -> int | None:
     """How many data rows may the user query?"""
-    limitvar = request.var("limit", "soft")
-    if limitvar == "hard" and user.may("general.ignore_soft_limit"):
-        return active_config.hard_query_limit
-    if limitvar == "none" and user.may("general.ignore_hard_limit"):
+    if request_limit_mode == "hard" and may_ignore_soft_limit:
+        return hard_query_limit
+    if request_limit_mode == "none" and may_ignore_hard_limit:
         return None
-    return active_config.soft_query_limit
+    return soft_query_limit
 
 
 def _link_to_folder_by_path(path: str) -> str:

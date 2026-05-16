@@ -11,14 +11,16 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.setup.background_jobs import BackgroundJobDetails
 from tests.gui_e2e.testlib.playwright.pom.setup.support_diagnostics import SupportDiagnostics
 
 logger = logging.getLogger(__name__)
 
 
-def test_download_diagnostics(dashboard_page: Dashboard, request: pytest.FixtureRequest) -> None:
+def test_download_diagnostics(
+    dashboard_page: MainDashboard, request: pytest.FixtureRequest
+) -> None:
     """Validate diagnostic dump can be downloaded from the UI.
 
     * Start a background job to generate diagnostic dump.
@@ -26,7 +28,7 @@ def test_download_diagnostics(dashboard_page: Dashboard, request: pytest.Fixture
     * Diagnostic dump can be downloaded.
     """
     file_prefix: str = request.node.name
-    artifacts_dir = Path(request.config.getoption("--output-cmk"))
+    artifacts_dir = Path(request.config.getoption("--output"))
 
     diagnostics = SupportDiagnostics(dashboard_page.page)
     job_details: BackgroundJobDetails = diagnostics.job_details()

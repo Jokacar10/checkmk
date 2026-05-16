@@ -4,13 +4,18 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { nextTick, useTemplateRef, computed, ref, type Ref } from 'vue'
+import { type Ref, computed, nextTick, ref, useTemplateRef } from 'vue'
+
+import usei18n from '@/lib/i18n'
+import type { TranslatedString } from '@/lib/i18nString'
 import { immediateWatch } from '@/lib/watch'
 
-import CmkScrollContainer from './CmkScrollContainer.vue'
 import CmkHtml from '@/components/CmkHtml.vue'
 
-import { type Suggestion, ErrorResponse, Response } from './suggestions'
+import CmkScrollContainer from './CmkScrollContainer.vue'
+import { ErrorResponse, Response, type Suggestion } from './suggestions'
+
+const { _t } = usei18n()
 
 type SuggestionsFixed = {
   type: 'fixed'
@@ -25,7 +30,7 @@ type SuggestionsFiltered = {
 type SuggestionsCallbackFiltered = {
   type: 'callback-filtered'
   querySuggestions: (query: string) => Promise<ErrorResponse | Response>
-  getTitle?: (name: string) => Promise<ErrorResponse | string>
+  getTitle?: (name: string) => Promise<ErrorResponse | TranslatedString>
 }
 
 export type Suggestions = SuggestionsFixed | SuggestionsFiltered | SuggestionsCallbackFiltered
@@ -244,7 +249,7 @@ defineExpose({
       <input
         ref="suggestionInputRef"
         v-model="filterString"
-        aria-label="filter"
+        :aria-label="_t('filter')"
         type="text"
         @blur="inputLostFocus"
         @keydown.escape.prevent="emit('blur')"
@@ -277,22 +282,24 @@ defineExpose({
 <style scoped>
 .cmk-suggestions {
   position: absolute;
-  z-index: 1;
+  z-index: var(--z-index-dropdown);
   color: var(--font-color);
   background-color: var(--default-form-element-bg-color);
   border: 1px solid var(--ux-theme-6);
   box-sizing: border-box;
-  border-radius: 0px;
+  border-radius: 0;
   min-width: 100%;
   max-width: 512px;
   margin: 0;
   padding: 0;
   list-style-type: none;
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   span.input {
     display: flex;
     padding: 4px;
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.hidden {
       display: none;
     }
@@ -313,18 +320,23 @@ defineExpose({
       outline: none;
     }
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.selectable {
       cursor: pointer;
       color: var(--font-color);
+
+      /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
       &.selected {
         color: var(--default-select-focus-color);
       }
+
       &:hover {
         color: var(--default-select-hover-color);
       }
     }
   }
 }
+
 .cmk-suggestions--error {
   background-color: var(--error-msg-bg-color);
 }

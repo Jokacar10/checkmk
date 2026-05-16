@@ -7,15 +7,10 @@
 import enum
 
 __all__ = [
-    "MKAgentError",
     "MKBailOut",
-    "MKConfigLockTimeout",
     "MKIPAddressLookupError",
     "MKException",
-    "MKFetcherError",
     "MKGeneralException",
-    "MKSkipCheck",
-    "MKSNMPError",
     "MKTerminate",
     "MKTimeout",
     "OnError",
@@ -24,27 +19,15 @@ __all__ = [
 
 # never used directly in the code. Just some wrapper to make all of our
 # exceptions handleable with one call
+# NOTE: this might have been a good idea at some point in the past, but
+# now it introduces a lot of dependencies, and makes it harder to follow
+# where exceptions are actually coming from. Let's get rid of this,
+# and move the exceptions to the packages they actually belong to.
 class MKException(Exception):
     pass
 
 
-class MKFetcherError(MKException):
-    """An exception common to the fetchers."""
-
-
-class MKAgentError(MKFetcherError):
-    pass
-
-
-class MKSNMPError(MKFetcherError):
-    pass
-
-
-class MKSkipCheck(MKException):
-    pass
-
-
-class MKGeneralException(MKException):
+class MKGeneralException(Exception):
     """An exception signaling the user can fix the underlying problem
 
     Important: This should not be used for errors that indicate actual bugs.
@@ -79,7 +62,7 @@ class MKTimeout(MKException):
         automations which have a timeout set.
 
     See also:
-        `cmk.utils.timeout` has a context manager using it.
+        `cmk.ccc.timeout` has a context manager using it.
     """
 
 
@@ -91,7 +74,3 @@ class OnError(enum.Enum):
     RAISE = "raise"
     WARN = "warn"
     IGNORE = "ignore"
-
-
-class MKConfigLockTimeout(MKTimeout):
-    """Special exception to signalize timeout waiting for the global configuration lock"""

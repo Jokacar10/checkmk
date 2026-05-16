@@ -8,19 +8,19 @@ from __future__ import annotations
 import urllib.parse
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Self, TypedDict
+from typing import Self, TypedDict
 
 from cmk.ccc.user import UserId
-
-from cmk.utils.urls import is_allowed_url
-
 from cmk.gui import pagetypes
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.foldable_container import foldable_container
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
+from cmk.gui.permissions import permission_registry
 from cmk.gui.utils.csrf_token import check_csrf_token
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.valuespec import (
     Alternative,
     FixedValue,
@@ -32,6 +32,7 @@ from cmk.gui.valuespec import (
     Tuple,
     ValueSpec,
 )
+from cmk.utils.urls import is_allowed_url
 
 from ._base import SidebarSnapin
 from ._helpers import begin_footnote_links, end_footnote_links, iconlink, link
@@ -106,7 +107,7 @@ class BookmarkList(pagetypes.Overridable[BookmarkListConfig]):
 
     @classmethod
     def parameters(
-        cls, mode: pagetypes.PageMode
+        cls, mode: pagetypes.PageMode, user_permissions: UserPermissions
     ) -> list[tuple[str, list[tuple[float, str, ValueSpec]]]]:
         def bookmark_config_to_vs(v):
             if v:
@@ -121,7 +122,7 @@ class BookmarkList(pagetypes.Overridable[BookmarkListConfig]):
                 "topic": v[3],
             }
 
-        parameters = super().parameters(mode)
+        parameters = super().parameters(mode, user_permissions)
 
         parameters += [
             (
@@ -166,7 +167,7 @@ class BookmarkList(pagetypes.Overridable[BookmarkListConfig]):
                                             )
                                         ),
                                         (IconSelector(title=_("Icon"), with_emblem=False)),
-                                        (cls._vs_topic()),
+                                        (cls._vs_topic(user_permissions)),
                                     ],
                                     orientation="horizontal",
                                     title=_("Bookmarks"),
@@ -183,8 +184,8 @@ class BookmarkList(pagetypes.Overridable[BookmarkListConfig]):
         return parameters
 
     @classmethod
-    def _vs_topic(cls) -> Alternative:
-        choices = cls._topic_choices()
+    def _vs_topic(cls, user_permissions: UserPermissions) -> Alternative:
+        choices = cls._topic_choices(user_permissions)
 
         return Alternative(
             elements=[
@@ -209,11 +210,11 @@ class BookmarkList(pagetypes.Overridable[BookmarkListConfig]):
         )
 
     @classmethod
-    def _topic_choices(cls) -> list[tuple[str, str]]:
+    def _topic_choices(cls, user_permissions: UserPermissions) -> list[tuple[str, str]]:
         topics = set()
-        instances = BookmarkList.load()
+        instances = BookmarkList.load(user_permissions)
         for instance in instances.instances_sorted():
-            if instance.is_permitted():
+            if instance.is_permitted(user_permissions):
                 for topic, _bookmarks in instance.bookmarks_by_topic():
                     if topic is None:
                         topic = instance.default_bookmark_topic()
@@ -287,8 +288,10 @@ class Bookmarks(SidebarSnapin):
             "bookmarks to views and other content in the main frame"
         )
 
-    def show(self) -> None:
-        for topic, bookmarks in self._get_bookmarks_by_topic():
+    def show(self, config: Config) -> None:
+        for topic, bookmarks in self._get_bookmarks_by_topic(
+            UserPermissions.from_config(config, permission_registry)
+        ):
             with foldable_container(
                 treename="bookmarks",
                 id_=topic,
@@ -312,11 +315,13 @@ class Bookmarks(SidebarSnapin):
         link(_("Edit"), "bookmark_lists.py")
         end_footnote_links()
 
-    def _get_bookmarks_by_topic(self):
-        topics: dict[Any, list[Any]] = {}
-        instances = BookmarkList.load()
+    def _get_bookmarks_by_topic(
+        self, user_permissions: UserPermissions
+    ) -> list[tuple[str, list[BookmarkSpec]]]:
+        topics: dict[str, list[BookmarkSpec]] = {}
+        instances = BookmarkList.load(user_permissions)
         for instance in instances.instances_sorted():
-            if instance.is_permitted():
+            if instance.is_permitted(user_permissions):
                 for topic, bookmarks in instance.bookmarks_by_topic():
                     if topic is None:
                         topic = instance.default_bookmark_topic()
@@ -324,25 +329,26 @@ class Bookmarks(SidebarSnapin):
                     bookmark_list += bookmarks
         return sorted(topics.items())
 
-    def _ajax_add_bookmark(self) -> None:
+    def _ajax_add_bookmark(self, config: Config) -> None:
         check_csrf_token()
         title = request.var("title")
         url = request.var("url")
+        user_permissions = UserPermissions.from_config(config, permission_registry)
         if title and url:
             BookmarkList.validate_url(url, "url")
-            self._add_bookmark(title, url)
-        self.show()
+            self._add_bookmark(title, url, user_permissions)
+        self.show(config)
 
-    def _add_bookmark(self, title: str, url: str) -> None:
+    def _add_bookmark(self, title: str, url: str, user_permissions: UserPermissions) -> None:
         assert user.id is not None
-        instances = BookmarkList.load()
+        instances = BookmarkList.load(user_permissions)
 
         if not instances.has_instance((user.id, "my_bookmarks")):
             BookmarkList.add_default_bookmark_list(instances, user.ident)
 
         bookmarks = instances.instance((user.id, "my_bookmarks"))
         bookmarks.add_bookmark(title, self._try_shorten_url(url))
-        BookmarkList.save_user_instances(instances)
+        BookmarkList.save_user_instances(instances, user_permissions, user.id)
 
     def _try_shorten_url(self, url: str) -> str:
         referer = request.referer
@@ -378,7 +384,7 @@ class Bookmarks(SidebarSnapin):
                     url = "../" + url
         return url
 
-    def page_handlers(self) -> dict[str, Callable[[], None]]:
+    def page_handlers(self) -> dict[str, Callable[[Config], None]]:
         return {
             "add_bookmark": self._ajax_add_bookmark,
         }

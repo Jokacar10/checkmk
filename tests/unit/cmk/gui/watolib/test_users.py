@@ -10,13 +10,14 @@ from livestatus import SiteConfiguration, SiteConfigurations
 
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
 from cmk.gui import userdb
 from cmk.gui.config import active_config
-from cmk.gui.type_defs import UserObject, UserSpec
+from cmk.gui.logged_in import LoggedInSuperUser
+from cmk.gui.type_defs import UserSpec
+from cmk.gui.userdb import get_user_attributes
 from cmk.gui.watolib.paths import wato_var_dir
 from cmk.gui.watolib.site_changes import SiteChanges
-from cmk.gui.watolib.users import default_sites, delete_users, edit_users
+from cmk.gui.watolib.users import create_user, default_sites, delete_users, edit_users
 
 USER1_ID = UserId("user1")
 USER2_ID = UserId("user2")
@@ -86,98 +87,103 @@ def _changed_sites(sites: list[SiteId]) -> list[SiteId]:
 
 
 @pytest.mark.parametrize(
-    "changed_users, expected_changed_sites",
+    "added_users, expected_changed_sites",
     [
         pytest.param(
-            {
-                USER1_ID: {
-                    "attributes": UserSpec({"alias": "user1", "locked": False}),
-                    "is_new_user": True,
-                }
-            },
+            [
+                (
+                    USER1_ID,
+                    UserSpec({"alias": "user1", "locked": False, "roles": []}),
+                ),
+            ],
             [SITE1, SITE2, SITE3],
             id="no sites => all sites change",
         ),
         pytest.param(
-            {
-                USER1_ID: {
-                    "attributes": UserSpec(
+            [
+                (
+                    USER1_ID,
+                    UserSpec(
                         {
                             "alias": "user1",
                             "locked": False,
                             "authorized_sites": [SITE1],
+                            "roles": [],
                         }
                     ),
-                    "is_new_user": True,
-                }
-            },
+                )
+            ],
             [SITE1],
             id="single site change",
         ),
         pytest.param(
-            {
-                USER1_ID: {
-                    "attributes": UserSpec(
-                        {
-                            "alias": "user1",
-                            "locked": False,
-                        }
-                    ),
-                    "is_new_user": True,
-                },
-                USER2_ID: {
-                    "attributes": UserSpec(
+            [
+                (
+                    USER1_ID,
+                    UserSpec({"alias": "user1", "locked": False, "roles": []}),
+                ),
+                (
+                    USER2_ID,
+                    UserSpec(
                         {
                             "alias": "user2",
                             "locked": False,
                             "authorized_sites": [SITE1],
+                            "roles": [],
                         }
                     ),
-                    "is_new_user": True,
-                },
-            },
+                ),
+            ],
             [SITE1, SITE2, SITE3],
             id="all sites change because of one user",
         ),
     ],
 )
-@pytest.mark.usefixtures("request_context", "with_admin_login")
+@pytest.mark.usefixtures("request_context")
 def test_only_affected_sites_require_activation_when_adding_users(
-    sites: list[SiteId], changed_users: UserObject, expected_changed_sites: list[SiteId]
+    sites: list[SiteId],
+    added_users: list[tuple[UserId, UserSpec]],
+    expected_changed_sites: list[SiteId],
 ) -> None:
-    edit_users(changed_users, default_sites)
+    for added_user in added_users:
+        user_id, userspec = added_user
+        create_user(
+            user_id,
+            userspec,
+            default_sites,
+            get_user_attributes([]),
+            use_git=False,
+            acting_user=LoggedInSuperUser(),
+        )
     all_users = userdb.load_users()
-    assert all(user_id in all_users for user_id in changed_users)
+    assert user_id in all_users
     assert expected_changed_sites == _changed_sites(sites)
 
 
-@pytest.mark.usefixtures("request_context", "with_admin_login")
+@pytest.mark.usefixtures("request_context")
 def test_only_affected_sites_require_activation_when_changing_user(sites: list[SiteId]) -> None:
     # GIVEN one user added on site1
-    edit_users(
-        {
-            USER1_ID: {
-                "attributes": UserSpec(
-                    {"alias": "user1", "locked": False, "authorized_sites": [SITE1]}
-                ),
-                "is_new_user": True,
-            }
-        },
+    create_user(
+        USER1_ID,
+        UserSpec({"alias": "user1", "locked": False, "authorized_sites": [SITE1], "roles": []}),
         default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
     )
     _reset_site_changes(ALL_SITES)
 
     # WHEN "moving" this user to site2
     edit_users(
         {
-            USER1_ID: {
-                "attributes": UserSpec(
-                    {"alias": "user1", "locked": False, "authorized_sites": [SITE2]}
-                ),
-                "is_new_user": False,
-            }
+            USER1_ID: UserSpec(
+                {"alias": "user1", "locked": False, "authorized_sites": [SITE2], "roles": []}
+            )
         },
         default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
     )
 
     # THEN both site1 and site2 should require activation
@@ -204,30 +210,37 @@ def test_only_affected_sites_require_activation_when_changing_user(sites: list[S
         ),
     ],
 )
-@pytest.mark.usefixtures("request_context", "with_admin_login")
+@pytest.mark.usefixtures("request_context")
 def test_only_affected_sites_require_activation_when_deleting_users(
     sites: list[SiteId], users_to_delete: list[UserId], expected_changed_sites: list[SiteId]
 ) -> None:
     # GIVEN "global" user1 and user2 on site2
-    edit_users(
-        {
-            USER1_ID: {
-                "attributes": UserSpec({"alias": "user1", "locked": False}),
-                "is_new_user": True,
-            },
-            USER2_ID: {
-                "attributes": UserSpec(
-                    {"alias": "user2", "locked": False, "authorized_sites": [SITE2]}
-                ),
-                "is_new_user": True,
-            },
-        },
+    create_user(
+        USER1_ID,
+        UserSpec({"alias": "user1", "locked": False, "roles": []}),
         default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
+    )
+    create_user(
+        USER2_ID,
+        UserSpec({"alias": "user2", "locked": False, "authorized_sites": [SITE2], "roles": []}),
+        default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
     )
     _reset_site_changes(ALL_SITES)
 
     # WHEN
-    delete_users(users_to_delete, default_sites)
+    delete_users(
+        users_to_delete,
+        default_sites,
+        get_user_attributes([]),
+        use_git=False,
+        acting_user=LoggedInSuperUser(),
+    )
 
     # THEN
     all_users = userdb.load_users()

@@ -2,8 +2,6 @@
 
 /// file: trigger-post-submit-test-cascade-light.groovy
 
-/// Trigger post submit test cascade of lightweight jobs
-
 def main() {
     def package_helper = load("${checkout_dir}/buildscripts/scripts/utils/package_helper.groovy");
     def versioning = load("${checkout_dir}/buildscripts/scripts/utils/versioning.groovy");
@@ -20,9 +18,7 @@ def main() {
         "test-github-actions",
         "test-groovy-lint",
         "test-python3-bandit",
-        // TODO: Re-enable this as soon as fetching the git tags is not expansive as hell anymore
-        // Currently the idea is to only run those tests cron triggered in order to avoid git fetch --tags on every commit
-        // "test-python3-code-quality",
+        "test-python3-code-quality",
         "test-python3-format",
         "test-python3-pylint",
         "test-python3-ruff",

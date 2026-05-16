@@ -13,12 +13,10 @@ from cryptography import x509
 from dateutil.relativedelta import relativedelta
 
 from cmk.ccc.site import SiteId
-
-from cmk.utils.certs import CN_TEMPLATE, RootCA
-
 from cmk.crypto.certificate import Certificate, CertificateWithPrivateKey
 from cmk.crypto.keys import PlaintextPrivateKeyPEM, PrivateKey
 from cmk.crypto.x509 import SAN, SubjectAlternativeNames, X509Name
+from cmk.utils.certs import CN_TEMPLATE, RootCA
 
 
 def _rsa_private_keys_equal(key_a: PrivateKey, key_b: PrivateKey) -> bool:
@@ -225,7 +223,7 @@ MC4CAQAwBQYDK2VwBCIEIK/fWo6sKC4PDigGfEntUd/o8KKs76Hsi03su4QhpZox
 -----END PRIVATE KEY-----"""
         )
     )
-    peter_cert = Certificate._create(
+    peter_cert = Certificate.create(
         subject_public_key=peter_key.public_key,
         subject_name=X509Name.create(common_name="peter"),
         subject_alternative_names=None,

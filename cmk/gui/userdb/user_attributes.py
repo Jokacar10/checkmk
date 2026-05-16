@@ -3,9 +3,6 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-from cmk.utils.rulesets.definition import RuleGroup
-from cmk.utils.urls import is_allowed_url
-
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.http import request
 from cmk.gui.i18n import _
@@ -24,6 +21,8 @@ from cmk.gui.valuespec import (
     Tuple,
     ValueSpec,
 )
+from cmk.utils.rulesets.definition import RuleGroup
+from cmk.utils.urls import is_allowed_url
 
 from ._user_attribute import UserAttribute, UserAttributeRegistry
 
@@ -183,11 +182,16 @@ class StartURLUserAttribute(UserAttribute):
                 elements=[
                     FixedValue(
                         value=None,
-                        title=_("Use the default start URL"),
+                        title=_("Default start URL"),
+                        totext="",
+                    ),
+                    FixedValue(
+                        value="welcome.py",
+                        title=_("Welcome page"),
                         totext="",
                     ),
                     TextInput(
-                        title=_("Use this custom start URL"),
+                        title=_("Custom start URL"),
                         help=_(
                             "When you point your browser to the Checkmk GUI, usually the dashboard "
                             "is shown in the main (right) frame. You can replace this with any other "
@@ -299,7 +303,7 @@ class UIIconPlacement(UserAttribute):
         return DropdownChoice(
             title=_("Mega menu icons"),
             help=_(
-                "In the mega menus you can select between two options: "
+                "In the main menus you can select between two options: "
                 "Have a green icon only for the headlines – the 'topics' – "
                 "for lean design. Or have a colored icon for every entry so that "
                 "over time you can zoom in more quickly to a specific entry."

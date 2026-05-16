@@ -119,7 +119,7 @@ impl SqlInstanceBuilder {
         self
     }
     pub fn piggyback(mut self, piggyback: Option<PiggybackHostName>) -> Self {
-        self.piggyback = piggyback.map(|s| s.to_string().to_lowercase().into());
+        self.piggyback = piggyback.map(|s| s.to_string().into());
         self
     }
 
@@ -698,8 +698,13 @@ impl SqlInstance {
         query: &str,
         sep: char,
     ) -> String {
-        let tasks = databases.iter().map(move |database| {
-            self.generate_table_spaces_section_database(endpoint, database, query, sep)
+        let tasks = databases.iter().filter_map(move |database| {
+            if endpoint.conn().exclude_databases().contains(database) {
+                log::debug!("Database {} excluded from table spaces", database);
+                None
+            } else {
+                Some(self.generate_table_spaces_section_database(endpoint, database, query, sep))
+            }
         });
 
         let results = stream::iter(tasks)
@@ -800,19 +805,30 @@ impl SqlInstance {
                 .into_iter()
                 .map(|chunk| {
                     s.spawn(|| {
+                        let dbs = chunk
+                            .iter()
+                            .filter_map(|database| {
+                                if endpoint.conn().exclude_databases().contains(database) {
+                                    log::debug!("Database {} excluded", database);
+                                    None
+                                } else {
+                                    Some(database.clone())
+                                }
+                            })
+                            .collect::<Vec<String>>();
                         let rt = tokio::runtime::Runtime::new().unwrap();
                         match section.name() {
                             names::TRANSACTION_LOG => rt.block_on(
-                                self.generate_transaction_logs_section(endpoint, chunk, query, sep),
+                                self.generate_transaction_logs_section(endpoint, &dbs, query, sep),
                             ),
                             names::TABLE_SPACES => rt.block_on(
-                                self.generate_table_spaces_section(endpoint, chunk, query, sep),
+                                self.generate_table_spaces_section(endpoint, &dbs, query, sep),
                             ),
                             names::DATAFILES => rt.block_on(
-                                self.generate_datafiles_section(endpoint, chunk, query, sep),
+                                self.generate_datafiles_section(endpoint, &dbs, query, sep),
                             ),
                             names::CLUSTERS => rt.block_on(
-                                self.generate_clusters_section(endpoint, chunk, query, sep),
+                                self.generate_clusters_section(endpoint, &dbs, query, sep),
                             ),
                             _ => format!("{} not implemented\n", section.name()).to_string(),
                         }
@@ -1748,23 +1764,14 @@ fn to_backup_entry(
     } else {
         backup_type
     };
-    let replica_id = row.get_value_by_name("replica_id").trim().to_string();
-    let is_primary_replica = row
-        .get_value_by_name("is_primary_replica")
-        .trim()
-        .to_string();
-    if replica_id.is_empty() || is_primary_replica == "True" || is_primary_replica == "1" {
-        format!(
-            "{}{sep}{}{sep}{}+00:00{sep}{}\n",
-            instance_name,
-            database_name.replace(' ', "_"),
-            last_backup_date.replace(' ', "|"),
-            backup_type,
-        )
-        .into()
-    } else {
-        None
-    }
+    format!(
+        "{}{sep}{}{sep}{}+00:00{sep}{}\n",
+        instance_name,
+        database_name.replace(' ', "_"),
+        last_backup_date.replace(' ', "|"),
+        backup_type,
+    )
+    .into()
 }
 
 fn to_backup_entry_odbc(
@@ -1787,26 +1794,14 @@ fn to_backup_entry_odbc(
     } else {
         backup_type
     };
-    let replica_id = block
-        .get_value_by_name(row, "replica_id")
-        .trim()
-        .to_string();
-    let is_primary_replica = block
-        .get_value_by_name(row, "is_primary_replica")
-        .trim()
-        .to_string();
-    if replica_id.is_empty() || is_primary_replica == "True" || is_primary_replica == "1" {
-        format!(
-            "{}{sep}{}{sep}{}+00:00{sep}{}\n",
-            instance_name,
-            database_name.replace(' ', "_"),
-            last_backup_date.replace(' ', "|"),
-            backup_type,
-        )
-        .into()
-    } else {
-        None
-    }
+    format!(
+        "{}{sep}{}{sep}{}+00:00{sep}{}\n",
+        instance_name,
+        database_name.replace(' ', "_"),
+        last_backup_date.replace(' ', "|"),
+        backup_type,
+    )
+    .into()
 }
 
 struct Counter {
@@ -2345,9 +2340,10 @@ fn determine_reconnect(
                     if Some(&customization.endpoint()) != instance_builder.get_endpoint() =>
                 {
                     log::info!(
-                        "Instance {} to be reconnected with {}",
+                        "Instance {} to be reconnected with `{}` from `{}`",
                         instance_builder.get_name(),
-                        customization.endpoint().dump_compact()
+                        customization.endpoint().dump_compact(),
+                        instance_builder.get_endpoint().unwrap().dump_compact()
                     );
                     (instance_builder, Some(customization.endpoint()))
                 }
@@ -2632,7 +2628,7 @@ mod tests {
             "\
              <<<mssql_instance:sep(124)>>>\n\
              MSSQL_A|config|||\n\
-             <<<<y>>>>\n\
+             <<<<Y>>>>\n\
              <<<mssql_instance:sep(124)>>>\n\
              MSSQL_B|config|||\n\
              <<<<>>>>\n\
@@ -2672,7 +2668,7 @@ mssql:
         <<<mssql_instance:sep(124)>>>\n\
         ";
         const EXPECTED_PB_BLOCK: &str = "\
-        <<<<y>>>>\n\
+        <<<<Y>>>>\n\
         <<<mssql_instance:sep(124)>>>\n\
         <<<mssql_backup:sep(124)>>>\n\
         <<<mssql_instance:sep(124)>>>\n\
@@ -2702,7 +2698,7 @@ mssql:
             .name("test_name")
             .piggyback(Some("Y".to_string().into()))
             .build();
-        assert_eq!(piggyback.generate_header(), "<<<<y>>>>\n");
+        assert_eq!(piggyback.generate_header(), "<<<<Y>>>>\n");
         assert_eq!(piggyback.generate_footer(), "<<<<>>>>\n");
     }
 
@@ -2753,7 +2749,7 @@ mssql:
         assert_eq!(s.port, Some(Port(2u16)));
         assert_eq!(s.dynamic_port, Some(Port(1u16)));
 
-        assert_eq!(s.piggyback(), &Some("piggyback".to_string().into()));
+        assert_eq!(s.piggyback(), &Some("piggYback".to_string().into()));
         assert_eq!(s.computer_name(), &Some("computer_name".to_string().into()));
         assert_eq!(s.temp_dir(), Some(Path::new(".")));
         assert_eq!(s.full_name(), "localhost/NAME");

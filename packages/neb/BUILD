@@ -1,12 +1,12 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("//bazel/rules:define_from_flag.bzl", "define_from_flag")
+load("//bazel/rules:xcomp/cc.bzl", "cc_library", "cc_test")
 
 define_from_flag(
     name = "cmk_version_define",
     macro = "VERSION",
-    value = "//bazel/cmk/version",
+    value = "@cmk//version",
 )
 
 # Keep code using VERSION apart to minimize cache invalidation.
@@ -28,7 +28,7 @@ cc_library(
         ],
     ),
     strip_include_prefix = "third_party/include/",
-    tags = ["no-clang-tidy"],
+    tags = ["manual"],
 )
 
 cc_library(

@@ -7,27 +7,21 @@
 # - Discovery works.
 # - Checking doesn't work - as it was before. Maybe we can handle this in the future.
 
+import socket
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import assert_never, Final, Literal
 
 from cmk.ccc.hostaddress import HostAddress, HostName
-
+from cmk.checkengine.plugins import AgentBasedPlugins
+from cmk.fetchers import TLSConfig
+from cmk.fetchers.filecache import FileCacheOptions, MaxAge
+from cmk.helper_interface import FetcherType
+from cmk.server_side_calls_backend import SpecialAgentCommandLine
+from cmk.snmplib import SNMPBackendEnum
 from cmk.utils.agent_registration import HostAgentConnectionMode
 from cmk.utils.ip_lookup import IPStackConfig
 from cmk.utils.tags import ComputedDataSources, TagID
-
-from cmk.snmplib import SNMPBackendEnum
-
-from cmk.fetchers import SNMPFetcher, TLSConfig
-from cmk.fetchers.filecache import FileCacheOptions, MaxAge
-
-from cmk.checkengine.fetcher import FetcherType
-from cmk.checkengine.plugins import AgentBasedPlugins
-
-from cmk.base.snmp_plugin_store import make_plugin_store
-
-from cmk.server_side_calls_backend import SpecialAgentCommandLine
 
 from ._api import Source
 from ._sources import (
@@ -39,7 +33,6 @@ from ._sources import (
     PiggybackSource,
     ProgramSource,
     PushAgentSource,
-    SNMPFetcherConfig,
     SNMPSource,
     SpecialAgentSource,
     TCPSource,
@@ -53,13 +46,12 @@ class _Builder:
         self,
         plugins: AgentBasedPlugins,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress | None,
         ip_stack_config: IPStackConfig,
         *,
         simulation_mode: bool,
         fetcher_factory: FetcherFactory,
-        is_cluster: bool,
-        snmp_fetcher_config: SNMPFetcherConfig,
         max_age_agent: MaxAge,
         max_age_snmp: MaxAge,
         snmp_backend: SNMPBackendEnum,
@@ -76,13 +68,12 @@ class _Builder:
         check_mk_check_interval: float,
     ) -> None:
         super().__init__()
-        assert not is_cluster
 
         self.plugins: Final = plugins
         self.host_name: Final = host_name
+        self.host_ip_family: Final = host_ip_family
         self.fetcher_factory: Final = fetcher_factory
         self.ipaddress: Final = ipaddress
-        self.snmp_fetcher_config: Final = snmp_fetcher_config
         self.ip_stack_config: Final = ip_stack_config
         self.simulation_mode: Final = simulation_mode
         self.max_age_agent: Final = max_age_agent
@@ -164,15 +155,9 @@ class _Builder:
             if not special_agents:
                 self._add_agent()
 
-    def _initialize_snmp_plugin_store(self) -> None:
-        if len(SNMPFetcher.plugin_store) != len(self.plugins.snmp_sections):
-            SNMPFetcher.plugin_store = make_plugin_store(self.plugins)
-
     def _initialize_snmp_based(self) -> None:
         if not self.cds.is_snmp:
             return
-
-        self._initialize_snmp_plugin_store()
 
         if self.simulation_mode or self.snmp_backend is SNMPBackendEnum.STORED_WALK:
             # Here, we bypass NO_IP and silently set the IP to localhost.  This is to accomodate
@@ -183,8 +168,8 @@ class _Builder:
                     self.fetcher_factory,
                     self.plugins,
                     self.host_name,
+                    self.host_ip_family,
                     self.ipaddress or HostAddress("127.0.0.1"),
-                    fetcher_config=self.snmp_fetcher_config,
                     max_age=self.max_age_snmp,
                     file_cache_path=self._file_cache_path,
                 )
@@ -203,8 +188,8 @@ class _Builder:
                 self.fetcher_factory,
                 self.plugins,
                 self.host_name,
+                self.host_ip_family,
                 self.ipaddress,
-                fetcher_config=self.snmp_fetcher_config,
                 max_age=self.max_age_snmp,
                 file_cache_path=self._file_cache_path,
             )
@@ -223,14 +208,13 @@ class _Builder:
 
         match self.management_protocol:
             case "snmp":
-                self._initialize_snmp_plugin_store()
                 self._add(
                     MgmtSNMPSource(
                         self.fetcher_factory,
                         self.plugins,
                         self.host_name,
+                        self.host_ip_family,
                         self.management_ip,
-                        fetcher_config=self.snmp_fetcher_config,
                         max_age=self.max_age_snmp,
                         file_cache_path=self._file_cache_path,
                     )
@@ -257,6 +241,7 @@ class _Builder:
                 ProgramSource(
                     self.fetcher_factory,
                     self.host_name,
+                    self.host_ip_family,
                     self.ipaddress,
                     program=self.datasource_programs[0],
                     max_age=self.max_age_agent,
@@ -288,6 +273,7 @@ class _Builder:
                     TCPSource(
                         self.fetcher_factory,
                         self.host_name,
+                        self.host_ip_family,
                         self.ipaddress,
                         max_age=self.max_age_agent,
                         file_cache_path=self._tcp_cache_path,
@@ -301,13 +287,12 @@ class _Builder:
 def make_sources(
     plugins: AgentBasedPlugins,
     host_name: HostName,
+    host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
     ipaddress: HostAddress | None,
-    address_family: IPStackConfig,
+    ip_stack_config: IPStackConfig,
     *,
     fetcher_factory: FetcherFactory,
-    is_cluster: bool,
     force_snmp_cache_refresh: bool = False,
-    snmp_fetcher_config: SNMPFetcherConfig,
     snmp_backend: SNMPBackendEnum,
     simulation_mode: bool,
     file_cache_options: FileCacheOptions,
@@ -325,10 +310,6 @@ def make_sources(
     check_mk_check_interval: float,
 ) -> Sequence[Source]:
     """Sequence of sources available for `host_config`."""
-    if is_cluster:
-        # Cluster hosts do not have any actual data sources
-        # Instead all data is provided by the nodes
-        return ()
 
     def max_age_snmp() -> MaxAge:
         if simulation_mode:
@@ -349,13 +330,12 @@ def make_sources(
     return _Builder(
         plugins,
         host_name,
+        host_ip_family,
         ipaddress,
-        address_family,
+        ip_stack_config,
         simulation_mode=simulation_mode,
         fetcher_factory=fetcher_factory,
-        snmp_fetcher_config=snmp_fetcher_config,
         snmp_backend=snmp_backend,
-        is_cluster=is_cluster,
         max_age_agent=max_age_agent(),
         max_age_snmp=max_age_snmp(),
         file_cache_path=file_cache_path,

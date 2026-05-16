@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import pytest
 from playwright.sync_api import Page, Request, Route
 
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.timeouts import handle_playwright_timeouterror
 
 
@@ -70,7 +70,7 @@ class HelpMenuButton:
     ],
 )
 def fixture_help_menu_button(
-    request: pytest.FixtureRequest, page: Page
+    request: pytest.FixtureRequest, cmk_page: Page
 ) -> Iterator[HelpMenuButton]:
     def update_user_agent(route: Route, request: Request) -> None:
         headers = request.headers
@@ -80,7 +80,7 @@ def fixture_help_menu_button(
         route.continue_(headers=headers)
 
     help_menu_button: HelpMenuButton = request.param
-    browser_context = page.context
+    browser_context = cmk_page.context
     if "ideas" in help_menu_button.url_pattern:
         # "ideas.checkmk.com" requires a reliable user_agent to be initialized,
         # not an automated one.
@@ -90,7 +90,7 @@ def fixture_help_menu_button(
 
 
 def test_help_menu(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     help_menu_button: HelpMenuButton,
 ) -> None:
     browser_context = dashboard_page.page.context

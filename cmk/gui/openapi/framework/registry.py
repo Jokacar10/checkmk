@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 from cmk.ccc.version import Edition
-
 from cmk.gui.http import HTTPMethod
 from cmk.gui.openapi.framework.api_config import APIVersion
 from cmk.gui.openapi.framework.model.response import ApiErrorDataclass
@@ -38,7 +37,7 @@ class RequestEndpoint:
     handler: HandlerFunction
     method: HTTPMethod
     accept: AcceptFieldType
-    content_type: str
+    content_type: str | None
     etag: ETagBehaviour | None
     operation_id: str
     doc_group: TagGroup
@@ -62,7 +61,7 @@ class VersionedSpecEndpoint:
     status_descriptions: Mapping[StatusCodeInt, str] | None
     additional_status_codes: Sequence[StatusCodeInt] | None
     method: HTTPMethod
-    content_type: str
+    content_type: str | None
     etag: ETagBehaviour | None
     permissions_required: BasePerm | None
     permissions_description: Mapping[str, str] | None
@@ -156,7 +155,7 @@ class VersionedEndpointRegistry:
         return family_name, link_relation
 
     # TODO: potentially have to introduce a lookup function
-    def register(self, endpoint: VersionedEndpoint) -> None:
+    def register(self, endpoint: VersionedEndpoint, *, ignore_duplicates: bool) -> None:
         """Register a versioned endpoint
 
         Registers the endpoint with all its handlers for different API versions.
@@ -170,6 +169,9 @@ class VersionedEndpointRegistry:
             version_endpoints = self._versions.setdefault(version, dict())
 
             if endpoint_key_ in version_endpoints:
+                if ignore_duplicates:
+                    continue
+
                 raise RuntimeError(
                     f"Endpoint with key {endpoint_key_}, already has handlers for version {version}"
                 )

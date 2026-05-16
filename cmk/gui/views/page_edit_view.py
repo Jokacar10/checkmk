@@ -14,11 +14,8 @@ from typing import Any, Literal, NamedTuple, overload, TypedDict
 
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.user import UserId
-
-from cmk.utils.structured_data import SDPath
-
 from cmk.gui import visuals
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.data_source import ABCDataSource, data_source_registry
 from cmk.gui.display_options import display_options
 from cmk.gui.exceptions import MKInternalError, MKUserError
@@ -28,6 +25,7 @@ from cmk.gui.pages import AjaxPage, PageResult
 from cmk.gui.painter.v0 import all_painters, Cell, Painter
 from cmk.gui.painter.v0.helpers import RenderLink
 from cmk.gui.painter_options import PainterOptions
+from cmk.gui.permissions import permission_registry
 from cmk.gui.theme.current_theme import theme
 from cmk.gui.type_defs import (
     ColumnName,
@@ -43,6 +41,7 @@ from cmk.gui.type_defs import (
     VisualTypeName,
 )
 from cmk.gui.utils.output_funnel import output_funnel
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.valuespec import (
     CascadingDropdown,
     CascadingDropdownChoice,
@@ -60,9 +59,14 @@ from cmk.gui.valuespec import (
     Tuple,
     ValueSpec,
 )
-from cmk.gui.views.inventory import inv_display_hints, NodeDisplayHint
+from cmk.gui.views.inventory import (
+    inv_display_hints,
+    OrderedColumnDisplayHintsOfView,
+    TableWithView,
+)
 from cmk.gui.visuals.info import visual_info_registry
 from cmk.gui.visuals.type import visual_type_registry
+from cmk.inventory.structured_data import SDPath
 
 from .layout import layout_registry
 from .sorter import all_sorters, ParameterizedSorter, Sorter
@@ -70,7 +74,7 @@ from .store import get_all_views
 from .view_choices import view_choices
 
 
-def page_edit_view() -> None:
+def page_edit_view(config: Config) -> None:
     def get_view_infos(view: ViewSpec) -> SingleInfos:
         """Return list of available datasources (used to render filters)"""
         # In create mode "datasource" is mandatory, in other mode it's not
@@ -83,6 +87,7 @@ def page_edit_view() -> None:
     visuals.page_edit_visual(
         "views",
         get_all_views(),
+        UserPermissions.from_config(config, permission_registry),
         custom_field_handler=render_view_config,
         create_handler=create_view_from_valuespec,
         info_handler=get_view_infos,
@@ -165,7 +170,9 @@ def view_editor_general_properties(ds_name: str) -> Dictionary:
     )
 
 
-def view_inventory_join_macros(ds_name: str) -> Dictionary:
+def view_inventory_join_macros(
+    ds_name: str, all_column_display_hints: Sequence[OrderedColumnDisplayHintsOfView]
+) -> Dictionary:
     def _validate_macro_of_datasource(macro: str, varprefix: str) -> None:
         allowed_macros_chars = string.ascii_uppercase + string.digits + "_"
         if (
@@ -195,9 +202,8 @@ def view_inventory_join_macros(ds_name: str) -> Dictionary:
                                 title=_("Use value from"),
                                 choices=[
                                     col_info
-                                    for node_hint in inv_display_hints
-                                    if node_hint.table_view_name == ds_name
-                                    for col_info in _get_inventory_column_infos(node_hint)
+                                    for col_hints in all_column_display_hints
+                                    for col_info in _get_inventory_column_infos(col_hints)
                                 ],
                             ),
                             TextInput(
@@ -216,12 +222,16 @@ def view_inventory_join_macros(ds_name: str) -> Dictionary:
     )
 
 
-def view_editor_column_spec(ident: str, ds_name: str) -> Dictionary:
-    choices = [_get_common_vs_column_choice(ds_name, add_custom_column_title=True)]
-    if join_vs_column_choice := _get_join_vs_column_choice(ds_name):
+def view_editor_column_spec(
+    ident: str, ds_name: str, user_permissions: UserPermissions
+) -> Dictionary:
+    choices = [
+        _get_common_vs_column_choice(ds_name, user_permissions, add_custom_column_title=True)
+    ]
+    if join_vs_column_choice := _get_join_vs_column_choice(ds_name, user_permissions):
         choices.append(join_vs_column_choice)
 
-    if join_inv_vs_column_choice := _get_join_inv_vs_column_choice(ds_name):
+    if join_inv_vs_column_choice := _get_join_inv_vs_column_choice(ds_name, user_permissions):
         choices.append(join_inv_vs_column_choice)
 
     return _view_editor_spec(
@@ -234,13 +244,19 @@ def view_editor_column_spec(ident: str, ds_name: str) -> Dictionary:
     )
 
 
-def view_editor_grouping_spec(ident: str, ds_name: str) -> Dictionary:
+def view_editor_grouping_spec(
+    ident: str, ds_name: str, user_permissions: UserPermissions
+) -> Dictionary:
     return _view_editor_spec(
         ds_name=ds_name,
         ident=ident,
         title=_("Grouping"),
         vs_column=CascadingDropdown(
-            choices=[_get_common_vs_column_choice(ds_name, add_custom_column_title=False)]
+            choices=[
+                _get_common_vs_column_choice(
+                    ds_name, user_permissions, add_custom_column_title=False
+                )
+            ]
         ),
         allow_empty=True,
         empty_text=None,
@@ -253,13 +269,17 @@ class _VSColumnChoice(NamedTuple):
     vs: Dictionary
 
 
-def _get_common_vs_column_choice(ds_name: str, add_custom_column_title: bool) -> _VSColumnChoice:
-    painters = painters_of_datasource(ds_name)
+def _get_common_vs_column_choice(
+    ds_name: str,
+    user_permissions: UserPermissions,
+    add_custom_column_title: bool,
+) -> _VSColumnChoice:
+    painters = painters_of_datasource(ds_name, user_permissions)
 
-    elements = [_get_vs_column_dropdown(ds_name, "painter", painters)]
+    elements = [_get_vs_column_dropdown(ds_name, "painter", painters, user_permissions)]
     if add_custom_column_title:
         elements.append(_get_vs_column_title())
-    elements.extend(_get_vs_link_or_tooltip_elements(painters))
+    elements.extend(_get_vs_link_or_tooltip_elements(painters, user_permissions))
 
     return _VSColumnChoice(
         column_type="column",
@@ -275,8 +295,10 @@ def _get_vs_column_title() -> tuple[str, TextInput]:
     return ("column_title", TextInput(title=_("Title")))
 
 
-def _get_join_vs_column_choice(ds_name: str) -> None | _VSColumnChoice:
-    if not (join_painters := join_painters_of_datasource(ds_name)):
+def _get_join_vs_column_choice(
+    ds_name: str, user_permissions: UserPermissions
+) -> None | _VSColumnChoice:
+    if not (join_painters := join_painters_of_datasource(ds_name, user_permissions)):
         return None
 
     return _VSColumnChoice(
@@ -289,7 +311,7 @@ def _get_join_vs_column_choice(ds_name: str) -> None | _VSColumnChoice:
                 "service name of the service you like to show the data for."
             ),
             elements=[
-                _get_vs_column_dropdown(ds_name, "join_painter", join_painters),
+                _get_vs_column_dropdown(ds_name, "join_painter", join_painters, user_permissions),
                 (
                     "join_value",
                     TextOrRegExp(
@@ -309,13 +331,15 @@ def _get_join_vs_column_choice(ds_name: str) -> None | _VSColumnChoice:
                 ),
                 _get_vs_column_title(),
             ]
-            + _get_vs_link_or_tooltip_elements(join_painters),
+            + _get_vs_link_or_tooltip_elements(join_painters, user_permissions),
             optional_keys=["link_spec", "tooltip"],
         ),
     )
 
 
-def _get_join_inv_vs_column_choice(ds_name: str) -> _VSColumnChoice | None:
+def _get_join_inv_vs_column_choice(
+    ds_name: str, user_permissions: UserPermissions
+) -> _VSColumnChoice | None:
     if not _is_inventory_datasource(ds_name):
         return None
 
@@ -383,7 +407,7 @@ def _get_join_inv_vs_column_choice(ds_name: str) -> _VSColumnChoice | None:
         column_type="join_inv_column",
         title=_("Joined inventory column"),
         vs=Dictionary(
-            elements=elements + _get_vs_link_or_tooltip_elements({}),
+            elements=elements + _get_vs_link_or_tooltip_elements({}, user_permissions),
             optional_keys=["link_spec", "tooltip"],
         ),
     )
@@ -404,41 +428,49 @@ def _get_inventory_column_infos_by_table(
     ds_name: str,
 ) -> Iterator[tuple[InventoryTableInfo, Sequence[InventoryColumnInfo]]]:
     for node_hint in inv_display_hints:
-        if node_hint.table_view_name in ("", ds_name):
+        if not isinstance(node_hint.table, TableWithView):
+            continue
+
+        if node_hint.table.name in ("", ds_name):
             # No view, no choices; Also skip in case of same data source:
             # columns are already avail in "normal" column.
             continue
 
         yield (
             InventoryTableInfo(
-                table_view_name=node_hint.table_view_name,
+                table_view_name=node_hint.table.name,
                 path=node_hint.path,
                 title=node_hint.long_title,
             ),
-            _get_inventory_column_infos(node_hint),
+            _get_inventory_column_infos(node_hint.table.columns),
         )
 
 
-def _get_inventory_column_infos(hint: NodeDisplayHint) -> Sequence[InventoryColumnInfo]:
-    registered_painters = all_painters(active_config)
+def _get_inventory_column_infos(
+    column_display_hints: OrderedColumnDisplayHintsOfView,
+) -> Sequence[InventoryColumnInfo]:
+    registered_painters = all_painters(active_config.tags.tag_groups)
     return [
         InventoryColumnInfo(
             column_name=column_name,
             title=str(column_hint.title),
         )
-        for column_name, column_hint in hint.columns.items()
-        if (col_ident := hint.column_ident(column_name)) and registered_painters.get(col_ident)
+        for column_name, column_hint in column_display_hints.items()
+        if column_hint.name and registered_painters.get(column_hint.name)
     ]
 
 
 def _get_vs_column_dropdown(
-    ds_name: str, painter_type: str, painters: Mapping[str, Painter]
+    ds_name: str,
+    painter_type: str,
+    painters: Mapping[str, Painter],
+    user_permissions: UserPermissions,
 ) -> tuple[str, ValueSpec]:
     return (
         "painter_spec",
         CascadingDropdown(
             title=_("Column"),
-            choices=_painter_choices_with_params(painters),
+            choices=_painter_choices_with_params(painters, user_permissions),
             no_preselect_title="",
             render_sub_vs_page_name="ajax_cascading_render_painer_parameters",
             render_sub_vs_request_vars={
@@ -451,6 +483,7 @@ def _get_vs_column_dropdown(
 
 def _get_vs_link_or_tooltip_elements(
     painters: Mapping[str, Painter],
+    user_permissions: UserPermissions,
 ) -> list[tuple[str, ValueSpec]]:
     return [
         (
@@ -465,7 +498,7 @@ def _get_vs_link_or_tooltip_elements(
             "tooltip",
             DropdownChoice(
                 title=_("Tooltip"),
-                choices=_painter_choices(painters),
+                choices=_painter_choices(painters, user_permissions),
             ),
         ),
     ]
@@ -679,16 +712,17 @@ def _column_link_choices() -> list[CascadingDropdownChoice]:
 
 
 def view_editor_sorter_specs(
-    ident: str, ds_name: str, painters: Sequence[ColumnSpec]
+    ident: str, ds_name: str, painters: Sequence[ColumnSpec], user_permissions: UserPermissions
 ) -> Dictionary:
     def _sorter_choices(
         ds_name: str, painters: Sequence[ColumnSpec]
     ) -> Iterator[DropdownChoiceEntry | CascadingDropdownChoice]:
         datasource: ABCDataSource = data_source_registry[ds_name]()
         unsupported_columns: list[ColumnName] = datasource.unsupported_columns
-        registered_painters = all_painters(active_config)
+        registered_painters = all_painters(active_config.tags.tag_groups)
+        user_permissions = UserPermissions.from_config(active_config, permission_registry)
 
-        for name, p in sorters_of_datasource(ds_name).items():
+        for name, p in sorters_of_datasource(ds_name, user_permissions).items():
             if any(column in p.columns for column in unsupported_columns):
                 continue
             # Sorters may provide a third element: That Dictionary will be displayed after the
@@ -696,11 +730,14 @@ def view_editor_sorter_specs(
             if isinstance(p, ParameterizedSorter):
                 yield (
                     name,
-                    get_sorter_plugin_title_for_choices(p, registered_painters),
+                    get_sorter_plugin_title_for_choices(p, registered_painters, user_permissions),
                     p.vs_parameters(active_config, painters),
                 )
             else:
-                yield name, get_sorter_plugin_title_for_choices(p, registered_painters)
+                yield (
+                    name,
+                    get_sorter_plugin_title_for_choices(p, registered_painters, user_permissions),
+                )
 
     return Dictionary(
         title=_("Sorting"),
@@ -734,17 +771,18 @@ def view_editor_sorter_specs(
 
 
 class PageAjaxCascadingRenderPainterParameters(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         api_request = request.get_request()
 
+        user_permissions = UserPermissions.from_config(config, permission_registry)
         if api_request["painter_type"] == "painter":
-            painters = painters_of_datasource(api_request["ds_name"])
+            painters = painters_of_datasource(api_request["ds_name"], user_permissions)
         elif api_request["painter_type"] == "join_painter":
-            painters = join_painters_of_datasource(api_request["ds_name"])
+            painters = join_painters_of_datasource(api_request["ds_name"], user_permissions)
         else:
             raise NotImplementedError()
 
-        vs = CascadingDropdown(choices=_painter_choices_with_params(painters))
+        vs = CascadingDropdown(choices=_painter_choices_with_params(painters, user_permissions))
         sub_vs = self._get_sub_vs(vs, ast.literal_eval(api_request["choice_id"]))
         value = ast.literal_eval(api_request["encoded_value"])
 
@@ -777,17 +815,21 @@ def render_view_config(view_spec: ViewSpec, general_properties: bool = True) -> 
         view_editor_general_properties(ds_name).render_input("view", value.get("view"))
 
     if _is_inventory_datasource(ds_name):
-        view_inventory_join_macros(ds_name).render_input(
-            "macros", value.get("inventory_join_macros")
-        )
+        view_inventory_join_macros(
+            ds_name,
+            [h.table.columns for h in inv_display_hints if isinstance(h.table, TableWithView)],
+        ).render_input("macros", value.get("inventory_join_macros"))
 
-    vs_columns = view_editor_column_spec("columns", ds_name)
+    user_permissions = UserPermissions.from_config(active_config, permission_registry)
+    vs_columns = view_editor_column_spec("columns", ds_name, user_permissions)
     vs_columns.render_input("columns", value["columns"])
 
-    vs_sorting = view_editor_sorter_specs("sorting", ds_name, value["columns"]["columns"])
+    vs_sorting = view_editor_sorter_specs(
+        "sorting", ds_name, value["columns"]["columns"], user_permissions
+    )
     vs_sorting.render_input("sorting", value["sorting"])
 
-    vs_grouping = view_editor_grouping_spec("grouping", ds_name)
+    vs_grouping = view_editor_grouping_spec("grouping", ds_name, user_permissions)
     vs_grouping.render_input("grouping", value["grouping"])
 
 
@@ -868,28 +910,43 @@ def create_view_from_valuespec(old_view, view):
         vs.validate_value(attrs, ident)
         view.update(_transform_valuespec_value_to_view(ident, attrs))
 
+    user_permissions = UserPermissions.from_config(active_config, permission_registry)
     update_view("view", view_editor_general_properties(ds_name))
-    update_view("columns", view_editor_column_spec("columns", ds_name))
-    update_view("grouping", view_editor_grouping_spec("grouping", ds_name))
-    update_view("sorting", view_editor_sorter_specs("sorting", ds_name, view["painters"]))
+    update_view("columns", view_editor_column_spec("columns", ds_name, user_permissions))
+    update_view("grouping", view_editor_grouping_spec("grouping", ds_name, user_permissions))
+    update_view(
+        "sorting", view_editor_sorter_specs("sorting", ds_name, view["painters"], user_permissions)
+    )
 
     if _is_inventory_datasource(ds_name):
-        update_view("macros", view_inventory_join_macros(ds_name))
+        update_view(
+            "macros",
+            view_inventory_join_macros(
+                ds_name,
+                [h.table.columns for h in inv_display_hints if isinstance(h.table, TableWithView)],
+            ),
+        )
 
     return view
 
 
-def _painter_choices(painters: Mapping[str, Painter]) -> DropdownChoiceEntries:
-    return [(c[0], c[1]) for c in _painter_choices_with_params(painters)]
+def _painter_choices(
+    painters: Mapping[str, Painter], user_permissions: UserPermissions
+) -> DropdownChoiceEntries:
+    return [(c[0], c[1]) for c in _painter_choices_with_params(painters, user_permissions)]
 
 
-def _painter_choices_with_params(painters: Mapping[str, Painter]) -> list[CascadingDropdownChoice]:
-    registered_painters = all_painters(active_config)
+def _painter_choices_with_params(
+    painters: Mapping[str, Painter], user_permissions: UserPermissions
+) -> list[CascadingDropdownChoice]:
+    registered_painters = all_painters(active_config.tags.tag_groups)
     return sorted(
         (
             (
                 name,
-                _get_painter_plugin_title_for_choices(painter, registered_painters),
+                _get_painter_plugin_title_for_choices(
+                    painter, registered_painters, user_permissions
+                ),
                 painter.parameters if painter.parameters else None,
             )
             for name, painter in painters.items()
@@ -899,16 +956,20 @@ def _painter_choices_with_params(painters: Mapping[str, Painter]) -> list[Cascad
 
 
 def _get_painter_plugin_title_for_choices(
-    plugin: Painter, registered_painters: Mapping[str, type[Painter]]
+    plugin: Painter,
+    registered_painters: Mapping[str, type[Painter]],
+    user_permissions: UserPermissions,
 ) -> str:
-    dummy_cell = Cell(ColumnSpec(plugin.ident), None, registered_painters)
+    dummy_cell = Cell(ColumnSpec(plugin.ident), None, registered_painters, user_permissions)
     return f"{_get_info_title(plugin)}: {plugin.list_title(dummy_cell)}"
 
 
 def get_sorter_plugin_title_for_choices(
-    plugin: Sorter, registered_painters: Mapping[str, type[Painter]]
+    plugin: Sorter,
+    registered_painters: Mapping[str, type[Painter]],
+    user_permissions: UserPermissions,
 ) -> str:
-    dummy_cell = Cell(ColumnSpec(plugin.ident), None, registered_painters)
+    dummy_cell = Cell(ColumnSpec(plugin.ident), None, registered_painters, user_permissions)
     title: str
     if callable(plugin.title):
         title = plugin.title(dummy_cell)
@@ -948,7 +1009,7 @@ def _dummy_view_spec() -> ViewSpec:
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         }
     )
 
@@ -973,23 +1034,29 @@ def infos_needed_by_plugin(plugin: Painter | Sorter, add_columns: list | None = 
     return {c.split("_", 1)[0] for c in plugin.columns if c != "site" and c not in add_columns}
 
 
-def sorters_of_datasource(ds_name: str) -> Mapping[str, Sorter]:
-    return _allowed_for_datasource(all_sorters(active_config), ds_name)
+def sorters_of_datasource(ds_name: str, user_permissions: UserPermissions) -> Mapping[str, Sorter]:
+    return _allowed_for_datasource(all_sorters(active_config), ds_name, user_permissions)
 
 
-def painters_of_datasource(ds_name: str) -> Mapping[str, Painter]:
-    return _allowed_for_datasource(all_painters(active_config), ds_name)
+def painters_of_datasource(
+    ds_name: str, user_permissions: UserPermissions
+) -> Mapping[str, Painter]:
+    return _allowed_for_datasource(
+        all_painters(active_config.tags.tag_groups), ds_name, user_permissions
+    )
 
 
-def join_painters_of_datasource(ds_name: str) -> Mapping[str, Painter]:
+def join_painters_of_datasource(
+    ds_name: str, user_permissions: UserPermissions
+) -> Mapping[str, Painter]:
     datasource = data_source_registry[ds_name]()
     if datasource.join is None:
         return {}  # no joining with this datasource
 
     # Get the painters allowed for the join "source" and "target"
-    painters = painters_of_datasource(ds_name)
+    painters = painters_of_datasource(ds_name, user_permissions)
     join_painters_unfiltered = _allowed_for_datasource(
-        all_painters(active_config), datasource.join[0]
+        all_painters(active_config.tags.tag_groups), datasource.join[0], user_permissions
     )
 
     # Filter out painters associated with the "join source" datasource
@@ -1003,13 +1070,13 @@ def join_painters_of_datasource(ds_name: str) -> Mapping[str, Painter]:
 
 @overload
 def _allowed_for_datasource(
-    collection: Mapping[str, type[Painter]], ds_name: str
+    collection: Mapping[str, type[Painter]], ds_name: str, user_permissions: UserPermissions
 ) -> Mapping[str, Painter]: ...
 
 
 @overload
 def _allowed_for_datasource(
-    collection: Mapping[str, Sorter], ds_name: str
+    collection: Mapping[str, Sorter], ds_name: str, user_permissions: UserPermissions
 ) -> Mapping[str, Sorter]: ...
 
 
@@ -1018,6 +1085,7 @@ def _allowed_for_datasource(
 def _allowed_for_datasource(
     collection: Mapping[str, type[Painter]] | Mapping[str, Sorter],
     ds_name: str,
+    user_permissions: UserPermissions,
 ) -> Mapping[str, Sorter | Painter]:
     datasource: ABCDataSource = data_source_registry[ds_name]()
     infos_available: set[str] = set(datasource.infos)
@@ -1036,6 +1104,7 @@ def _allowed_for_datasource(
                 painter_options=PainterOptions.get_instance(),
                 theme=theme,
                 url_renderer=RenderLink(request, response, display_options),
+                user_permissions=user_permissions,
             )
         else:
             raise TypeError(f"Unexpected instance type ({type(instance)}): {instance}")

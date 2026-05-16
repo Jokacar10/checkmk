@@ -14,9 +14,8 @@ from schemathesis import DataGenerationMethod
 from schemathesis.generation import GenerationConfig
 from schemathesis.specs.openapi import schemas
 
-from tests.testlib.site import AUTOMATION_USER, get_site_factory, Site
-
 from tests.schemathesis_openapi import settings
+from tests.testlib.site import AUTOMATION_USER, get_site_factory, Site
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +107,7 @@ def add_links(
 
         for method in endpoint["methods"]:
             trg_schema = raw_schema["paths"][endpoint["target"]][method.lower()]
-            parameter_pattern = trg_schema["parameters"][0]["schema"].get("pattern", None)
+            parameter_pattern = trg_schema["parameters"][0].get("schema", {}).get("pattern", None)
 
             if parameter_pattern and not property_pattern:
                 logger.error(

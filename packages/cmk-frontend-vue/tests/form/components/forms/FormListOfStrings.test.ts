@@ -5,6 +5,7 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
 import FormEdit from '@/form/components/FormEdit.vue'
 
 const stringValidators: FormSpec.Validator[] = [
@@ -21,7 +22,6 @@ const stringFormSpec: FormSpec.String = {
   title: 'barTitle',
   help: 'barHelp',
   label: null,
-  i18n_base: { required: 'required' },
   validators: stringValidators,
   input_hint: '',
   autocompleter: null,

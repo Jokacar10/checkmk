@@ -32,13 +32,13 @@ import docker.models.containers  # type: ignore[import-untyped]
 import docker.models.images  # type: ignore[import-untyped]
 import requests
 
+from cmk.crypto.password import Password
 from tests.testlib.common.repo import repo_path
 from tests.testlib.common.utils import wait_until
 from tests.testlib.openapi_session import CMKOpenApiSession
 from tests.testlib.package_manager import ABCPackageManager
+from tests.testlib.utils import is_cleanup_enabled
 from tests.testlib.version import CMKPackageInfo, edition_from_env, version_from_env
-
-from cmk.crypto.password import Password
 
 logger = logging.getLogger()
 
@@ -398,6 +398,11 @@ class CheckmkApp:
         # reload() to make sure all attributes are set (e.g. NetworkSettings)
         c.reload()
 
+        self.ports = {
+            str(port): c.attrs["NetworkSettings"]["Ports"][str(port)][0]["HostPort"]
+            for port in self.ports or []
+        }
+
         logger.debug(c.logs().decode("utf-8"))
 
         # TODO: add CSE auth provider setup
@@ -405,7 +410,7 @@ class CheckmkApp:
         return c
 
     def _teardown(self) -> None:
-        if os.getenv("CLEANUP", "1") == "1":
+        if is_cleanup_enabled():
             self.container.stop()
             self.container.remove(force=True)
             self._remove_volumes()

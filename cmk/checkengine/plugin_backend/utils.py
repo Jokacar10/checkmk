@@ -8,21 +8,19 @@ from collections import defaultdict
 from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from typing import Final, get_args, Literal, NoReturn, Union
 
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.sectionname import SectionName
-
+from cmk.agent_based.v1.register import RuleSetType
 from cmk.checkengine.plugins import (
     AgentBasedPlugins,
     CheckPlugin,
     CheckPluginName,
     InventoryPlugin,
     InventoryPluginName,
+    ParsedSectionName,
+    SectionName,
     SectionPlugin,
     SNMPSectionPlugin,
 )
-from cmk.checkengine.sectionparser import ParsedSectionName
-
-from cmk.agent_based.v1.register import RuleSetType
+from cmk.utils.rulesets import RuleSetName
 
 TypeLabel = Literal["check", "cluster_check", "discovery", "host_label", "inventory"]
 

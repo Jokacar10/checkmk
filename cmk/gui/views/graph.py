@@ -10,7 +10,7 @@ from typing import Literal
 from uuid import uuid4
 
 from cmk.ccc.user import UserId
-
+from cmk.graphing.v1 import graphs as graphs_api
 from cmk.gui.config import active_config
 from cmk.gui.graphing._from_api import graphs_from_api, metrics_from_api, RegisteredMetric
 from cmk.gui.graphing._graph_render_config import (
@@ -45,6 +45,7 @@ from cmk.gui.type_defs import (
 )
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.mobile import is_mobile
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri_contextless
 from cmk.gui.valuespec import (
     Dictionary,
@@ -54,8 +55,6 @@ from cmk.gui.valuespec import (
     Transform,
 )
 from cmk.gui.view_utils import CellSpec, CSVExportError, JSONExportError, PythonExportError
-
-from cmk.graphing.v1 import graphs as graphs_api
 
 
 def register(
@@ -114,7 +113,7 @@ _GRAPH_VIEWS = {
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         }
     ),
     "host_graphs": ViewSpec(
@@ -156,7 +155,7 @@ _GRAPH_VIEWS = {
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         }
     ),
 }
@@ -167,6 +166,7 @@ def paint_time_graph_cmk(
     cell: Cell,
     registered_metrics: Mapping[str, RegisteredMetric],
     registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+    user_permissions: UserPermissions,
     *,
     user: LoggedInUser,
     request: Request,
@@ -250,6 +250,7 @@ def paint_time_graph_cmk(
         graph_render_config,
         registered_metrics,
         registered_graphs,
+        user_permissions,
         # Ideally, we would use 2-dim. coordinates: (row_idx, col_idx).
         # Unfortunately, we have no access to this information here. Regarding the rows, we could
         # use (site, host, service) as identifier, but for the columns, there does not seem to be
@@ -339,6 +340,7 @@ class PainterServiceGraphs(Painter):
             request=self.request,
             response=response,
             painter_options=self._painter_options,
+            user_permissions=self._user_permissions,
             show_time_range_previews=True,
         )
 
@@ -386,6 +388,7 @@ class PainterHostGraphs(Painter):
             request=self.request,
             response=response,
             painter_options=self._painter_options,
+            user_permissions=self._user_permissions,
             show_time_range_previews=True,
             # for PainterHostGraphs used to paint service graphs (view "Service graphs of host"),
             # also render the graphs if there are no historic metrics available (but perf data is)
@@ -459,6 +462,7 @@ class PainterSvcPnpgraph(Painter):
             request=self.request,
             response=response,
             painter_options=self._painter_options,
+            user_permissions=self._user_permissions,
         )
 
     def export_for_python(self, row: Row, cell: Cell, user: LoggedInUser) -> object:
@@ -508,6 +512,7 @@ class PainterHostPnpgraph(Painter):
             request=self.request,
             response=response,
             painter_options=self._painter_options,
+            user_permissions=self._user_permissions,
         )
 
     def export_for_python(self, row: Row, cell: Cell, user: LoggedInUser) -> object:

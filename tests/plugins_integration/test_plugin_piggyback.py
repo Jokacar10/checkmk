@@ -4,22 +4,21 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import logging
+import textwrap
 
 import pytest
 
-from tests.testlib.site import Site
-from tests.testlib.utils import get_services_with_status, write_file
-
-from tests.plugins_integration.checks import (
-    dump_path_site,
-    execute_dcd_cycle,
-    get_host_names,
-    get_piggyback_hosts,
+from tests.plugins_integration.checks import config, dump_path_site, process_check_output
+from tests.testlib.agent_dumps import (
+    get_dump_names,
     read_cmk_dump,
     read_disk_dump,
     read_piggyback_hosts_from_dump,
-    setup_source_host_piggyback,
 )
+from tests.testlib.agent_hosts import piggyback_host_from_dump_file
+from tests.testlib.dcd import execute_dcd_cycle
+from tests.testlib.site import Site
+from tests.testlib.utils import write_file
 
 logger = logging.getLogger(__name__)
 
@@ -50,17 +49,30 @@ def _rm_piggyback_host_from_dump(dump: str, host_name: str) -> str:
     return dump
 
 
-@pytest.mark.parametrize("source_host_name", get_host_names(piggyback=True))
+@pytest.mark.parametrize(
+    "source_host_name", get_dump_names(config.dump_dir_integration / "piggyback")
+)
 def test_plugin_piggyback(
     test_site_piggyback: Site,
     source_host_name: str,
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    with setup_source_host_piggyback(test_site_piggyback, source_host_name):
-        disk_dump = read_disk_dump(source_host_name, piggyback=True)
+    dump_path_repo = config.dump_dir_integration / "piggyback"
+    response_path_repo = config.response_dir_integration / "piggyback"
+    diffs_path = tmp_path_factory.mktemp("diffs")
+    output_path = tmp_path_factory.mktemp("output")
+
+    with piggyback_host_from_dump_file(
+        test_site_piggyback,
+        source_host_name,
+        source_dir=dump_path_repo,
+        target_dir=dump_path_site,
+    ):
+        disk_dump = read_disk_dump(source_host_name, dump_path_repo)
         cmk_dump = read_cmk_dump(source_host_name, test_site_piggyback, "agent")
         assert disk_dump == cmk_dump != "", "Raw data mismatch!"
 
-        piggyback_hostnames = get_piggyback_hosts(test_site_piggyback, source_host_name)
+        piggyback_hostnames = test_site_piggyback.openapi.hosts.get_all_names([source_host_name])
         piggyback_hostnames_from_dump = read_piggyback_hosts_from_dump(disk_dump)
         pb_hosts_symmetric_diff = set(piggyback_hostnames).symmetric_difference(
             piggyback_hostnames_from_dump
@@ -72,14 +84,18 @@ def test_plugin_piggyback(
         )
 
         for hostname in piggyback_hostnames:
-            host_services = test_site_piggyback.get_host_services(hostname)
-            ok_services = get_services_with_status(host_services, 0)
-            not_ok_services = [service for service in host_services if service not in ok_services]
-            err_msg = (
-                f"The following services are not in state 0: {not_ok_services} "
-                f"(Details: {[host_services[s] for s in not_ok_services]})"
+            diffing_checks = process_check_output(
+                site=test_site_piggyback,
+                host_name=hostname,
+                response_path=response_path_repo / f"{hostname}.json",
+                diff_dir=diffs_path,
+                output_dir=output_path,
             )
-            assert len(host_services) == len(ok_services), err_msg
+
+            err_msg = f"Check output mismatch for host {hostname}:\n" + "".join(
+                [textwrap.dedent(f"{check}:\n" + diffing_checks[check]) for check in diffing_checks]
+            )
+            assert not diffing_checks, err_msg
 
         # test removal of piggyback host
         pb_host_to_rm = piggyback_hostnames[0]
@@ -90,6 +106,6 @@ def test_plugin_piggyback(
             f"Host {pb_host_to_rm} was not removed from the agent dump."
         )
         execute_dcd_cycle(test_site_piggyback, expected_pb_hosts=len(pb_hosts))
-        assert pb_host_to_rm not in get_piggyback_hosts(test_site_piggyback, source_host_name), (
+        assert pb_host_to_rm not in test_site_piggyback.openapi.hosts.get_all_names(), (
             f"Host {pb_host_to_rm} was not removed from the site."
         )

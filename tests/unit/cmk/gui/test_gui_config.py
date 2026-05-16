@@ -8,12 +8,10 @@ from dataclasses import asdict
 
 import pytest
 
-from tests.testlib.common.repo import is_enterprise_repo, is_managed_repo
-
-import cmk.utils.paths
-
 import cmk.gui.config
-from cmk.gui.config import active_config
+import cmk.utils.paths
+from cmk.gui.config import active_config, Config
+from tests.testlib.common.repo import is_enterprise_repo, is_managed_repo
 
 
 def test_default_config_from_plugins() -> None:
@@ -22,10 +20,6 @@ def test_default_config_from_plugins() -> None:
         "debug",
         "screenshotmode",
         "profile",
-        "users",
-        "admin_users",
-        "guest_users",
-        "default_user_role",
         "user_online_maxage",
         "log_levels",
         "slow_views_duration_threshold",
@@ -66,7 +60,6 @@ def test_default_config_from_plugins() -> None:
         "snmp_walk_download_timeout",
         "filter_columns",
         "default_language",
-        "hide_languages",
         "default_ts_format",
         "selection_livetime",
         "auth_by_http_header",
@@ -148,7 +141,6 @@ def test_default_config_from_plugins() -> None:
         "tags",
         "enable_login_via_get",
         "enable_deprecated_automation_user_authentication",
-        "enable_community_translations",
         "default_temperature_unit",
         "vue_experimental_features",
         "inject_js_profiling_code",
@@ -156,6 +148,7 @@ def test_default_config_from_plugins() -> None:
         "configuration_bundles",
         "default_dynamic_visual_permission",
         "require_two_factor_all_users",
+        "inventory_cleanup",
     ]
 
     # The below lines are confusing and incorrect. The reason we need them is
@@ -212,13 +205,17 @@ def test_load_config(request_context: None) -> None:
     config_path = cmk.utils.paths.default_config_dir / "multisite.mk"
     config_path.unlink(missing_ok=True)
 
-    cmk.gui.config.load_config()
+    config = cmk.gui.config.load_config()
+    assert config.quicksearch_dropdown_limit == 80
     assert active_config.quicksearch_dropdown_limit == 80
 
     with config_path.open("w") as f:
         f.write("quicksearch_dropdown_limit = 1337\n")
-    cmk.gui.config.load_config()
-    assert active_config.quicksearch_dropdown_limit == 1337
+    config = cmk.gui.config.load_config()
+    assert config.quicksearch_dropdown_limit == 1337
+
+    # load_config must not modify the active_config
+    assert active_config.quicksearch_dropdown_limit == 80
 
 
 @pytest.fixture()
@@ -231,20 +228,19 @@ def local_config_plugin():
 
 @pytest.mark.usefixtures("local_config_plugin")
 def test_load_config_respects_local_plugin(request_context: None) -> None:
-    cmk.gui.config.load_config()
-    assert active_config.ding == "dong"  # type: ignore[attr-defined, unused-ignore]
+    config = cmk.gui.config.load_config()
+    assert config.ding == "dong"  # type: ignore[attr-defined, unused-ignore]
 
 
 @pytest.mark.usefixtures("local_config_plugin")
 def test_load_config_allows_local_plugin_setting(request_context: None) -> None:
     with (cmk.utils.paths.default_config_dir / "multisite.mk").open("w") as f:
         f.write("ding = 'ding'\n")
-    cmk.gui.config.load_config()
-    assert active_config.ding == "ding"  # type: ignore[attr-defined, unused-ignore]
+    config = cmk.gui.config.load_config()
+    assert config.ding == "ding"  # type: ignore[attr-defined, unused-ignore]
 
 
-@pytest.mark.usefixtures("load_config")
-def test_default_tags() -> None:
+def test_default_tags(load_config: Config) -> None:
     groups = {
         "snmp_ds": [
             "no-snmp",
@@ -270,17 +266,16 @@ def test_default_tags() -> None:
         ],
     }
 
-    assert sorted(dict(active_config.tags.get_tag_group_choices()).keys()) == sorted(groups.keys())
+    assert sorted(dict(load_config.tags.get_tag_group_choices()).keys()) == sorted(groups.keys())
 
-    for tag_group in active_config.tags.tag_groups:
+    for tag_group in load_config.tags.tag_groups:
         assert sorted(tag_group.get_tag_ids(), key=lambda s: s or "") == sorted(
             groups[tag_group.id]
         )
 
 
-@pytest.mark.usefixtures("load_config")
-def test_default_aux_tags() -> None:
-    assert sorted(active_config.tags.aux_tag_list.get_tag_ids()) == sorted(
+def test_default_aux_tags(load_config: Config) -> None:
+    assert sorted(load_config.tags.aux_tag_list.get_tag_ids()) == sorted(
         [
             "checkmk-agent",
             "ip-v4",
@@ -290,3 +285,14 @@ def test_default_aux_tags() -> None:
             "tcp",
         ]
     )
+
+
+def test_config_initialize_updates_active_config(request_context: None) -> None:
+    config_path = cmk.utils.paths.default_config_dir / "multisite.mk"
+
+    assert active_config.quicksearch_dropdown_limit == 80
+
+    config_path.write_text("quicksearch_dropdown_limit = 1337\n")
+    config = cmk.gui.config.initialize()
+    assert config.quicksearch_dropdown_limit == 1337
+    assert active_config.quicksearch_dropdown_limit == 1337

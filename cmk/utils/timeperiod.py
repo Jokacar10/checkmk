@@ -16,7 +16,6 @@ import cmk.ccc.debug
 from cmk.ccc.exceptions import MKTimeout
 from cmk.ccc.i18n import _
 from cmk.ccc.store import load_from_mk_file
-
 from cmk.utils.caching import cache_manager
 from cmk.utils.dateutils import Weekday, weekday_ids
 from cmk.utils.paths import check_mk_config_dir
@@ -163,9 +162,13 @@ cmk.ccc.cleanup.register_cleanup(cleanup_timeperiod_caches)
 
 
 def _is_time_in_timeperiod(
-    current_time: str,
+    current_datetime: datetime,
     time_tuple_list: Sequence[tuple[str, str]],
+    day: datetime | None = None,
 ) -> bool:
+    current_time = current_datetime.strftime("%H:%M")
+    if day and day.date() != current_datetime.date():
+        return False
     for start, end in time_tuple_list:
         if start <= current_time <= end:
             return True
@@ -197,18 +200,17 @@ def is_timeperiod_active(
         "sunday",
     ]
     current_datetime = datetime.fromtimestamp(timestamp, tzlocal())
-    current_time = current_datetime.strftime("%H:%M")
-    if _is_timeperiod_excluded_via_exception(
+    if _is_timeperiod_active_via_exception(
         timeperiod_definition,
         days,
-        current_time,
+        current_datetime,
     ):
-        return False
+        return True
 
     if (weekday := days[current_datetime.weekday()]) in timeperiod_definition:
         time_ranges = timeperiod_definition[weekday]
         assert is_time_range_list(time_ranges)
-        return _is_time_in_timeperiod(current_time, time_ranges)
+        return _is_time_in_timeperiod(current_datetime, time_ranges)
 
     return False
 
@@ -229,25 +231,24 @@ def _is_timeperiod_excluded_via_timeperiod(
     return False
 
 
-def _is_timeperiod_excluded_via_exception(
+def _is_timeperiod_active_via_exception(
     timeperiod_definition: TimeperiodSpec,
     days: Sequence[Weekday],
-    current_time: str,
+    current_time: datetime,
 ) -> bool:
     for key, value in timeperiod_definition.items():
         if key in [*days, "alias", "exclude"]:
             continue
 
         try:
-            datetime.strptime(key, "%Y-%m-%d")
+            day = datetime.strptime(key, "%Y-%m-%d")
         except ValueError:
             continue
 
         if not is_time_range_list(value):
             continue
 
-        if _is_time_in_timeperiod(current_time, value):
-            return True
+        return _is_time_in_timeperiod(current_time, value, day)
 
     return False
 
@@ -275,17 +276,12 @@ def validate_timeperiod_exceptions(timeperiod: TimeperiodSpec) -> None:
 
 def validate_day_time_ranges(timeperiod: TimeperiodSpec) -> None:
     day_names = weekday_ids()
-    has_day_fields = False
     for name in day_names:
         if name not in timeperiod:
             continue
 
-        has_day_fields = True
         for time_range in timeperiod[name]:
             _validate_time_range(time_range)
-
-    if not has_day_fields:
-        raise ValueError("Missing time periods")
 
 
 def _validate_time_range(time_range: DayTimeFrame) -> None:

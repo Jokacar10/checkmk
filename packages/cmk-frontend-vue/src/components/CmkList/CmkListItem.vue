@@ -5,9 +5,14 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import { type VariantProps, cva } from 'class-variance-authority'
+
+import usei18n from '@/lib/i18n'
+
+import CmkIcon from '@/components/CmkIcon.vue'
 import CmkIconButton from '@/components/CmkIconButton.vue'
 import CmkSpace from '@/components/CmkSpace.vue'
-import CmkIcon from '@/components/CmkIcon.vue'
+
+const { _t } = usei18n()
 
 const listItemVariants = cva('', {
   variants: {
@@ -28,7 +33,7 @@ const { buttonPadding = '16px' } = defineProps<{
   removeElement: () => void
   variant?: ListItemVariants['variant']
   buttonPadding?: '16px' | '8px'
-  draggable?: {
+  dragCallbacks?: {
     dragStart: (event: DragEvent) => void
     dragEnd: (event: DragEvent) => void
     dragging: (event: DragEvent) => void | null
@@ -40,19 +45,19 @@ const { buttonPadding = '16px' } = defineProps<{
   <div class="cmk-list-item" :class="listItemVariants({ variant })">
     <div class="cmk-list-item__button-container">
       <div class="cmk-list-item__buttons">
-        <template v-if="draggable!!">
+        <template v-if="dragCallbacks!!">
           <!--
             There are NO automatic tests for the dragging behavior, see comment
             in tests. If you change anything here, test manually!
           -->
           <div
             class="cmk-list-item__drag-button"
-            aria-label="Drag to reorder"
+            :aria-label="_t('Drag to reorder')"
             role="button"
             :draggable="true"
-            @dragstart="draggable?.dragStart"
-            @drag="draggable?.dragging"
-            @dragend="draggable?.dragEnd"
+            @dragstart="dragCallbacks?.dragStart"
+            @drag="dragCallbacks?.dragging"
+            @dragend="dragCallbacks?.dragEnd"
           >
             <CmkIcon name="drag" size="small" style="pointer-events: none" />
           </div>
@@ -61,8 +66,8 @@ const { buttonPadding = '16px' } = defineProps<{
         <CmkIconButton
           name="close"
           size="small"
-          aria-label="Remove element"
-          @click.prevent="() => removeElement()"
+          :aria-label="_t('Remove element')"
+          @click="() => removeElement()"
         />
       </div>
     </div>

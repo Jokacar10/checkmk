@@ -9,7 +9,6 @@ from collections.abc import Iterable, Sequence
 from typing import NamedTuple, override
 
 import cmk.ccc.plugin_registry
-
 from cmk.gui.breadcrumb import BreadcrumbItem
 from cmk.gui.http import request
 from cmk.gui.logged_in import user
@@ -169,7 +168,7 @@ class ABCMainModule(MenuItem, abc.ABC):
         yield
 
     @classmethod
-    def megamenu_search_terms(cls) -> Sequence[str]:
+    def main_menu_search_terms(cls) -> Sequence[str]:
         """This class method allows adding additional match texts for the search"""
         return []
 

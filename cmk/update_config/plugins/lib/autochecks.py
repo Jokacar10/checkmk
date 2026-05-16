@@ -7,24 +7,20 @@ from collections.abc import Callable, Generator, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
+from cmk.base.config import load_all_pluginX
 from cmk.ccc import debug
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils import paths
-from cmk.utils.rulesets.definition import RuleGroup
-
 from cmk.checkengine.discovery import AutochecksStore
 from cmk.checkengine.legacy import LegacyCheckParameters
 from cmk.checkengine.plugin_backend import get_check_plugin
 from cmk.checkengine.plugins import AutocheckEntry, CheckPlugin, CheckPluginName
-
-from cmk.base.config import load_all_pluginX
-
 from cmk.gui.watolib.rulesets import AllRulesets, Ruleset, RulesetCollection
-
 from cmk.update_config.plugins.lib.replaced_check_plugins import ALL_REPLACED_CHECK_PLUGINS
+from cmk.utils import paths
+from cmk.utils.rulesets.definition import RuleGroup
 
-TDiscoveredItemsTransforms = Mapping[CheckPluginName, Callable[[str | None], str | None]]
+type ItemTransformer = Callable[[str | None], str | None]
+type TDiscoveredItemsTransforms = Mapping[CheckPluginName, ItemTransformer]
 
 _EXPLICIT_DISCOVERED_ITEMS_TRANSFORMS: TDiscoveredItemsTransforms = {}
 
@@ -36,14 +32,12 @@ _ALL_EXPLICIT_DISCOVERED_ITEMS_TRANSFORMS: TDiscoveredItemsTransforms = {
     },
 }
 
-# some autocheck parameters need transformation even though there is no ruleset.
-TDiscoveredParametersTransforms = Mapping[
-    CheckPluginName,
-    Callable[
-        [Any],  # should be LegacyCheckParameters, but this makes writing transforms cumbersome ...
-        Mapping[str, object],
-    ],
+type ParameterTransformer = Callable[
+    [Any],  # should be LegacyCheckParameters, but this makes writing transforms cumbersome ...
+    Mapping[str, object],
 ]
+# some autocheck parameters need transformation even though there is no ruleset.
+type TDiscoveredParametersTransforms = Mapping[CheckPluginName, ParameterTransformer]
 
 _EXPLICIT_DISCOVERED_PARAMETERS_TRANSFORMS: TDiscoveredParametersTransforms = {
     # cpu_loads no longer discovers any parameters, hence we can just drop them on update
@@ -125,11 +119,11 @@ def _fix_entry(
         entry.check_plugin_name, entry.check_plugin_name
     )
 
-    explicit_item_transform = _ALL_EXPLICIT_DISCOVERED_ITEMS_TRANSFORMS.get(
+    explicit_item_transform: ItemTransformer = _ALL_EXPLICIT_DISCOVERED_ITEMS_TRANSFORMS.get(
         new_plugin_name, lambda x: x
     )
-    explicit_parameters_transform = _ALL_EXPLICIT_DISCOVERED_PARAMETERS_TRANSFORMS.get(
-        new_plugin_name, lambda x: x
+    explicit_parameters_transform: ParameterTransformer = (
+        _ALL_EXPLICIT_DISCOVERED_PARAMETERS_TRANSFORMS.get(new_plugin_name, lambda x: x)
     )
 
     return AutocheckEntry(

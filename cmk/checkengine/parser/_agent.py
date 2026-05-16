@@ -13,9 +13,8 @@ from typing import Final, final, NamedTuple
 
 import cmk.ccc.debug
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils.agentdatatype import AgentRawData
-from cmk.utils.sectionname import MutableSectionMap, SectionName
+from cmk.checkengine.plugins import SectionName
+from cmk.helper_interface import AgentRawData
 from cmk.utils.translations import TranslationOptions
 
 from ._markers import PiggybackMarker, SectionMarker
@@ -257,7 +256,7 @@ class ParserState(abc.ABC):
                 # There is no section footer in the protocol but some non-compliant plugins still
                 # add one and we accept it.
                 return (
-                    self.on_section_header(SectionMarker.from_header(header))
+                    self.on_section_header(SectionMarker.from_header(header.decode()))
                     if (header := line[3:-3]) and not header.startswith(b":")
                     else self.on_section_footer()
                 )
@@ -525,32 +524,58 @@ class AgentParser(Parser[AgentRawData, AgentRawDataSection]):
     ) -> HostSections[AgentRawDataSection]:
         now = int(time.time())
 
-        raw_sections, piggyback_sections = self._parse_host_section(raw_data)
-        section_info = {
-            header.name: header
-            for header, _ in raw_sections
-            if selection is NO_SELECTION or header.name in selection
-        }
+        raw_sections, piggyback_sections = self._parse_host_section(raw_data, selection)
+        section_info = make_section_info(raw_sections)
+        sections = make_decoded_sections(raw_sections)
+        cache_info = make_cache_info(section_info, now)
 
-        def decode_sections(
-            sections: ImmutableSection,
-        ) -> MutableSectionMap[list[AgentRawDataSectionElem]]:
-            out: MutableSectionMap[list[AgentRawDataSectionElem]] = {}
-            for header, content in sections:
-                out.setdefault(header.name, []).extend(header.parse_line(line) for line in content)
-            return out
+        new_sections = self.section_store.update(
+            sections,
+            cache_info,
+            make_persisting_info(section_info),
+            lambda valid_until, now: valid_until < now,
+            now=now,
+            keep_outdated=self.keep_outdated,
+        )
+        return HostSections[AgentRawDataSection](
+            new_sections,
+            cache_info=cache_info,
+            piggybacked_raw_data=self._make_piggybacked_sections(piggyback_sections, now),
+        )
 
+    def _parse_host_section(
+        self,
+        raw_data: AgentRawData,
+        selection: SectionNameCollection,
+    ) -> tuple[ImmutableSection, Mapping[PiggybackMarker, ImmutableSection]]:
+        """Split agent output in chunks, splits lines by whitespaces."""
+        parser: ParserState = NOOPParser(
+            self.hostname,
+            [],
+            {},
+            translation=self.translation,
+            encoding_fallback=self.encoding_fallback,
+            logger=self._logger,
+        )
+        for line in raw_data.split(b"\n"):
+            parser = parser(line.rstrip(b"\r"))
+
+        return parser.sections if selection is NO_SELECTION else [
+            s for s in parser.sections if s.header.name in selection
+        ], parser.piggyback_sections
+
+    def _make_piggybacked_sections(
+        self,
+        piggyback_sections: Mapping[PiggybackMarker, ImmutableSection],
+        now: int,
+    ) -> Mapping[HostName, Sequence[bytes]]:
         def flatten_piggyback_section(
             sections: ImmutableSection,
             *,
             cached_at: int,
             cache_for: int,
-            selection: SectionNameCollection,
         ) -> Iterator[bytes]:
             for header, content in sections:
-                if not (selection is NO_SELECTION or header.name in selection):
-                    continue
-
                 if header.cached is not None or header.persist is not None:
                     yield str(header).encode(header.encoding)
                 else:
@@ -567,63 +592,45 @@ class AgentParser(Parser[AgentRawData, AgentRawDataSection]):
                     ).encode(header.encoding)
                 yield from (bytes(line) for line in content)
 
-        sections = {
-            name: content
-            for name, content in decode_sections(raw_sections).items()
-            if selection is NO_SELECTION or name in selection
-        }
-        piggybacked_raw_data = {
+        return {
             header.hostname: list(
                 flatten_piggyback_section(
                     content,
                     cached_at=now,
                     cache_for=self.cache_piggybacked_data_for,
-                    selection=selection,
                 )
             )
             for header, content in piggyback_sections.items()
             if header.hostname is not None
         }
-        cache_info = {
-            header.name: cache_info_tuple
-            for header in section_info.values()
-            if (cache_info_tuple := header.cache_info(now)) is not None
-        }
 
-        def lookup_persist(section_name: SectionName) -> tuple[int, int] | None:
-            default = SectionMarker.default(section_name)
-            if (until := section_info.get(section_name, default).persist) is not None:
-                return now, until
-            return None
 
-        new_sections = self.section_store.update(
-            sections,
-            cache_info,
-            lookup_persist,
-            lambda valid_until, now: valid_until < now,
-            now=now,
-            keep_outdated=self.keep_outdated,
-        )
-        return HostSections[AgentRawDataSection](
-            new_sections,
-            cache_info=cache_info,
-            piggybacked_raw_data=piggybacked_raw_data,
-        )
+def make_section_info(
+    raw_sections: ImmutableSection,
+) -> Mapping[SectionName, SectionMarker]:
+    return {header.name: header for header, _ in raw_sections}
 
-    def _parse_host_section(
-        self,
-        raw_data: AgentRawData,
-    ) -> tuple[ImmutableSection, Mapping[PiggybackMarker, ImmutableSection]]:
-        """Split agent output in chunks, splits lines by whitespaces."""
-        parser: ParserState = NOOPParser(
-            self.hostname,
-            [],
-            {},
-            translation=self.translation,
-            encoding_fallback=self.encoding_fallback,
-            logger=self._logger,
-        )
-        for line in raw_data.split(b"\n"):
-            parser = parser(line.rstrip(b"\r"))
 
-        return parser.sections, parser.piggyback_sections
+def make_decoded_sections(
+    sections: ImmutableSection,
+) -> Mapping[SectionName, list[AgentRawDataSectionElem]]:
+    out: MutableMapping[SectionName, list[AgentRawDataSectionElem]] = {}
+    for header, content in sections:
+        out.setdefault(header.name, []).extend(header.parse_line(line) for line in content)
+    return out
+
+
+def make_cache_info(
+    section_info: Mapping[SectionName, SectionMarker], now: int
+) -> MutableMapping[SectionName, tuple[int, int]]:
+    return {
+        header.name: cache_info_tuple
+        for header in section_info.values()
+        if (cache_info_tuple := header.cache_info(now)) is not None
+    }
+
+
+def make_persisting_info(
+    section_info: Mapping[SectionName, SectionMarker],
+) -> Mapping[SectionName, int | None]:
+    return {name: header.persist for name, header in section_info.items()}

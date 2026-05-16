@@ -10,9 +10,6 @@ from typing import Any
 import cmk.ccc.version as cmk_version
 from cmk.ccc.plugin_registry import Registry
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-
 from cmk.gui.config import Config
 from cmk.gui.data_source import DataSourceRegistry
 from cmk.gui.i18n import _l
@@ -25,6 +22,7 @@ from cmk.gui.type_defs import (
     VisualLinkSpec,
 )
 from cmk.gui.utils.labels import filter_http_vars_for_simple_label_group
+from cmk.utils import paths
 
 builtin_views: dict[ViewName, ViewSpec] = {}
 
@@ -118,7 +116,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "unmonitored_services": {
             "browser_reload": 0,
@@ -169,7 +167,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "pending_discovery": {
             "browser_reload": 0,
@@ -217,7 +215,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "allservices": {
             "browser_reload": 90,
@@ -281,7 +279,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "service_check_durations": {
             "browser_reload": 90,
@@ -341,7 +339,7 @@ builtin_views.update(
             "link_from": {},
             "add_context_to_title": True,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "comments": {
             "browser_reload": 0,
@@ -389,7 +387,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "comments_of_host": {
             "browser_reload": 0,
@@ -424,7 +422,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "comments_of_service": {
             "browser_reload": 0,
@@ -459,7 +457,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "downtimes": {
             "browser_reload": 0,
@@ -514,7 +512,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "downtime_history": {
             "browser_reload": 0,
@@ -567,7 +565,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "api_downtimes": {
             "browser_reload": 0,
@@ -623,7 +621,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "downtimes_of_host": {
             "browser_reload": 0,
@@ -662,7 +660,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "downtimes_of_service": {
             "browser_reload": 0,
@@ -701,7 +699,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host": {
             "browser_reload": 30,
@@ -742,7 +740,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_export": {
             "browser_reload": 30,
@@ -788,7 +786,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hosts": {
             "browser_reload": 30,
@@ -831,7 +829,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_ok": {
             "browser_reload": 30,
@@ -869,7 +867,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_warn": {
             "browser_reload": 30,
@@ -907,7 +905,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_crit": {
             "browser_reload": 30,
@@ -945,7 +943,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_unknown": {
             "browser_reload": 30,
@@ -983,7 +981,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_pending": {
             "browser_reload": 30,
@@ -1021,7 +1019,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "problemsofhost": {
             "browser_reload": 30,
@@ -1061,7 +1059,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroup": {
             "browser_reload": 30,
@@ -1102,7 +1100,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroup_up": {
             "browser_reload": 30,
@@ -1150,7 +1148,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroup_down": {
             "browser_reload": 30,
@@ -1198,7 +1196,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroup_unreach": {
             "browser_reload": 30,
@@ -1246,7 +1244,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroup_pend": {
             "browser_reload": 30,
@@ -1294,7 +1292,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroupservices": {
             "browser_reload": 90,
@@ -1362,7 +1360,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroupservices_ok": {
             "browser_reload": 60,
@@ -1430,7 +1428,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroupservices_warn": {
             "browser_reload": 60,
@@ -1498,7 +1496,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroupservices_crit": {
             "browser_reload": 60,
@@ -1566,7 +1564,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroupservices_unknwn": {
             "browser_reload": 60,
@@ -1634,7 +1632,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroupservices_pend": {
             "browser_reload": 60,
@@ -1702,7 +1700,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostgroups": {
             "browser_reload": 30,
@@ -1775,7 +1773,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostproblems": {
             "browser_reload": 30,
@@ -1814,7 +1812,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hoststatus": {
             "num_columns": 1,
@@ -1907,7 +1905,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "pendingsvc": {
             "browser_reload": 30,
@@ -1947,7 +1945,7 @@ builtin_views.update(
             "link_from": {},
             "add_context_to_title": True,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "searchhost": {
             "browser_reload": 60,
@@ -1984,7 +1982,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "searchsvc": {
             "browser_reload": 60,
@@ -2039,7 +2037,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "service": {
             "browser_reload": 30,
@@ -2116,7 +2114,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "servicedesc": {
             "browser_reload": 30,
@@ -2157,7 +2155,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "servicegroup": {
             "browser_reload": 30,
@@ -2200,7 +2198,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitehosts": {
             "browser_reload": 30,
@@ -2238,7 +2236,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "svcgroups": {
             "browser_reload": 30,
@@ -2280,7 +2278,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "svcproblems": {
             "browser_reload": 30,
@@ -2325,7 +2323,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "searchpnp": {
             "browser_reload": 90,
@@ -2384,7 +2382,7 @@ builtin_views.update(
             "link_from": {},
             "add_context_to_title": True,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostpnp": {
             "browser_reload": 90,
@@ -2430,7 +2428,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "recentsvc": {
             "browser_reload": 30,
@@ -2467,7 +2465,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "uncheckedsvc": {
             "browser_reload": 30,
@@ -2513,7 +2511,7 @@ builtin_views.update(
             "link_from": {},
             "add_context_to_title": True,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "stale_hosts": {
             "browser_reload": 30,
@@ -2550,7 +2548,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "events": {
             "browser_reload": 0,
@@ -2606,7 +2604,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostevents": {
             "browser_reload": 0,
@@ -2651,7 +2649,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "host_dt_hist": {
             "browser_reload": 0,
@@ -2693,7 +2691,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "sort_index": 99,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "svcevents": {
             "browser_reload": 0,
@@ -2736,7 +2734,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "svc_dt_hist": {
             "browser_reload": 0,
@@ -2778,7 +2776,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostsvcevents": {
             "browser_reload": 0,
@@ -2830,7 +2828,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "logfile": {
             "browser_reload": 0,
@@ -2896,7 +2894,7 @@ builtin_views.update(
             "link_from": {},
             "add_context_to_title": True,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitesvcs_ok": {
             "browser_reload": 60,
@@ -2954,7 +2952,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitesvcs_warn": {
             "browser_reload": 60,
@@ -3012,7 +3010,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitesvcs_crit": {
             "browser_reload": 60,
@@ -3070,7 +3068,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitesvcs_unknwn": {
             "browser_reload": 60,
@@ -3128,7 +3126,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitesvcs_pend": {
             "browser_reload": 60,
@@ -3186,7 +3184,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "sitesvcs": {
             "browser_reload": 60,
@@ -3244,7 +3242,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "alertstats": {
             "browser_reload": 0,
@@ -3304,7 +3302,7 @@ builtin_views.update(
             "link_from": {},
             "add_context_to_title": True,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Special views for NagStaMon
         "nagstamon_hosts": {
@@ -3361,7 +3359,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "nagstamon_svc": {
             "browser_reload": 30,
@@ -3427,7 +3425,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "perf_matrix": {
             "browser_reload": 60,
@@ -3482,7 +3480,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "perf_matrix_search": {
             "browser_reload": 60,
@@ -3536,7 +3534,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         #
         #    ____            _
@@ -3623,7 +3621,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "aggr_all_frozen": {
             "browser_reload": 0,
@@ -3694,7 +3692,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "aggr_all": {
             "browser_reload": 0,
@@ -3764,7 +3762,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # All aggregations of a certain group
         "aggr_group": {
@@ -3825,7 +3823,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # All host-only aggregations
         "aggr_singlehosts": {
@@ -3903,7 +3901,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Aggregations that bear the name of a host
         "aggr_hostnameaggrs": {
@@ -3981,7 +3979,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Single-Host Aggregations of a host
         "aggr_singlehost": {
@@ -4016,7 +4014,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # All aggregations affected by a certain host
         "aggr_host": {
@@ -4083,7 +4081,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # All aggregations affected by a certain service (one one site/host!)
         "aggr_service": {
@@ -4150,7 +4148,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # All aggregations that have (real) problems
         "aggr_problems": {
@@ -4223,7 +4221,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # All single-host aggregations with problems
         "aggr_hostproblems": {
@@ -4304,7 +4302,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Shows a single aggregation which has to be set via aggr_name=<Name>
         "aggr_single": {
@@ -4340,7 +4338,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Shows minimal information about a multiple aggregation
         # Use together with output_format=python for API calls
@@ -4383,7 +4381,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Shows minimal information about a single aggregation which has to be set via aggr_name=<Name>.
         # Use together with output_format=python for API calls
@@ -4423,7 +4421,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Summary of all aggregations for usage as web services
         "aggr_summary": {
@@ -4461,7 +4459,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Host group with boxed BIs for each host
         "aggr_hostgroup_boxed": {
@@ -4508,7 +4506,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         #   +----------------------------------------------------------------------+
         #   |       _   _       _   _  __ _           _   _                        |
@@ -4573,7 +4571,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "hostsvcnotifications": {
             "browser_reload": 0,
@@ -4641,7 +4639,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "notifications": {
             "browser_reload": 0,
@@ -4708,7 +4706,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "failed_notifications": {
             "browser_reload": 0,
@@ -4785,7 +4783,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "svcnotifications": {
             "browser_reload": 0,
@@ -4841,7 +4839,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         "contactnotifications": {
             "browser_reload": 0,
@@ -4905,7 +4903,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         #   +----------------------------------------------------------------------+
         #   |     _    _           _     _                     _ _                 |
@@ -4979,7 +4977,7 @@ builtin_views.update(
             "add_context_to_title": True,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
     }
 )
@@ -5046,7 +5044,7 @@ def _simple_host_view(custom_attributes, add_context=None):
         "link_from": {},
         "is_show_more": False,
         "packaged": False,
-        "megamenu_search_terms": [],
+        "main_menu_search_terms": [],
     }
 
     view_spec.update(custom_attributes)
@@ -5219,7 +5217,7 @@ builtin_views["crash_reports"] = {
     "link_from": {},
     "add_context_to_title": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["cmk_servers"] = {
@@ -5303,7 +5301,7 @@ builtin_views["cmk_servers"] = {
     "link_from": {},
     "is_show_more": False,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 
@@ -5399,7 +5397,7 @@ builtin_views["cmk_sites"] = {
     "link_from": {},
     "is_show_more": False,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["cmk_sites_of_host"] = {
@@ -5435,7 +5433,7 @@ builtin_views["cmk_sites_of_host"] = {
     "sort_index": 99,
     "is_show_more": False,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 #   +------------------------------------------------------------+
@@ -5530,7 +5528,7 @@ builtin_views["it_efficiency_servers_cpumem_linux"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["it_efficiency_servers_cpumem_esxi"] = {
@@ -5616,7 +5614,7 @@ builtin_views["it_efficiency_servers_cpumem_esxi"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["it_efficiency_servers_cpumem_nutanix"] = {
@@ -5685,7 +5683,7 @@ builtin_views["it_efficiency_servers_cpumem_nutanix"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["it_efficiency_servers_cpumem_windows"] = {
@@ -5771,7 +5769,7 @@ builtin_views["it_efficiency_servers_cpumem_windows"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["it_efficiency_servers_fs_linux"] = {
@@ -5841,7 +5839,7 @@ builtin_views["it_efficiency_servers_fs_linux"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["it_efficiency_servers_fs_windows"] = {
@@ -5911,7 +5909,7 @@ builtin_views["it_efficiency_servers_fs_windows"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 builtin_views["it_efficiency_servers_fs_esxi"] = {
@@ -5981,7 +5979,7 @@ builtin_views["it_efficiency_servers_fs_esxi"] = {
     "link_from": {},
     "is_show_more": True,
     "packaged": False,
-    "megamenu_search_terms": [],
+    "main_menu_search_terms": [],
 }
 
 # FIXME: Can be removed once all dashboards have been converted
@@ -6031,7 +6029,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Similar view, but for the dashboard
         "svcproblems_dash": {
@@ -6087,7 +6085,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
         # Similar view, but for dashboard
         "events_dash": {
@@ -6130,7 +6128,7 @@ builtin_views.update(
             "sort_index": 99,
             "is_show_more": False,
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         },
     }
 )

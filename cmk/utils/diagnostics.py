@@ -10,10 +10,8 @@ from enum import auto, Enum
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, TypedDict
 
-from cmk.ccc.site import SiteId
-
 import cmk.utils.paths
-from cmk.utils.structured_data import SDRawTree
+from cmk.ccc.site import SiteId
 
 # This is an awful type, but just putting `Any` and hoping for the best is no solution.
 _JSONSerializable = (
@@ -24,7 +22,7 @@ DiagnosticsCLParameters = list[str]
 DiagnosticsModesParameters = dict[str, Any]
 DiagnosticsOptionalParameters = dict[str, Any]
 CheckmkFilesMap = dict[str, Path]
-DiagnosticsElementJSONResult = Mapping[str, _JSONSerializable] | SDRawTree
+DiagnosticsElementJSONResult = Mapping[str, _JSONSerializable]
 DiagnosticsElementCSVResult = str
 DiagnosticsElementFilepaths = Iterator[Path]
 
@@ -79,7 +77,7 @@ _FILES_OPTS = [
 ]
 
 
-def serialize_wato_parameters(  # pylint: disable=R0912
+def serialize_wato_parameters(
     wato_parameters: DiagnosticsParameters,
 ) -> list[DiagnosticsCLParameters]:
     # TODO: reduce the number of branches and do the whole procedure in a more generic/elegant way

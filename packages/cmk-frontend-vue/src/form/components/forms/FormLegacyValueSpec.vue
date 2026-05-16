@@ -6,10 +6,12 @@ conditions defined in the file COPYING, which is part of this source code packag
 <script setup lang="ts">
 import type { LegacyValuespec } from 'cmk-shared-typing/typescript/vue_formspec_components'
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import FormValidation from '@/form/components/FormValidation.vue'
+
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
 import type { ValidationMessages } from '@/form/components/utils/validation'
 
-const QUERY_INPUT_OBSERVER = 'select,input'
+const QUERY_INPUT_OBSERVER = 'select,input,textarea'
 
 const props = defineProps<{
   spec: LegacyValuespec
@@ -125,10 +127,13 @@ onBeforeUnmount(() => {
 
 function updateEventListeners() {
   legacyDOM.value!.querySelectorAll(QUERY_INPUT_OBSERVER).forEach((element) => {
-    if (element.getAttribute('data-has-event-listener') === 'true') {
+    // @ts-expect-error This is not a standard property, but used to track if the element already has an event listener
+    if (element._has_event_listener) {
       return
     }
-    element.setAttribute('data-has-event-listener', 'true')
+
+    // @ts-expect-error This is not a standard property, but used to track if the element already has an event listener
+    element._has_event_listener = true
     element.addEventListener('input', collectData)
   })
 }

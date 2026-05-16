@@ -11,25 +11,18 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+import cmk.ccc.resulttype as result
 from cmk.ccc.exceptions import (
-    MKAgentError,
-    MKFetcherError,
     MKIPAddressLookupError,
-    MKSNMPError,
     MKTimeout,
 )
-from cmk.ccc.hostaddress import HostAddress, HostName
-
-import cmk.utils.resulttype as result
-from cmk.utils.sectionname import SectionName
-
 from cmk.checkengine.checkresults import ActiveCheckResult
 from cmk.checkengine.exitspec import ExitSpec
-from cmk.checkengine.fetcher import FetcherType, SourceInfo
 from cmk.checkengine.parser import AgentRawDataSection, HostSections
-
+from cmk.checkengine.plugins import SectionName
+from cmk.helper_interface import FetcherError, FetcherType, SourceInfo
 from cmk.piggyback.backend import Config as PiggybackConfig
-from cmk.piggyback.backend import PiggybackMetaData, PiggybackTimeSettings
+from cmk.piggyback.backend import PiggybackMetaData
 
 __all__ = ["summarize", "SummarizerFunction", "SummaryConfig"]
 
@@ -39,7 +32,7 @@ class SummaryConfig:
     """User config for summary."""
 
     exit_spec: ExitSpec
-    time_settings: PiggybackTimeSettings
+    piggyback_config: PiggybackConfig
     expect_data: bool
 
 
@@ -51,8 +44,6 @@ class SummarizerFunction(Protocol):
 
 
 def summarize(
-    hostname: HostName,
-    ipaddress: HostAddress | None,
     host_sections: result.Result[HostSections, Exception],
     config: SummaryConfig,
     *,
@@ -62,9 +53,7 @@ def summarize(
         return host_sections.fold(
             ok=lambda host_sections: summarize_piggyback(
                 host_sections=host_sections,
-                hostname=hostname,
-                ipaddress=ipaddress,
-                time_settings=config.time_settings,
+                config=config.piggyback_config,
                 expect_data=config.expect_data,
             ),
             error=lambda exc: summarize_failure(config.exit_spec, exc),
@@ -82,10 +71,7 @@ def summarize_success(exit_spec: ExitSpec) -> Sequence[ActiveCheckResult]:
 
 def summarize_failure(exit_spec: ExitSpec, exc: Exception) -> Sequence[ActiveCheckResult]:
     def extract_status(exc: Exception) -> int:
-        if isinstance(
-            exc,
-            MKAgentError | MKFetcherError | MKIPAddressLookupError | MKSNMPError,
-        ):
+        if isinstance(exc, FetcherError | MKIPAddressLookupError):
             return exit_spec.get("connection", 2)
         if isinstance(exc, MKTimeout):
             return exit_spec.get("timeout", 2)
@@ -103,14 +89,11 @@ def summarize_failure(exit_spec: ExitSpec, exc: Exception) -> Sequence[ActiveChe
 def summarize_piggyback(
     *,
     host_sections: HostSections[AgentRawDataSection],
-    hostname: HostName,
-    ipaddress: HostAddress | None,
-    time_settings: PiggybackTimeSettings,
+    config: PiggybackConfig,
     expect_data: bool,
     now: int | None = None,
 ) -> Sequence[ActiveCheckResult]:
     summary_section = SectionName("piggyback_source_summary")
-    config = PiggybackConfig(hostname, time_settings)
     now = int(time.time()) if now is None else now
     if meta_infos := [
         PiggybackMetaData.deserialize(raw_file_info)

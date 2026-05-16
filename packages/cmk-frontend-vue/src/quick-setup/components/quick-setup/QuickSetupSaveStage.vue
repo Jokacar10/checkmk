@@ -5,6 +5,7 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import type { QuickSetupSaveStageProps } from '@/quick-setup/components/quick-setup/quick_setup_types'
+
 import QuickSetupStageContent from './QuickSetupStageContent.vue'
 
 defineProps<QuickSetupSaveStageProps>()
@@ -33,6 +34,7 @@ defineProps<QuickSetupSaveStageProps>()
 </style>
 
 <style>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .qs-save-stage__content .qs-stage-content__action > button {
   margin-right: 8px;
 }

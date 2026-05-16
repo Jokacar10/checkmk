@@ -6,14 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any, Literal, NamedTuple, Protocol
-
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.sectionname import SectionName
-
-from cmk.snmplib import SNMPDetectBaseType
-
-from cmk.checkengine.sectionparser import ParsedSectionName
+from typing import Any, Literal, NamedTuple, NewType, Protocol
 
 from cmk.agent_based.v2 import (
     HostLabelGenerator,
@@ -21,8 +14,10 @@ from cmk.agent_based.v2 import (
     StringTable,
 )
 from cmk.discover_plugins import PluginLocation
+from cmk.snmplib import SNMPDetectBaseType
+from cmk.utils.rulesets import RuleSetName
 
-from ._common import LegacyPluginLocation, RuleSetTypeName
+from ._common import LegacyPluginLocation, RuleSetTypeName, SectionName
 
 AgentParseFunction = Callable[[StringTable], Any]
 
@@ -31,6 +26,8 @@ HostLabelFunction = Callable[..., HostLabelGenerator]
 SNMPParseFunction = Callable[[list[StringTable]], Any] | Callable[[list[StringByteTable]], Any]
 
 SimpleSNMPParseFunction = Callable[[StringTable], Any] | Callable[[StringByteTable], Any]
+
+ParsedSectionName = NewType("ParsedSectionName", str)
 
 
 class AgentSectionPlugin(NamedTuple):

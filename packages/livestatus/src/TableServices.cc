@@ -49,8 +49,8 @@ using namespace std::string_literals;
 
 using row_type = IService;
 
-TableServices::TableServices(ICore *mc) {
-    addColumns(this, *mc, "", ColumnOffsets{}, AddHosts::yes, LockComments::yes,
+TableServices::TableServices() {
+    addColumns(this, "", ColumnOffsets{}, AddHosts::yes, LockComments::yes,
                LockDowntimes::yes);
 }
 
@@ -59,8 +59,7 @@ std::string TableServices::name() const { return "services"; }
 std::string TableServices::namePrefix() const { return "service_"; }
 
 // static
-void TableServices::addColumns(Table *table, const ICore &core,
-                               const std::string &prefix,
+void TableServices::addColumns(Table *table, const std::string &prefix,
                                const ColumnOffsets &offsets, AddHosts add_hosts,
                                LockComments lock_comments,
                                LockDowntimes lock_downtimes) {
@@ -81,14 +80,15 @@ void TableServices::addColumns(Table *table, const ICore &core,
         [](const row_type &row) { return row.check_command_expanded(); }));
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "robotmk_last_log", "The file content of the Robotmk log",
-        offsets, BlobFileReader<row_type>{[&core](const row_type &row) {
+        offsets,
+        BlobFileReader<row_type>{[](const row_type &row, const ICore &core) {
             return core.paths()->robotmk_html_log_directory() /
                    row.robotmk_dir() / "suite_last_log.html";
         }}));
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "robotmk_last_log_gz",
         "The gzipped file content of the Robotmk log", offsets,
-        BlobFileReader<row_type>{[&core](const row_type &row) {
+        BlobFileReader<row_type>{[](const row_type &row, const ICore &core) {
             return core.paths()->robotmk_html_log_directory() /
                    row.robotmk_dir() / "suite_last_log.html.gz";
             ;
@@ -96,14 +96,14 @@ void TableServices::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "robotmk_last_error_log",
         "The file content of the Robotmk error log", offsets,
-        BlobFileReader<row_type>{[&core](const row_type &row) {
+        BlobFileReader<row_type>{[](const row_type &row, const ICore &core) {
             return core.paths()->robotmk_html_log_directory() /
                    row.robotmk_dir() / "suite_last_error_log.html";
         }}));
     table->addColumn(std::make_unique<BlobColumn<row_type>>(
         prefix + "robotmk_last_error_log_gz",
         "The gzipped file content of the Robotmk error log", offsets,
-        BlobFileReader<row_type>{[&core](const row_type &row) {
+        BlobFileReader<row_type>{[](const row_type &row, const ICore &core) {
             return core.paths()->robotmk_html_log_directory() /
                    row.robotmk_dir() / "suite_last_error_log.html.gz";
             ;
@@ -213,7 +213,8 @@ void TableServices::addColumns(Table *table, const ICore &core,
         prefix + "state_type", "Type of the current state (0: soft, 1: hard)",
         offsets, [](const row_type &row) { return row.state_type(); }));
     table->addColumn(std::make_unique<IntColumn<row_type>>(
-        prefix + "check_type", "Type of check (0: active, 1: passive)", offsets,
+        prefix + "check_type",
+        "Type of check (0: active, 1: passive, 2: shadow)", offsets,
         [](const row_type &row) { return row.check_type(); }));
     table->addColumn(std::make_unique<BoolColumn<row_type>>(
         prefix + "acknowledged",
@@ -336,11 +337,12 @@ void TableServices::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<IntColumn<row_type>>(
         prefix + "hard_state", "The effective hard state of this object",
         offsets, [](const row_type &row) { return row.hard_state(); }));
-    table->addColumn(std::make_unique<IntColumn<row_type>>(
+    table->addColumn(std::make_unique<BoolColumn<row_type>>(
         prefix + "pnpgraph_present",
         "Whether there is a PNP4Nagios graph present for this object (-1/0/1)",
-        offsets,
-        [&core](const row_type &row) { return core.isPnpGraphPresent(row); }));
+        offsets, [](const row_type &row, const ICore &core) {
+            return core.isPnpGraphPresent(row);
+        }));
 
     // columns of type double
     table->addColumn(std::make_unique<DoubleColumn<row_type>>(
@@ -398,7 +400,8 @@ void TableServices::addColumns(Table *table, const ICore &core,
         prefix + "contacts", "A list of all contacts of this object", offsets,
         [](const row_type &row) { return row.contacts(); }));
 
-    auto get_downtimes = [&core, lock_downtimes](const row_type &s) {
+    auto get_downtimes = [lock_downtimes](const row_type &s,
+                                          const ICore &core) {
         return lock_downtimes == LockDowntimes::yes
                    ? core.downtimes(s)
                    : core.downtimes_unlocked(s);
@@ -424,7 +427,7 @@ void TableServices::addColumns(Table *table, const ICore &core,
         std::make_unique<DowntimeRenderer>(DowntimeRenderer::verbosity::full),
         get_downtimes));
 
-    auto get_comments = [&core, lock_comments](const row_type &s) {
+    auto get_comments = [lock_comments](const row_type &s, const ICore &core) {
         return lock_comments == LockComments::yes ? core.comments(s)
                                                   : core.comments_unlocked(s);
     };
@@ -449,7 +452,7 @@ void TableServices::addColumns(Table *table, const ICore &core,
         get_comments));
 
     if (add_hosts == AddHosts::yes) {
-        TableHosts::addColumns(table, core, "host_", offsets.add([](Row r) {
+        TableHosts::addColumns(table, "host_", offsets.add([](Row r) {
             return &r.rawData<row_type>()->host();
         }),
                                LockComments::yes, LockDowntimes::yes);
@@ -554,12 +557,14 @@ void TableServices::addColumns(Table *table, const ICore &core,
     table->addColumn(std::make_unique<ListColumn<row_type>>(
         prefix + "metrics",
         "A list of all metrics of this object that historically existed",
-        offsets, [&core](const row_type &row) { return core.metrics(row); }));
+        offsets, [](const row_type &row, const ICore &core) {
+            return core.metrics(row);
+        }));
     table->addDynamicColumn(std::make_unique<DynamicRRDColumn<ListColumn<
                                 row_type, RRDDataMaker::value_type>>>(
         prefix + "rrddata",
         "RRD metrics data of this object. This is a column with parameters: rrddata:COLUMN_TITLE:VARNAME:FROM_TIME:UNTIL_TIME:RESOLUTION",
-        core, offsets));
+        offsets));
     table->addColumn(std::make_unique<TimeColumn<row_type>>(
         prefix + "cached_at",
         "For checks that base on cached agent data the time when this data was created. 0 for other services.",
@@ -599,7 +604,7 @@ void TableServices::addColumns(Table *table, const ICore &core,
         [](const row_type &row) { return row.pending_flex_downtime(); }));
     table->addDynamicColumn(std::make_unique<DynamicFileColumn<row_type>>(
         prefix + "prediction_file", "Fetch prediction data", offsets,
-        [&core](const row_type &row) {
+        [](const row_type &row, const ICore &core) {
             return core.paths()->prediction_directory() /
                    pnp_cleanup(row.host_name()) /
                    pnp_cleanup(row.description());
@@ -607,7 +612,8 @@ void TableServices::addColumns(Table *table, const ICore &core,
         [](const std::string &args) { return std::filesystem::path{args}; }));
     table->addColumn(std::make_unique<ListColumn<row_type>>(
         prefix + "prediction_files", "List currently available predictions",
-        offsets, [&core](const row_type &row, const Column & /* col */) {
+        offsets,
+        [](const row_type &row, const Column & /* col */, const ICore &core) {
             auto out = std::vector<std::string>{};
             const auto path = core.paths()->prediction_directory() /
                               pnp_cleanup(row.host_name()) /

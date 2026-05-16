@@ -5,6 +5,7 @@ load("//bazel/rules:doctest.bzl", "py_doc_test")
 load("//bazel/rules:package_wheel.bzl", "package_wheel")
 
 exports_files([
+    "dev-requirements.in",
     "pyproject.toml",
     "requirements.in",
 ])
@@ -19,6 +20,7 @@ py_library(
         "cmk/trace/export.py",
         "cmk/trace/logs.py",
     ],
+    data = ["cmk/trace/py.typed"],
     imports = ["."],
     visibility = ["//visibility:public"],
     deps = [
@@ -67,7 +69,15 @@ py_wheel(
     strip_path_prefixes = ["packages/cmk-trace"],
     # TODO: Duplicated from pyproject.toml
     version = "1.0.0",
-    deps = [":cmk-trace"],
+    deps = [
+        ":cmk-trace",
+        ":py_typed",
+    ],
+)
+
+filegroup(
+    name = "py_typed",
+    srcs = ["cmk/trace/py.typed"],
 )
 
 package_wheel(

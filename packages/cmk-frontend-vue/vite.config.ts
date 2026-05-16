@@ -3,10 +3,11 @@
  * This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
  * conditions defined in the file COPYING, which is part of this source code package.
  */
+import vue from '@vitejs/plugin-vue'
 import path from 'node:path'
 import { type RollupLog } from 'rollup'
-import { defineConfig, type UserConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
+import { type UserConfig, defineConfig } from 'vite'
+import VueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command }) => {
@@ -31,7 +32,8 @@ export default defineConfig(({ command }) => {
     resolve: {
       alias: {
         '@': path.resolve('./src'),
-        '~cmk-frontend': path.resolve('../cmk-frontend')
+        // This is only a temporary hack to allow resolving icons and the demo css. Do not use this in new code!
+        '~cmk-frontend': path.resolve('../cmk-frontend/dist')
       }
     },
     build: {
@@ -50,6 +52,18 @@ export default defineConfig(({ command }) => {
               }
             }
             console.warn(message.message)
+
+            // vue3-gettext uses node to extract gettext strings, but we need the module
+            // as a runtime module as well (not the node part though), so we let this pass
+            if (
+              message.message &&
+              message.message.includes(
+                'Module "fs" has been externalized for browser compatibility'
+              ) &&
+              message.message.includes('pofile/lib/po.js')
+            ) {
+              return
+            }
           } else {
             console.warn(message)
           }
@@ -72,6 +86,13 @@ export default defineConfig(({ command }) => {
     // we are in serve mode here, supporting auto hot reload
     return {
       ...resultBuild,
+      plugins: [
+        ...(resultBuild.plugins ?? []),
+        VueDevTools({
+          componentInspector: true,
+          appendTo: /main\.ts$/
+        })
+      ],
       test: {
         // enable jest-like global test APIs
         globals: true,
@@ -86,6 +107,10 @@ export default defineConfig(({ command }) => {
         proxy: {
           // dev server proxies whole checkmk to inject js resources and support auto hot reloading
           '^(?!/cmk-frontend-vue-ahr)': 'http://localhost/'
+        },
+        watch: {
+          usePolling: true,
+          interval: 250
         }
       },
       base: '/cmk-frontend-vue-ahr'

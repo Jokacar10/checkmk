@@ -4,7 +4,7 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import dataclasses
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
@@ -80,11 +80,51 @@ def test_pattern() -> None:
         adapter.validate_python({"field": "invalid"})
 
 
+def test_deprecated() -> None:
+    @dataclasses.dataclass
+    class TestModel:
+        field: str = api_field(description="test", deprecated=True)
+
+    adapter = TypeAdapter(TestModel)  # nosemgrep: type-adapter-detected
+    schema = adapter.json_schema()
+    assert "deprecated" in schema["properties"]["field"]
+    assert schema["properties"]["field"]["deprecated"] is True
+
+
+def test_discriminator() -> None:
+    @dataclasses.dataclass(kw_only=True, slots=True)
+    class OptionOne:
+        option_type: Literal["one"] = api_field(description="one")
+        foo: str = api_field(description="foo")
+
+    @dataclasses.dataclass(kw_only=True, slots=True)
+    class OptionTwo:
+        option_type: Literal["two"] = api_field(description="two")
+        bar: int = api_field(description="bar")
+
+    @dataclasses.dataclass
+    class TestModel:
+        field: OptionOne | OptionTwo = api_field(description="test", discriminator="option_type")
+
+    adapter = TypeAdapter(TestModel)  # nosemgrep: type-adapter-detected
+    schema = adapter.json_schema()
+    assert schema["properties"]["field"]["discriminator"]["propertyName"] == "option_type"
+    assert set(schema["properties"]["field"]["discriminator"]["mapping"]) == {"one", "two"}
+
+    with pytest.raises(ValidationError) as exc_info:
+        adapter.validate_python({"field": {"option_type": "one"}})
+
+    errors = exc_info.value.errors()
+    assert len(errors) == 1
+    assert errors[0]["type"] == "missing"
+    assert errors[0]["loc"] == ("field", "one", "foo")
+
+
 def test_metadata() -> None:
     @dataclasses.dataclass
     class TestModel:
         field: str = api_field(
-            alias="alias",
+            serialization_alias="alias",
             title="title",
             description="description",
             example="example",
@@ -105,7 +145,7 @@ def test_json_schema_metadata() -> None:
     @dataclasses.dataclass
     class TestModel:
         field: str = api_field(
-            alias="alias",
+            serialization_alias="alias",
             title="title",
             description="description",
             example="example",
@@ -128,7 +168,7 @@ def test_json_schema_metadata() -> None:
 def test_alias_serialization() -> None:
     @dataclasses.dataclass
     class TestModel:
-        field: str = api_field(description="test", alias="alias")
+        field: str = api_field(description="test", serialization_alias="alias")
 
     adapter = TypeAdapter(TestModel)  # nosemgrep: type-adapter-detected
     assert adapter.dump_python(TestModel(field="foo"), by_alias=True) == {"alias": "foo"}
@@ -137,7 +177,7 @@ def test_alias_serialization() -> None:
 def test_alias_deserialization() -> None:
     @dataclasses.dataclass
     class TestModel:
-        field: str = api_field(description="test", alias="alias")
+        field: str = api_field(description="test", serialization_alias="alias")
 
     adapter = TypeAdapter(TestModel)  # nosemgrep: type-adapter-detected
     assert adapter.validate_python({"alias": "foo"}) == TestModel(field="foo")

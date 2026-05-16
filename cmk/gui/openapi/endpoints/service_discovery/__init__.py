@@ -16,10 +16,8 @@ from collections.abc import Mapping
 from typing import Any, assert_never
 from urllib.parse import urlparse
 
-from cmk.utils.everythingtype import EVERYTHING
-
+from cmk import fields
 from cmk.checkengine.discovery import DiscoverySettings
-
 from cmk.gui import fields as gui_fields
 from cmk.gui.background_job import BackgroundStatusSnapshot
 from cmk.gui.config import active_config
@@ -38,6 +36,8 @@ from cmk.gui.site_config import site_is_local
 from cmk.gui.utils import permission_verification as permissions
 from cmk.gui.watolib.automations import (
     fetch_service_discovery_background_job_status,
+    LocalAutomationConfig,
+    make_automation_config,
     MKAutomationException,
     RemoteAutomationConfig,
 )
@@ -59,8 +59,7 @@ from cmk.gui.watolib.services import (
     perform_service_discovery,
     ServiceDiscoveryBackgroundJob,
 )
-
-from cmk import fields
+from cmk.utils.everythingtype import EVERYTHING
 
 from ._response_schemas import ServiceDiscoveryResultSchema, ServiceDiscoveryRunSchema
 
@@ -175,8 +174,10 @@ def show_service_discovery_result(params: Mapping[str, Any]) -> Response:
         discovery_result = get_check_table(
             host,
             DiscoveryAction.NONE,
+            automation_config=make_automation_config(active_config.sites[host.site_id()]),
             raise_errors=False,
             debug=active_config.debug,
+            use_git=active_config.wato_use_git,
         )
     except MKAutomationException:
         pass
@@ -277,8 +278,10 @@ def update_service_phase(params: Mapping[str, Any]) -> Response:
         host,
         check_type,
         service_item,
+        automation_config=make_automation_config(active_config.sites[host.site_id()]),
         pprint_value=active_config.wato_pprint_config,
         debug=active_config.debug,
+        use_git=active_config.wato_use_git,
     )
     return Response(status=204)
 
@@ -289,8 +292,10 @@ def _update_single_service_phase(
     check_type: str,
     service_item: str | None,
     *,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     pprint_value: bool,
     debug: bool,
+    use_git: bool,
 ) -> None:
     action = DiscoveryAction.SINGLE_UPDATE
     Discovery(
@@ -303,12 +308,16 @@ def _update_single_service_phase(
         get_check_table(
             host,
             action,
+            automation_config=make_automation_config(active_config.sites[host.site_id()]),
             raise_errors=False,
             debug=debug,
+            use_git=use_git,
         ),
         host.name(),
+        automation_config=automation_config,
         pprint_value=pprint_value,
         debug=debug,
+        use_git=use_git,
     )
 
 
@@ -414,8 +423,10 @@ def execute_service_discovery(params: Mapping[str, Any]) -> Response:
     return _execute_service_discovery(
         discovery_action,
         host,
+        automation_config=make_automation_config(active_config.sites[host.site_id()]),
         pprint_value=active_config.wato_pprint_config,
         debug=active_config.debug,
+        use_git=active_config.wato_use_git,
     )
 
 
@@ -423,8 +434,10 @@ def _execute_service_discovery(
     api_discovery_action: APIDiscoveryAction,
     host: Host,
     *,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     pprint_value: bool,
     debug: bool,
+    use_git: bool,
 ) -> Response:
     job_snapshot = _job_snapshot(host)
     if job_snapshot.is_active:
@@ -441,7 +454,14 @@ def _execute_service_discovery(
             title="Permission denied",
             detail="You do not have the necessary permissions to execute this action",
         )
-    discovery_result = get_check_table(host, discovery_action, raise_errors=False, debug=debug)
+    discovery_result = get_check_table(
+        host,
+        discovery_action,
+        automation_config=automation_config,
+        raise_errors=False,
+        debug=debug,
+        use_git=use_git,
+    )
     match api_discovery_action:
         case APIDiscoveryAction.new:
             discovery_result = perform_service_discovery(
@@ -452,8 +472,10 @@ def _execute_service_discovery(
                 host=host,
                 selected_services=EVERYTHING,
                 raise_errors=False,
+                automation_config=automation_config,
                 pprint_value=pprint_value,
                 debug=debug,
+                use_git=use_git,
             )
         case APIDiscoveryAction.remove:
             discovery_result = perform_service_discovery(
@@ -464,16 +486,20 @@ def _execute_service_discovery(
                 host=host,
                 selected_services=EVERYTHING,
                 raise_errors=False,
+                automation_config=automation_config,
                 pprint_value=pprint_value,
                 debug=debug,
+                use_git=use_git,
             )
         case APIDiscoveryAction.fix_all:
             discovery_result = perform_fix_all(
                 discovery_result=discovery_result,
                 host=host,
                 raise_errors=False,
+                automation_config=automation_config,
                 pprint_value=pprint_value,
                 debug=debug,
+                use_git=use_git,
             )
         case APIDiscoveryAction.refresh | APIDiscoveryAction.tabula_rasa:
             discovery_run = _discovery_wait_for_completion_link(host.name())
@@ -486,8 +512,10 @@ def _execute_service_discovery(
                 discovery_result=discovery_result,
                 host=host,
                 raise_errors=False,
+                automation_config=automation_config,
                 pprint_value=pprint_value,
                 debug=debug,
+                use_git=use_git,
             )
         case APIDiscoveryAction.only_service_labels:
             discovery_result = perform_service_discovery(
@@ -498,8 +526,10 @@ def _execute_service_discovery(
                 host=host,
                 selected_services=EVERYTHING,
                 raise_errors=False,
+                automation_config=automation_config,
                 pprint_value=pprint_value,
                 debug=debug,
+                use_git=use_git,
             )
 
         case _:
@@ -711,7 +741,7 @@ def execute_bulk_discovery(params: Mapping[str, Any]) -> Response:
         update_changed_service_labels=options["update_service_labels"],
         update_changed_service_parameters=options["update_service_parameters"],
     )
-    hosts_to_discover = prepare_hosts_for_discovery(body["hostnames"])
+    hosts_to_discover = prepare_hosts_for_discovery(body["hostnames"], active_config.sites)
     if (
         result := start_bulk_discovery(
             job,
@@ -722,6 +752,7 @@ def execute_bulk_discovery(params: Mapping[str, Any]) -> Response:
             body["bulk_size"],
             pprint_value=active_config.wato_pprint_config,
             debug=active_config.debug,
+            use_git=active_config.wato_use_git,
         )
     ).is_error():
         raise result.error
@@ -737,7 +768,7 @@ def execute_bulk_discovery(params: Mapping[str, Any]) -> Response:
 
 
 def _job_snapshot(host: Host) -> BackgroundStatusSnapshot:
-    if site_is_local(active_config.sites[(site_id := host.site_id())], site_id):
+    if site_is_local(active_config.sites[(site_id := host.site_id())]):
         job = ServiceDiscoveryBackgroundJob(host.name())
         return job.get_status_snapshot()
 
@@ -748,10 +779,12 @@ def _job_snapshot(host: Host) -> BackgroundStatusSnapshot:
     )
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(show_service_discovery_result)
-    endpoint_registry.register(update_service_phase)
-    endpoint_registry.register(show_service_discovery_run)
-    endpoint_registry.register(service_discovery_run_wait_for_completion)
-    endpoint_registry.register(execute_service_discovery)
-    endpoint_registry.register(execute_bulk_discovery)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(show_service_discovery_result, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(update_service_phase, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(show_service_discovery_run, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(
+        service_discovery_run_wait_for_completion, ignore_duplicates=ignore_duplicates
+    )
+    endpoint_registry.register(execute_service_discovery, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(execute_bulk_discovery, ignore_duplicates=ignore_duplicates)

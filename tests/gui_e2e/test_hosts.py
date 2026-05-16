@@ -3,7 +3,6 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 import logging
-import os
 import re
 from collections.abc import Iterator
 from urllib.parse import quote_plus
@@ -14,23 +13,24 @@ from playwright.sync_api import expect
 
 from tests.gui_e2e.testlib.api_helpers import create_and_delete_hosts, LOCALHOST_IPV4
 from tests.gui_e2e.testlib.host_details import AddressFamily, AgentAndApiIntegration, HostDetails
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.monitor.host_search import HostSearch
 from tests.gui_e2e.testlib.playwright.pom.monitor.host_status import HostStatus
-from tests.gui_e2e.testlib.playwright.pom.setup.hosts import HostProperties, SetupHost
+from tests.gui_e2e.testlib.playwright.pom.setup.hosts import AddHost, HostProperties, SetupHost
 from tests.testlib.site import Site
+from tests.testlib.utils import is_cleanup_enabled
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(name="host")
-def fixture_host(dashboard_page: Dashboard, test_site: Site) -> Iterator[HostProperties]:
+def fixture_host(dashboard_page: MainDashboard, test_site: Site) -> Iterator[HostProperties]:
     _host = HostProperties(
         dashboard_page.page,
         HostDetails(name=f"test_host_{Faker().first_name()}", ip=LOCALHOST_IPV4),
     )
     yield _host
-    if int(os.getenv("CLEANUP", "1")) == 1:
+    if is_cleanup_enabled():
         _host.navigate()
         _host.delete_host(test_site)
 
@@ -46,7 +46,7 @@ def test_navigate_to_host_properties(host: HostProperties) -> None:
     expect(host.main_area.locator("div.warning")).to_have_count(0)
 
 
-def test_create_and_delete_a_host(dashboard_page: Dashboard, test_site: Site) -> None:
+def test_create_and_delete_a_host(dashboard_page: MainDashboard, test_site: Site) -> None:
     """Validate creation and deletes of a host."""
     # create Host
     host = HostProperties(
@@ -106,7 +106,7 @@ def create_and_delete_hosts_with_labels(test_site: Site) -> Iterator[tuple[list[
 
 
 def test_filter_hosts_with_host_labels(
-    hosts_with_labels: tuple[list[HostDetails], str], dashboard_page: Dashboard
+    hosts_with_labels: tuple[list[HostDetails], str], dashboard_page: MainDashboard
 ) -> None:
     expected_hosts_list, expected_label = hosts_with_labels
     host_status_page = HostStatus(dashboard_page.page, expected_hosts_list[0])
@@ -143,11 +143,11 @@ def fixture_host_to_be_deleted(test_site: Site) -> Iterator[list[HostDetails]]:
 
 
 def test_delete_host_row(
-    dashboard_page: Dashboard, host_to_be_deleted: list[HostDetails], test_site: Site
+    dashboard_page: MainDashboard, host_to_be_deleted: list[HostDetails], test_site: Site
 ) -> None:
     """Validate deletion of a host using the burger menu."""
     setup_host = SetupHost(dashboard_page.page)
-    main_area = setup_host.main_area.locator()
+    main_area_locator = setup_host.main_area.locator()
     # 'pop' prevents the host from being deleted (again) in teardown of fixture
     host_details = host_to_be_deleted.pop()
 
@@ -155,12 +155,139 @@ def test_delete_host_row(
     setup_host.action_icon_for_host(host_details.name, "Delete host").click()
     # validation
     expect(
-        main_area.get_by_role("dialog", name=re.compile(f"Delete host.*{host_details.name}")),
+        main_area_locator.get_by_role(
+            "dialog", name=re.compile(f"Delete host.*{host_details.name}")
+        ),
         message=f"Missing message to confirm deletion of host: {host_details.name}!",
     ).to_be_visible()
     setup_host.main_area.get_confirmation_popup_button("Delete host").click()
     expect(
-        main_area.get_by_text(host_details.name),
+        main_area_locator.get_by_text(host_details.name),
         message=f"Deleted host: '{host_details.name}' is still visible!",
     ).to_have_count(0)
     test_site.openapi.changes.activate_and_wait_for_completion(force_foreign_changes=True)
+
+
+def test_agent_connection_test(dashboard_page: MainDashboard) -> None:
+    """Validate agent connection test of a host."""
+    add_host = AddHost(dashboard_page.page)
+    main_area = add_host.main_area
+    main_area_locator = main_area.locator()
+
+    agent_test_button_default_tag = main_area.locator("#attr_default_tag_agent > button")
+    agent_test_button_entry_tag = main_area.locator("#attr_entry_tag_agent > button")
+    expect(agent_test_button_default_tag).to_be_disabled()
+
+    add_host.host_name_text_field.fill("localhost")
+    expect(agent_test_button_default_tag).not_to_be_disabled()
+
+    agent_test_button_default_tag.click()
+    warning_container = add_host.main_area.locator(".warn-container")
+    expect(warning_container).to_be_visible()
+
+    agent_download_button = main_area.locator("div.warn-button-container > button:nth-child(1)")
+    agent_download_button.click()
+    slideout = main_area.locator("div.cmk-vue-app.cmk-slide-in__container")
+    expect(slideout).to_be_visible()
+
+    slidout_close_button = main_area.locator(".cmk-slide-in-dialog__close")
+    slidout_close_button.click()
+
+    add_host.host_name_text_field.fill("")
+    expect(agent_test_button_default_tag).to_be_visible()
+    expect(agent_test_button_default_tag).to_be_disabled()
+
+    add_host.host_name_text_field.fill("localhost")
+
+    datasource_checkbox = main_area_locator.get_by_role("cell", name="Checkmk agent / API").locator(
+        "label"
+    )
+    datasource_checkbox.click()
+
+    main_area_locator.get_by_label("API integrations if").get_by_text("API integrations if").click()
+    main_area_locator.get_by_role(
+        "option", name="Configured API integrations and Checkmk agent"
+    ).click()
+    expect(agent_test_button_entry_tag).to_be_visible()
+    expect(agent_test_button_entry_tag).not_to_be_disabled()
+
+    main_area_locator.get_by_label("Configured API integrations").get_by_text(
+        "Configured API integrations"
+    ).click()
+    main_area_locator.get_by_title("Configured API integrations,").click()
+    expect(agent_test_button_entry_tag).not_to_be_visible()
+
+    main_area_locator.get_by_label("Configured API integrations,").get_by_text(
+        "Configured API integrations,"
+    ).click()
+    main_area_locator.get_by_title("No API integrations, no").click()
+    expect(agent_test_button_entry_tag).not_to_be_visible()
+
+    datasource_checkbox.click()
+    expect(agent_test_button_default_tag).to_be_visible()
+    expect(agent_test_button_default_tag).not_to_be_disabled()
+
+
+def test_agent_test(dashboard_page: MainDashboard) -> None:
+    """Validate agent download slideout when creating a host."""
+    host_name = "localhost"
+    add_host = AddHost(dashboard_page.page)
+    add_host.host_name_text_field.fill(host_name)
+    add_host.save_and_run_discovery()
+
+    try:
+        agent_download_dialog = dashboard_page.main_area.locator(
+            ".setup-agent-download-dialog__dialog"
+        )
+        expect(agent_download_dialog).to_be_visible()
+
+        agent_download_button = dashboard_page.main_area.locator(
+            "div.cmk-dialog__content > div > button.cmk-button.cmk-button--variant-info"
+        )
+        agent_download_button.click()
+
+        slideout = dashboard_page.main_area.locator("div.cmk-vue-app.cmk-slide-in__container")
+        expect(slideout).to_be_visible()
+
+        slideout_close_button = dashboard_page.main_area.locator(".cmk-slide-in-dialog__close")
+        slideout_close_button.click()
+
+        with dashboard_page.page.expect_popup() as popup_info:
+            dashboard_page.main_area.locator(
+                "button.cmk-button:has-text('Read Checkmk user guide')"
+            ).click()
+
+        docs_page = popup_info.value
+
+        expect(docs_page).to_have_url(
+            "https://docs.checkmk.com/latest/en/wato_monitoringagents.html#agents"
+        )
+    finally:
+        if is_cleanup_enabled():
+            SetupHost(dashboard_page.page).delete_host(host_name)
+
+
+def test_ping_host(dashboard_page: MainDashboard) -> None:
+    """Validate pinging of a host."""
+    add_host = AddHost(dashboard_page.page)
+
+    status_loading = add_host.main_area.locator("div.status-box.loading").get_by_role("img")
+    status_invalid = add_host.main_area.locator("div.status-box.warn").get_by_role("img")
+    status_valid = add_host.main_area.locator("div.status-box.ok").get_by_role("img")
+
+    add_host.host_name_text_field.fill("foo")
+    expect(status_loading).to_be_visible()
+    expect(status_invalid).to_be_visible()
+
+    add_host.host_name_text_field.fill("localhost")
+    expect(status_loading).to_be_visible()
+    expect(status_valid).to_be_visible()
+
+    add_host.ipv4_address_checkbox.click()
+    add_host.ipv4_address_text_field.fill("foo")
+    expect(status_loading).to_be_visible()
+    expect(status_invalid).to_be_visible()
+
+    add_host.ipv4_address_text_field.fill("127.0.0.1")
+    expect(status_loading).to_be_visible()
+    expect(status_valid).to_be_visible()

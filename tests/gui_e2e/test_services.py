@@ -12,8 +12,8 @@ from playwright.sync_api import expect
 
 from tests.gui_e2e.testlib.api_helpers import LOCALHOST_IPV4
 from tests.gui_e2e.testlib.host_details import AgentAndApiIntegration, HostDetails, SNMP
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
 from tests.gui_e2e.testlib.playwright.pom.monitor.combined_graph import CombinedGraphsServiceSearch
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.monitor.service_search import ServiceSearchPage
 
 logger = logging.getLogger(__name__)
@@ -33,14 +33,13 @@ logger = logging.getLogger(__name__)
     ],
     indirect=["created_host"],
 )
-def test_reschedule_active_checks(dashboard_page: Dashboard, created_host: HostDetails) -> None:
+def test_reschedule_active_checks(dashboard_page: MainDashboard, created_host: HostDetails) -> None:
     """Test reschedule active checks.
 
     Create a host with a 'PING' service. Navigate to 'Service search' page and reschedule active
     checks. Check that the 'age' of the 'PING' service is updated.
     """
     host_name = created_host.name
-    dashboard_page.main_menu.monitor_menu("Service search").click()
     service_search_page = ServiceSearchPage(dashboard_page.page)
 
     logger.info("Apply filters and wait for the table to load")
@@ -89,16 +88,16 @@ def test_reschedule_active_checks(dashboard_page: Dashboard, created_host: HostD
         pytest.param(
             "filesystem",
             [
-                "Used inodes - {host_name} - sum (1 objects)",
-                "Size and used space - {host_name} - sum (3 objects)",
-                "Growth trend - {host_name} - sum (1 objects)",
+                "Used inodes - {host_name} - sum",
+                "Size and used space - {host_name} - sum",
+                "Growth trend - {host_name} - sum",
             ],
             id="filesystem_service_filter",
         ),
     ],
 )
 def test_filtered_services_combined_graphs(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     service_filter: str,
     expected_graphs: list[str],
     linux_hosts: list[str],
@@ -126,7 +125,7 @@ def test_filtered_services_combined_graphs(
 
 
 def test_no_errors_on_combined_graphs_page(
-    dashboard_page: Dashboard, linux_hosts: list[str]
+    dashboard_page: MainDashboard, linux_hosts: list[str]
 ) -> None:
     """Test that there are no errors on the 'Combined graphs - Service search' page."""
     service_search_page = ServiceSearchPage(dashboard_page.page)

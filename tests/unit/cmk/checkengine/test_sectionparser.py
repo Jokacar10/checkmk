@@ -3,25 +3,23 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
 import pytest
 
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils.sectionname import SectionMap, SectionName
-
 from cmk.checkengine.discovery._host_labels import _all_parsing_results as all_parsing_results
-from cmk.checkengine.fetcher import HostKey, SourceType
+from cmk.checkengine.fetcher import HostKey
 from cmk.checkengine.parser import AgentRawDataSection, AgentRawDataSectionElem, HostSections
+from cmk.checkengine.plugins import ParsedSectionName, SectionName
 from cmk.checkengine.sectionparser import _ParsingResult as ParsingResult
 from cmk.checkengine.sectionparser import (
-    ParsedSectionName,
     ParsedSectionsResolver,
     ResolvedResult,
     SectionPlugin,
     SectionsParser,
 )
+from cmk.helper_interface import SourceType
 
 
 def _section(
@@ -46,7 +44,7 @@ class _FakeParser(dict):
 class TestParsedSectionsResolver:
     @staticmethod
     def make_provider(
-        section_plugins: SectionMap[SectionPlugin],
+        section_plugins: Mapping[SectionName, SectionPlugin],
     ) -> ParsedSectionsResolver:
         return ParsedSectionsResolver(
             _FakeParser(  # type: ignore[arg-type]
@@ -219,7 +217,7 @@ class TestSectionsParser:
     @pytest.fixture
     def sections_parser(self) -> SectionsParser[AgentRawDataSectionElem]:
         return SectionsParser[AgentRawDataSectionElem](
-            host_sections=HostSections[SectionMap[AgentRawDataSectionElem]](
+            host_sections=HostSections[Mapping[SectionName, AgentRawDataSectionElem]](
                 sections={
                     SectionName("one"): [],
                     SectionName("two"): [],

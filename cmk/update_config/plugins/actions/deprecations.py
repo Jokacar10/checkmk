@@ -7,11 +7,11 @@ from logging import Logger
 from typing import override
 
 from cmk.gui import job_scheduler
-
+from cmk.update_config.lib import ExpiryVersion
 from cmk.update_config.registry import update_action_registry, UpdateAction
 
 
-class ResetDeprecationsScheduling(UpdateAction):  # pylint: disable=too-few-public-methods
+class ResetDeprecationsScheduling(UpdateAction):
     @override
     def __call__(self, logger: Logger) -> None:
         # Note: We have to call 'reset_scheduling' from 'job_scheduler' directly and NOT via
@@ -25,5 +25,6 @@ update_action_registry.register(
         name="reset_deprecations_scheduling",
         title="Reset deprecations scheduling",
         sort_index=200,
+        expiry_version=ExpiryVersion.NEVER,
     )
 )

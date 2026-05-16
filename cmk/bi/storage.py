@@ -3,8 +3,11 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
+from __future__ import annotations
+
 import ast
 import pickle
+import re
 import shutil
 import uuid
 from collections.abc import Generator
@@ -14,16 +17,16 @@ from typing import Final, NewType
 
 from redis import Redis
 
-from cmk.ccc import store
-
 from cmk.bi.aggregation import BIAggregation
 from cmk.bi.filesystem import BIFileSystem, BIFileSystemCache, BIFileSystemVar
 from cmk.bi.trees import BICompiledAggregation
+from cmk.ccc import store
 
 # The actual uuid value that is used here is arbitrary. The most important thing is that this
 # remains constant. The purpose of this namespace to enable us to generate consistent uuids based on
 # an input value, i.e. aggregation id.
 _IDENTIFIER_NAMESPACE: Final = uuid.UUID("e98ebcdf-debb-4c60-a0b9-e9c6df9b7e5e")
+_IDENTIFIER_REGEX = re.compile(r"[0-9a-f]{32}\Z")
 
 Identifier = NewType("Identifier", str)
 
@@ -51,9 +54,9 @@ class AggregationStore:
 
     def yield_stored_identifiers(self) -> Generator[Identifier, None, None]:
         for path in self.fs_cache.compiled_aggregations.iterdir():
-            if path.is_dir() or path.name.endswith(".new"):
-                continue
-            yield Identifier(path.name)
+            # yield only valid identifiers (filter out temp files with *.new suffix)
+            if path.is_file() and _IDENTIFIER_REGEX.match(path.name):
+                yield Identifier(path.name)
 
     def save(self, aggregation: BICompiledAggregation) -> None:
         path = self.fs_cache.compiled_aggregations / generate_identifier(aggregation.id)
@@ -138,7 +141,7 @@ class LookupStore:
         return bool(self._redis_client.exists(lookup_key))
 
     @contextmanager
-    def get_aggregation_lookup_lock(self) -> Generator:
+    def get_aggregation_lookup_lock(self) -> Generator[None, None, None]:
         lock = self._redis_client.lock(self._lookup_key_lock)
         try:
             lock.acquire()

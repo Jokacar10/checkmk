@@ -8,11 +8,8 @@ from collections.abc import Iterable
 from typing import assert_never, Literal, TypeAlias
 
 from cmk.ccc import tty
-from cmk.ccc.exceptions import MKGeneralException, MKSNMPError, MKTimeout
-
-from cmk.utils.log import VERBOSE
-from cmk.utils.sectionname import SectionName
-
+from cmk.ccc.exceptions import MKGeneralException, MKTimeout
+from cmk.helper_interface import FetcherError
 from cmk.snmplib import OID, SNMPBackend, SNMPContext, SNMPRawValue, SNMPRowInfo, SNMPVersion
 
 from ._utils import strip_snmp_value
@@ -75,13 +72,11 @@ class ClassicSNMPBackend(SNMPBackend):
             error = snmp_process.stderr.read()
 
         if snmp_process.returncode:
-            self._logger.log(
-                VERBOSE, f"{tty.red}{tty.bold}ERROR: {tty.normal}SNMP error: {error.strip()}"
-            )
+            self._logger.debug(f"{tty.red}{tty.bold}ERROR: {tty.normal}SNMP error: {error.strip()}")
             return None
 
         if not line:
-            self._logger.log(VERBOSE, "Error in response to snmpget.")
+            self._logger.debug("Error in response to snmpget.")
             return None
 
         parts = line.split("=", 1)
@@ -110,8 +105,8 @@ class ClassicSNMPBackend(SNMPBackend):
         oid: str,
         *,
         context: SNMPContext,
-        section_name: SectionName | None = None,
-        table_base_oid: str | None = None,
+        section_name: object = None,
+        table_base_oid: object = None,
     ) -> SNMPRowInfo:
         protospec = self._snmp_proto_spec()
 
@@ -143,10 +138,8 @@ class ClassicSNMPBackend(SNMPBackend):
                 raise
 
         if snmp_process.returncode:
-            self._logger.log(
-                VERBOSE, f"{tty.red}{tty.bold}ERROR: {tty.normal}SNMP error: {error.strip()}"
-            )
-            raise MKSNMPError(
+            self._logger.debug(f"{tty.red}{tty.bold}ERROR: {tty.normal}SNMP error: {error.strip()}")
+            raise FetcherError(
                 f"SNMP Error on {ipaddress}: {error.strip()} (Exit-Code: {snmp_process.returncode})"
             )
         return rowinfo

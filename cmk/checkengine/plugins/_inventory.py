@@ -6,20 +6,15 @@
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.validatedstr import ValidatedString
-
-from cmk.checkengine.sectionparser import (
-    ParsedSectionName,
-)
+from typing import NewType
 
 from cmk.agent_based.v1 import Attributes, TableRow
 from cmk.discover_plugins import PluginLocation
+from cmk.utils.rulesets import RuleSetName
 
+from ._sections import ParsedSectionName
 
-class InventoryPluginName(ValidatedString):
-    pass
+InventoryPluginName = NewType("InventoryPluginName", str)
 
 
 @dataclass(frozen=True)

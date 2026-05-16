@@ -7,25 +7,20 @@
 
 import logging
 import os
-import re
 from collections import defaultdict
 from collections.abc import Iterator
-from typing import Any
+from typing import TypeVar
 
 import pytest
 from faker import Faker
-from playwright.sync_api import Browser, BrowserContext, expect, Page
-from playwright.sync_api import TimeoutError as PWTimeoutError
+from playwright.sync_api import BrowserContext, Page
 
 from tests.gui_e2e.testlib.api_helpers import LOCALHOST_IPV4
 from tests.gui_e2e.testlib.host_details import HostDetails
 from tests.gui_e2e.testlib.playwright.helpers import CmkCredentials
-from tests.gui_e2e.testlib.playwright.plugin import (
-    manage_new_browser_context,
-    manage_new_page_from_browser_context,
-)
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard, DashboardMobile
+from tests.gui_e2e.testlib.playwright.plugin import PageGetter
 from tests.gui_e2e.testlib.playwright.pom.login import LoginPage
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import DashboardMobile, MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.setup.fixtures import notification_user
 from tests.gui_e2e.testlib.playwright.pom.setup.hosts import AddHost, SetupHost
 from tests.testlib.common.repo import repo_path
@@ -39,9 +34,12 @@ from tests.testlib.site import (
     SiteFactory,
     tracing_config_from_env,
 )
-from tests.testlib.utils import run
+from tests.testlib.utils import is_cleanup_enabled, run
 
 logger = logging.getLogger(__name__)
+
+
+TDashboard = TypeVar("TDashboard", MainDashboard, DashboardMobile)
 
 # loading pom fixtures
 setup_fixtures = [notification_user]
@@ -94,101 +92,54 @@ def fixture_credentials(test_site: Site) -> CmkCredentials:
     return CmkCredentials(username=ADMIN_USER, password=test_site.admin_password)
 
 
-def _log_in(
-    context: BrowserContext,
-    credentials: CmkCredentials,
-    request: pytest.FixtureRequest,
-    test_site: Site,
-) -> None:
-    if test_site.edition.is_saas_edition():
-        return
-    video_name = f"login_for_{request.node.name.replace('.py', '')}"
-    with manage_new_page_from_browser_context(context, request, video_name) as page:
-        login_page = LoginPage(page, site_url=test_site.internal_url)
-        login_page.login(credentials)
-
-
-@pytest.fixture(name="_logged_in_page", scope="module")
-def _logged_in(
-    test_site: Site,
-    credentials: CmkCredentials,
-    _context: BrowserContext,
-    request: pytest.FixtureRequest,
-) -> None:
-    _log_in(_context, credentials, request, test_site)
-
-
-@pytest.fixture(name="_logged_in_page_mobile", scope="module")
-def _logged_in_mobile(
-    test_site: Site,
-    credentials: CmkCredentials,
-    _context_mobile: BrowserContext,
-    request: pytest.FixtureRequest,
-) -> None:
-    _log_in(_context_mobile, credentials, request, test_site)
-
-
 @pytest.fixture(name="dashboard_page")
 def fixture_dashboard_page(
-    page: Page, _logged_in_page: None, test_site: Site, credentials: CmkCredentials
-) -> Dashboard:
+    cmk_page: Page, test_site: Site, credentials: CmkCredentials
+) -> MainDashboard:
     """Entrypoint to test browser GUI. Navigates to 'Main Dashboard'."""
-    _obj = _navigate_to_dashboard(page, test_site.internal_url, credentials)
-    if isinstance(_obj, Dashboard):
-        return _obj  # handle type-hinting
-    raise TypeError("Expected Dashboard PoM corresponding to browser GUI!")
+    return _navigate_to_dashboard(cmk_page, test_site.internal_url, credentials, MainDashboard)
 
 
 @pytest.fixture(name="dashboard_page_mobile")
 def fixture_dashboard_page_mobile(
-    page_mobile: Page, _logged_in_page_mobile: None, test_site: Site, credentials: CmkCredentials
+    cmk_page: Page, test_site: Site, credentials: CmkCredentials
 ) -> DashboardMobile:
-    """Entrypoint to test mobile GUI. Navigates to 'Mobile Dashboard'"""
-    _obj = _navigate_to_dashboard(page_mobile, test_site.internal_url_mobile, credentials)
-    if isinstance(_obj, DashboardMobile):
-        return _obj  # handle type-hinting
-    raise TypeError("Expected Dashboard PoM corresponding to mobile GUI!")
+    """Entrypoint to test browser GUI in mobile view. Navigates to 'Main Dashboard'."""
+    return _navigate_to_dashboard(
+        cmk_page, test_site.internal_url_mobile, credentials, DashboardMobile
+    )
 
 
 def _navigate_to_dashboard(
-    page: Page, url: str, credentials: CmkCredentials
-) -> Dashboard | DashboardMobile:
+    page: Page,
+    url: str,
+    credentials: CmkCredentials,
+    dashboard_type: type[TDashboard],
+) -> TDashboard:
     """Navigate to dashboard page.
 
     Performs a login to Checkmk site, if necessary.
     """
-    dashboard_type: type[Dashboard | DashboardMobile] = (
-        DashboardMobile if "mobile.py" in url else Dashboard
-    )
     page.goto(url, wait_until="load")
-    try:
-        return dashboard_type(page, navigate_to_page=False)
-    except (PWTimeoutError, AssertionError) as _:
-        # logged out
-        expect(page, f"Expected login page, found: {page.url}!").to_have_url(re.compile("login.py"))
-        LoginPage(page, url, navigate_to_page=False).login(credentials)
-        return dashboard_type(page, navigate_to_page=False)
+
+    if "login.py" in page.url:
+        # Log in to the site if not already logged in.
+        LoginPage(page, site_url=url, navigate_to_page=False).login(credentials)
+
+    return dashboard_type(page, navigate_to_page=True)
 
 
 @pytest.fixture(name="new_browser_context_and_page")
 def fixture_new_browser_context_and_page(
-    _browser: Browser,
-    context_launch_kwargs: dict[str, Any],
-    request: pytest.FixtureRequest,
-) -> Iterator[tuple[BrowserContext, Page]]:
+    context: BrowserContext, get_new_page: PageGetter
+) -> tuple[BrowserContext, Page]:
     """Create a new browser context from the existing browser session and return a new page.
-
-    Usually, a browser context is setup once for every test-module.
-    This context is shared among all the pages created by the tests present within the module.
-    For example, cookies are shared among all the test cases.
 
     In the case a fresh browser context is required, use this fixture.
 
     NOTE: fresh context requires a login to the Checkmk site. Refer to `LoginPage` for details.
     """
-    with manage_new_browser_context(_browser, context_launch_kwargs) as context:
-        with manage_new_page_from_browser_context(context, request) as page:
-            yield context, page
+    return context, get_new_page(context)
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -203,7 +154,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 @pytest.fixture(name="created_host")
 def fixture_host(
-    dashboard_page: Dashboard, request: pytest.FixtureRequest, test_site: Site
+    dashboard_page: MainDashboard, request: pytest.FixtureRequest, test_site: Site
 ) -> Iterator[HostDetails]:
     """Create a host and delete it after the test.
 
@@ -291,12 +242,10 @@ def _create_hosts_using_data_from_agent_dump(test_site: Site) -> Iterator:
 
     logger.info("Schedule the 'Check_MK' service")
     for host_name in created_hosts_list:
-        # we have to schedule the checks multiple times since some checks require it
-        for _ in range(3):
-            test_site.schedule_check(host_name, "Check_MK", 0, 60)
+        test_site.reschedule_services(host_name, 3, strict=False)
 
     yield dump_path_to_host_name_dict
-    if os.getenv("CLEANUP", "1") == "1":
+    if is_cleanup_enabled():
         logger.info("Clean up: delete the host(s) and the rule")
         test_site.openapi.hosts.bulk_delete(created_hosts_list)
         test_site.openapi.rules.delete(rule_id)

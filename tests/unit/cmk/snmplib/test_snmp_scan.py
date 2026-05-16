@@ -10,24 +10,25 @@ from pathlib import Path
 
 import pytest
 
-from tests.unit.mocks_and_helpers import FixPluginLegacy
-
-from cmk.ccc.exceptions import MKSNMPError, OnError
-from cmk.ccc.hostaddress import HostAddress, HostName
-
-from cmk.utils.log import logger
-from cmk.utils.paths import snmp_scan_cache_dir
-from cmk.utils.sectionname import SectionName
-
-from cmk.snmplib import OID, SNMPBackend, SNMPBackendEnum, SNMPHostConfig, SNMPVersion
-
 import cmk.fetchers._snmpcache as snmp_cache
 import cmk.fetchers._snmpscan as snmp_scan
-
-from cmk.checkengine.plugins import AgentBasedPlugins
-
 from cmk.agent_based.v2 import SimpleSNMPSection, SNMPSection
+from cmk.ccc.exceptions import OnError
+from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.checkengine.plugins import AgentBasedPlugins
+from cmk.helper_interface import FetcherError
 from cmk.plugins.collection.agent_based import aironet_clients, brocade_info
+from cmk.snmplib import (
+    OID,
+    SNMPBackend,
+    SNMPBackendEnum,
+    SNMPHostConfig,
+    SNMPSectionName,
+    SNMPVersion,
+)
+from cmk.utils.log import logger
+from cmk.utils.paths import snmp_scan_cache_dir
+from tests.unit.mocks_and_helpers import FixPluginLegacy
 
 
 @pytest.mark.parametrize(
@@ -184,11 +185,9 @@ def backend() -> Iterator[SNMPBackend]:
 
 
 @pytest.fixture
-def cache_oids(backend, tmp_path):
+def cache_oids(backend: SNMPBackend) -> Iterator[None]:
     # Cache OIDs to avoid actual SNMP I/O.
-    snmp_cache.initialize_single_oid_cache(
-        backend.config.hostname, backend.config.ipaddress, cache_dir=tmp_path
-    )
+    snmp_cache.initialize_single_oid_cache(backend.config.hostname, backend.config.ipaddress)
     snmp_cache.single_oid_cache()[snmp_scan.OID_SYS_DESCR] = "sys description"
     snmp_cache.single_oid_cache()[snmp_scan.OID_SYS_OBJ] = "sys object"
     yield
@@ -200,7 +199,7 @@ def cache_oids(backend, tmp_path):
 def test_snmp_scan_prefetch_description_object__oid_missing(oid: OID, backend: SNMPBackend) -> None:
     snmp_cache.single_oid_cache()[oid] = None
 
-    with pytest.raises(MKSNMPError, match=r"Cannot fetch [\w ]+ OID %s" % oid):
+    with pytest.raises(FetcherError, match=r"Cannot fetch [\w ]+ OID %s" % oid):
         snmp_scan._prefetch_description_object(backend=backend)
 
 
@@ -231,7 +230,9 @@ def test_snmp_scan_find_plugins__success(
     backend: SNMPBackend,
     agent_based_plugins: AgentBasedPlugins,
 ) -> None:
-    sections = [(s.name, s.detect_spec) for s in agent_based_plugins.snmp_sections.values()]
+    sections = [
+        (SNMPSectionName(s.name), s.detect_spec) for s in agent_based_plugins.snmp_sections.values()
+    ]
     found = snmp_scan._find_sections(
         sections,
         on_error=OnError.RAISE,
@@ -253,15 +254,17 @@ def test_gather_available_raw_section_names_defaults(
     assert snmp_cache.single_oid_cache()[snmp_scan.OID_SYS_OBJ]
 
     assert snmp_scan.gather_available_raw_section_names(
-        [(s.name, s.detect_spec) for s in agent_based_plugins.snmp_sections.values()],
+        [
+            (SNMPSectionName(s.name), s.detect_spec)
+            for s in agent_based_plugins.snmp_sections.values()
+        ],
         scan_config=snmp_scan.SNMPScanConfig(
             on_error=OnError.RAISE,
             missing_sys_description=False,
-            oid_cache_dir=tmp_path,
         ),
         backend=backend,
     ) == {
-        SectionName("hr_mem"),
-        SectionName("snmp_info"),
-        SectionName("snmp_uptime"),
+        SNMPSectionName("hr_mem"),
+        SNMPSectionName("snmp_info"),
+        SNMPSectionName("snmp_uptime"),
     }

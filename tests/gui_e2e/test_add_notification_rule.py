@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.monitor.service_search import ServiceSearchPage
 from tests.gui_e2e.testlib.playwright.pom.setup.add_rule_filesystems import AddRuleFilesystems
 from tests.gui_e2e.testlib.playwright.pom.setup.notification_configuration import (
@@ -30,10 +30,9 @@ from tests.testlib.site import Site
 logger = logging.getLogger(__name__)
 
 
-@pytest.mark.xfail(reason="CMK-22883; Investigation ongoing ...")
 @pytest.mark.usefixtures("notification_user")
 def test_add_new_notification_rule(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     linux_hosts: list[str],
     notification_user: tuple[str, str],
     email_manager: EmailManager,
@@ -59,7 +58,7 @@ def test_add_new_notification_rule(
     logger.info(
         "Skip stage '%s' and go to '%s'", STAGE_TRIGGERING_EVENTS, STAGE_FILTER_HOSTS_SERVICES
     )
-    add_rule_page.goto_next_qs_stage()
+    add_rule_page.validate_button_text_and_goto_next_qs_stage(current_stage=1)
 
     logger.info("Set Hosts on Host filters to '%s'", test_site.id)
     add_rule_page.expand_host_filters()
@@ -68,7 +67,7 @@ def test_add_new_notification_rule(
     add_rule_page.select_host_from_dropdown_list(host_name).click()
 
     logger.info("Go to stage '%s'", STAGE_NOTIFICATION_METHOD)
-    add_rule_page.goto_next_qs_stage()
+    add_rule_page.validate_button_text_and_goto_next_qs_stage(current_stage=2)
 
     logger.info("Create new html email parameter")
     add_rule_page.create_html_parameter_using_slide_in()
@@ -92,7 +91,7 @@ def test_add_new_notification_rule(
     add_rule_page.save_editor_slide_in()
 
     logger.info("Go to stage '%s'", STAGE_RECIPIENT)
-    add_rule_page.goto_next_qs_stage()
+    add_rule_page.validate_button_text_and_goto_next_qs_stage(current_stage=3)
 
     logger.info("Change recipient to all users with email address")
     add_rule_page.set_recipient(index=0, recipient_option_name="All users with an email address")
@@ -100,14 +99,14 @@ def test_add_new_notification_rule(
     logger.info(
         "Skip stage '%s' and go to '%s'", STAGE_SENDING_CONDITIONS, STAGE_GENERAL_PROPERTIES
     )
-    add_rule_page.goto_next_qs_stage()
-    add_rule_page.goto_next_qs_stage()
+    add_rule_page.validate_button_text_and_goto_next_qs_stage(current_stage=4)
+    add_rule_page.validate_button_text_and_goto_next_qs_stage(current_stage=5)
 
     logger.info("Set rule description")
     add_rule_page.description_text_field.fill(expected_notification_subject)
 
     logger.info("Go to review settings and save")
-    add_rule_page.goto_next_qs_stage()
+    add_rule_page.validate_button_text_and_goto_next_qs_stage(current_stage=6, is_last_stage=True)
     add_rule_page.save_and_test()
 
     logger.info("Disable the default notification rule")
@@ -115,15 +114,18 @@ def test_add_new_notification_rule(
     edit_rule_page.check_disable_rule(True)
     edit_rule_page.save_and_test()
 
-    add_rule_filesystem_page = AddRuleFilesystems(dashboard_page.page)
-    add_rule_filesystem_page.check_levels_for_user_free_space(True)
-    add_rule_filesystem_page.description_text_field.fill(filesystem_rule_description)
-    add_rule_filesystem_page.levels_for_used_free_space_warning_text_field.fill(used_space)
-    add_rule_filesystem_page.save_button.click()
-    add_rule_filesystem_page.activate_changes(test_site)
-
-    service_search_page = None
     try:
+        was_filesystem_ruleset_created = False
+
+        add_rule_filesystem_page = AddRuleFilesystems(dashboard_page.page)
+        add_rule_filesystem_page.check_levels_for_user_free_space(True)
+        add_rule_filesystem_page.description_text_field.fill(filesystem_rule_description)
+        add_rule_filesystem_page.levels_for_used_free_space_warning_text_field.fill(used_space)
+        add_rule_filesystem_page.save_button.click()
+        add_rule_filesystem_page.activate_changes(test_site)
+
+        was_filesystem_ruleset_created = True
+
         checkmk_agent = "Check_MK"
         service_search_page = ServiceSearchPage(dashboard_page.page)
         logger.info("Reschedule the '%s' service to trigger the notification", checkmk_agent)
@@ -144,11 +146,11 @@ def test_add_new_notification_rule(
             notification_configuration_page.page, rule_position=0
         )
         edit_notification_rule_page.check_disable_rule(False)
-        edit_notification_rule_page.apply_and_create_another_rule_button.click()
+        edit_notification_rule_page.apply_and_create_another_rule()
 
-        if service_search_page is not None:
+        if was_filesystem_ruleset_created:
             filesystems_rules_page = Ruleset(
-                service_search_page.page,
+                dashboard_page.page,
                 "Filesystems (used space and growth)",
                 "Service monitoring rules",
             )

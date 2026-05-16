@@ -6,11 +6,8 @@
 
 import cmk.ccc.crash_reporting
 
-CrashReportStore = cmk.ccc.crash_reporting.CrashReportStore
 
-
-@cmk.ccc.crash_reporting.crash_report_registry.register
-class ECCrashReport(cmk.ccc.crash_reporting.ABCCrashReport[cmk.ccc.crash_reporting.VersionInfo]):
+class ECCrashReport(cmk.ccc.crash_reporting.ABCCrashReport[None]):
     @classmethod
     def type(cls) -> str:
         return "ec"

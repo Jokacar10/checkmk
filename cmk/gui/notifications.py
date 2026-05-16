@@ -7,12 +7,11 @@ from typing import NamedTuple, override
 
 from livestatus import LivestatusResponse, MKLivestatusNotFoundError
 
-import cmk.utils.render
-
 import cmk.gui.pages
+import cmk.utils.render
 from cmk.gui import sites
 from cmk.gui.breadcrumb import Breadcrumb, make_simple_page_breadcrumb
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.ctx_stack import g
 from cmk.gui.exceptions import MKAuthException
 from cmk.gui.htmllib.header import make_header
@@ -20,7 +19,7 @@ from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.page_menu import (
     make_simple_link,
     PageMenu,
@@ -28,7 +27,7 @@ from cmk.gui.page_menu import (
     PageMenuEntry,
     PageMenuTopic,
 )
-from cmk.gui.pages import Page, PageRegistry
+from cmk.gui.pages import Page, PageEndpoint, PageRegistry
 from cmk.gui.permissions import (
     declare_dynamic_permissions,
     PermissionSection,
@@ -46,7 +45,7 @@ from cmk.gui.watolib.users import get_enabled_remote_sites_for_logged_in_user
 def register(
     page_registry: PageRegistry, permission_section_registry: PermissionSectionRegistry
 ) -> None:
-    page_registry.register_page("clear_failed_notifications")(ClearFailedNotificationPage)
+    page_registry.register(PageEndpoint("clear_failed_notifications", ClearFailedNotificationPage))
     permission_section_registry.register(PERMISSION_SECTION_NOTIFICATION_PLUGINS)
 
 
@@ -195,15 +194,15 @@ class ClearFailedNotificationPage(Page):
             raise MKAuthException(_("You are not allowed to view the failed notifications."))
 
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         acktime = request.get_float_input_mandatory("acktime", time.time())
         if request.var("_confirm"):
             _acknowledge_failed_notifications(acktime, time.time())
 
-            if get_enabled_remote_sites_for_logged_in_user(user):
+            if get_enabled_remote_sites_for_logged_in_user(user, config.sites):
                 title = _("Replicate user profile")
                 breadcrumb = make_simple_page_breadcrumb(
-                    mega_menu_registry.menu_monitoring(), title
+                    main_menu_registry.menu_monitoring(), title
                 )
                 make_header(html, title, breadcrumb)
 
@@ -220,7 +219,7 @@ class ClearFailedNotificationPage(Page):
     # TODO: We should really recode this to use the view and a normal view command / action
     def _show_page(self, acktime: float, failed_notifications: LivestatusResponse) -> None:
         title = _("Confirm failed notifications")
-        breadcrumb = make_simple_page_breadcrumb(mega_menu_registry.menu_monitoring(), title)
+        breadcrumb = make_simple_page_breadcrumb(main_menu_registry.menu_monitoring(), title)
 
         page_menu = self._page_menu(acktime, failed_notifications, breadcrumb)
 

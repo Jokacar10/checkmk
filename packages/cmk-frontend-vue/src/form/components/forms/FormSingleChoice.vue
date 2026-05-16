@@ -5,12 +5,16 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import type { SingleChoice } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { useValidation, type ValidationMessages } from '@/form/components/utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
-import { useId } from '@/form/utils'
+
+import { untranslated } from '@/lib/i18n'
+
 import CmkDropdown from '@/components/CmkDropdown.vue'
 import CmkSpace from '@/components/CmkSpace.vue'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, useValidation } from '@/form/components/utils/validation'
 import FormLabel from '@/form/private/FormLabel.vue'
+import { useId } from '@/form/utils'
 
 const props = defineProps<{
   spec: SingleChoice
@@ -36,14 +40,17 @@ const componentId = useId()
       v-model:selected-option="value"
       :options="{
         type: props.spec.elements.length > 5 ? 'filtered' : 'fixed',
-        suggestions: props.spec.elements
+        suggestions: props.spec.elements.map((element) => ({
+          name: element.name,
+          title: untranslated(element.title)
+        }))
       }"
-      :input-hint="spec.input_hint || ''"
+      :input-hint="untranslated(spec.input_hint || '')"
       :disabled="spec.frozen"
       :component-id="componentId"
-      :no-elements-text="props.spec.no_elements_text || ''"
-      :required-text="props.spec.i18n_base.required"
-      :label="props.spec.label || props.spec.title"
+      :no-elements-text="untranslated(props.spec.no_elements_text || '')"
+      :label="untranslated(props.spec.label || props.spec.title)"
+      required
     />
   </div>
   <FormValidation :validation="validation"></FormValidation>

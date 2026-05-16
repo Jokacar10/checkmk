@@ -15,11 +15,12 @@
 #include "livestatus/ListColumn.h"
 #include "livestatus/Row.h"
 
+class ICore;
 class ListFilter;
 class Logger;
+class User;
 enum class RelationalOperator;
 enum class ServiceState;
-class User;
 
 namespace column::service_group_members {
 
@@ -81,9 +82,9 @@ std::unique_ptr<Filter> ServiceGroupMembersColumn<T, U>::createFilter(
     return std::make_unique<ListFilter>(
         kind, this->name(),
         // `timezone_offset` is unused
-        [this](Row row, const User &user,
-               std::chrono::seconds timezone_offset) {
-            return this->getValue(row, user, timezone_offset);
+        [this](Row row, const User &user, std::chrono::seconds timezone_offset,
+               const ICore &core) {
+            return this->getValue(row, user, timezone_offset, core);
         },
         relOp,
         column::service_group_members::detail::checkValue(this->logger(), relOp,

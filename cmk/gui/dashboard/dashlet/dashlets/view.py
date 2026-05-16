@@ -3,16 +3,18 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
+import contextlib
 import copy
-from collections.abc import Callable, Sequence
+import json
+from collections.abc import Callable, Iterator, Sequence
 from typing import cast, Literal, TypeVar
 
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.user import UserId
-
 from cmk.gui import visuals
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.dashboard.dashlet.base import IFrameDashlet
+from cmk.gui.dashboard.store import get_permitted_dashboards
 from cmk.gui.dashboard.type_defs import DashletConfig, DashletId, DashletSize
 from cmk.gui.data_source import data_source_registry
 from cmk.gui.display_options import display_options
@@ -20,9 +22,13 @@ from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
 from cmk.gui.i18n import _
+from cmk.gui.logged_in import user
+from cmk.gui.pages import Page
 from cmk.gui.painter_options import PainterOptions
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import (
     ColumnSpec,
+    DashboardEmbeddedViewSpec,
     HTTPVariables,
     InventoryJoinMacrosSpec,
     SingleInfos,
@@ -30,6 +36,7 @@ from cmk.gui.type_defs import (
     ViewSpec,
     VisualContext,
 )
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri, makeuri_contextless, requested_file_name, urlencode
 from cmk.gui.valuespec import DictionaryEntry, DropdownChoice
 from cmk.gui.view import View
@@ -49,6 +56,10 @@ VT = TypeVar("VT", bound=ABCViewDashletConfig)
 
 
 class LinkedViewDashletConfig(ABCViewDashletConfig): ...
+
+
+class EmbeddedViewDashletConfig(ABCViewDashletConfig):
+    datasource: str
 
 
 class _ViewDashletConfigMandatory(ABCViewDashletConfig):
@@ -172,7 +183,11 @@ class ABCViewDashlet(IFrameDashlet[VT]):
         return True
 
     def _show_view_as_dashlet(
-        self, view_spec: ViewSpec | ViewDashletConfig, *, debug: bool
+        self,
+        view_spec: ViewSpec | ViewDashletConfig,
+        user_permissions: UserPermissions,
+        *,
+        debug: bool,
     ) -> None:
         html.add_body_css_class("view")
         html.open_div(id_="dashlet_content_wrapper")
@@ -220,8 +235,19 @@ class ABCViewDashlet(IFrameDashlet[VT]):
         # We are only interested in the ViewSpec specific attributes here. Once we have the full
         # picture (dashlets typed (already done) and reports typed), we can better decide how to do
         # it
-        view = View(self._dashlet_spec["name"], view_spec, context)  # type: ignore[arg-type]
-        view.row_limit = get_limit()
+        view = View(
+            self._dashlet_spec["name"],
+            view_spec,  # type: ignore[arg-type]
+            context,
+            user_permissions,
+        )
+        view.row_limit = get_limit(
+            request_limit_mode=request.get_ascii_input_mandatory("limit", "soft"),
+            soft_query_limit=active_config.soft_query_limit,
+            may_ignore_soft_limit=user.may("general.ignore_soft_limit"),
+            hard_query_limit=active_config.hard_query_limit,
+            may_ignore_hard_limit=user.may("general.ignore_hard_limit"),
+        )
         view.only_sites = get_only_sites_from_context(context)
         view.user_sorters = get_user_sorters(view.spec["sorters"], view.row_cells)
 
@@ -231,6 +257,7 @@ class ABCViewDashlet(IFrameDashlet[VT]):
                 show_buttons=False,
                 page_menu_dropdowns_callback=lambda x, y, z: None,
             ),
+            user_permissions,
             debug=debug,
         )
 
@@ -239,6 +266,25 @@ class ABCViewDashlet(IFrameDashlet[VT]):
     def _get_infos_from_view_spec(self, view_spec: ViewSpec | ViewDashletConfig) -> SingleInfos:
         ds_name = view_spec["datasource"]
         return data_source_registry[ds_name]().infos
+
+
+class EmbeddedViewDashlet(ABCViewDashlet[EmbeddedViewDashletConfig]):
+    """Dashlet that displays a Checkmk view"""
+
+    @classmethod
+    def type_name(cls) -> str:
+        return "embedded_view"
+
+    @classmethod
+    def title(cls) -> str:
+        return _("View")
+
+    @classmethod
+    def description(cls) -> str:
+        return _("Copies a view to a dashboard element")
+
+    def update(self) -> None:
+        raise NotImplementedError()
 
 
 class ViewDashlet(ABCViewDashlet[ViewDashletConfig]):
@@ -311,8 +357,12 @@ class ViewDashlet(ABCViewDashlet[ViewDashletConfig]):
             "is_show_more": False,
         }
 
-    def update(self):
-        self._show_view_as_dashlet(self._dashlet_spec, debug=active_config.debug)
+    def update(self) -> None:
+        self._show_view_as_dashlet(
+            self._dashlet_spec,
+            UserPermissions.from_config(active_config, permission_registry),
+            debug=active_config.debug,
+        )
         html.javascript('cmk.utils.add_simplebar_scrollbar("dashlet_content_wrapper");')
 
     def infos(self) -> SingleInfos:
@@ -363,7 +413,7 @@ def view_spec_from_view_dashlet(dashlet: ViewDashletConfig) -> ViewSpec:
             "public": False,
             "link_from": {},
             "packaged": False,
-            "megamenu_search_terms": [],
+            "main_menu_search_terms": [],
         }
     )
     if inventory_join_macros := dashlet.get("inventory_join_macros"):
@@ -435,8 +485,202 @@ class LinkedViewDashlet(ABCViewDashlet[LinkedViewDashletConfig]):
         return makeuri_contextless(request, request_vars, filename="view.py")
 
     def update(self) -> None:
-        self._show_view_as_dashlet(self._get_view_spec(), debug=active_config.debug)
+        self._show_view_as_dashlet(
+            self._get_view_spec(),
+            UserPermissions.from_config(active_config, permission_registry),
+            debug=active_config.debug,
+        )
         html.javascript('cmk.utils.add_simplebar_scrollbar("dashlet_content_wrapper");')
 
     def infos(self) -> SingleInfos:
         return self._get_infos_from_view_spec(self._get_view_spec())
+
+
+class ViewWidgetIFramePage(Page):
+    def page(self, config: Config) -> None:
+        """Render a single view for use in an iframe.
+
+        This needs to support two modes:
+            1. Render an existing linked view, identified by its name
+            2. Render a view that's embedded in the dashboard config, identified by its internal ID
+        """
+        dashboard_name = request.get_ascii_input_mandatory("dashboard")
+        widget_id = request.get_ascii_input_mandatory("widget_id")
+        is_reload = request.var("display_options", request.var("_display_options")) is not None
+        is_debug = request.var("debug") == "1"
+        view_spec = self._get_view_spec(dashboard_name)
+        context = self._get_context()
+        widget_unique_name = f"{dashboard_name}_{widget_id}"
+        self._setup_display_and_painter_options(widget_unique_name, is_reload)
+
+        # filled_in needs to be set in order for rows to be fetched, so we set it to a default here
+        if request.var("filled_in") is None:
+            request.set_var("filled_in", "filter")
+
+        user_permissions = UserPermissions.from_config(config, permission_registry)
+        view = View(
+            widget_unique_name,
+            view_spec,
+            context,
+            user_permissions=user_permissions,
+        )
+        view.row_limit = get_limit(
+            request_limit_mode=request.get_ascii_input_mandatory("limit", "soft"),
+            soft_query_limit=config.soft_query_limit,
+            may_ignore_soft_limit=user.may("general.ignore_soft_limit"),
+            hard_query_limit=config.hard_query_limit,
+            may_ignore_hard_limit=user.may("general.ignore_hard_limit"),
+        )
+        view.only_sites = get_only_sites_from_context(context)
+        view.user_sorters = get_user_sorters(view.spec["sorters"], view.row_cells)
+
+        with self._wrapper_context(is_reload):
+            process_view(
+                GUIViewRenderer(
+                    view,
+                    show_buttons=False,
+                    page_menu_dropdowns_callback=lambda x, y, z: None,
+                ),
+                user_permissions=user_permissions,
+                debug=is_debug,
+            )
+
+    def _wrapper_context(self, is_reload: bool) -> contextlib.AbstractContextManager[None]:
+        if not is_reload:
+            return self._content_wrapper()
+
+        return contextlib.nullcontext()
+
+    @staticmethod
+    @contextlib.contextmanager
+    def _content_wrapper() -> Iterator[None]:
+        html.add_body_css_class("view")
+        html.add_body_css_class("dashlet")
+        html.open_div(id_="dashlet_content_wrapper")
+        try:
+            yield None
+        finally:
+            html.close_div()
+            html.javascript('cmk.utils.add_simplebar_scrollbar("dashlet_content_wrapper");')
+
+    def _get_view_spec(self, dashboard_name: str) -> ViewSpec:
+        """Return the requested view spec, either embedded in the dashboard or a normal view."""
+        if embedded_id := request.get_str_input("embedded_id"):
+            view_spec = self._get_embedded_view_spec(dashboard_name, embedded_id)
+        else:
+            view_spec = self._get_linked_view_spec()
+
+        # Override some view widget specific options
+        view_spec = view_spec.copy()
+        view_spec["user_sortable"] = False
+
+        return view_spec
+
+    @staticmethod
+    def _get_linked_view_spec() -> ViewSpec:
+        view_name = request.get_ascii_input_mandatory("view_name")
+        view_spec = get_permitted_views().get(view_name)
+        if not view_spec:
+            raise MKUserError("name", _("No view defined with the name '%s'.") % view_name)
+
+        return view_spec
+
+    def _get_embedded_view_spec(self, dashboard_name: str, embedded_id: str) -> ViewSpec:
+        dashboards = get_permitted_dashboards()
+        if dashboard_name not in dashboards:
+            raise MKUserError(
+                "dashboard",
+                _("The dashboard '%s' does not exist or you do not have permission to view it.")
+                % dashboard_name,
+            )
+
+        dashboard = dashboards[dashboard_name]
+        embedded_views = dashboard.get("embedded_views", {})
+        if embedded_id not in embedded_views:
+            raise MKUserError(
+                "embedded_id",
+                _("The dashboard '%s' does not contain an embedded view with the ID '%s'.")
+                % (dashboard_name, embedded_id),
+            )
+
+        return self._embedded_view_to_normal_view_spec(
+            embedded_views[embedded_id], dashboard["owner"], name=f"{dashboard_name}_{embedded_id}"
+        )
+
+    @staticmethod
+    def _embedded_view_to_normal_view_spec(
+        spec: DashboardEmbeddedViewSpec, dashboard_owner: UserId, name: str
+    ) -> ViewSpec:
+        view_spec = ViewSpec(
+            owner=dashboard_owner,
+            name=name,
+            single_infos=spec["single_infos"],
+            datasource=spec["datasource"],
+            layout=spec["layout"],
+            group_painters=spec["group_painters"],
+            painters=spec["painters"],
+            sorters=spec["sorters"],
+            browser_reload=spec["browser_reload"],
+            num_columns=spec["num_columns"],
+            column_headers=spec["column_headers"],
+            context={},
+            add_context_to_title=False,
+            title="",
+            description="",
+            topic="",
+            sort_index=0,
+            is_show_more=False,
+            icon=None,
+            hidden=False,
+            hidebutton=False,
+            public=False,
+            packaged=False,
+            link_from={},
+            main_menu_search_terms=[],
+        )
+        if add_headers := spec.get("add_headers"):
+            view_spec["add_headers"] = add_headers
+        if mobile := spec.get("mobile"):
+            view_spec["mobile"] = mobile
+        if mustsearch := spec.get("mustsearch"):
+            view_spec["mustsearch"] = mustsearch
+        if force_checkboxes := spec.get("force_checkboxes"):
+            view_spec["force_checkboxes"] = force_checkboxes
+        if play_sounds := spec.get("play_sounds"):
+            view_spec["play_sounds"] = play_sounds
+        if inventory_join_macros := spec.get("inventory_join_macros"):
+            view_spec["inventory_join_macros"] = inventory_join_macros
+        return view_spec
+
+    @staticmethod
+    def _setup_display_and_painter_options(dashlet_name: str, is_reload: bool) -> None:
+        if not is_reload:
+            view_display_options = "HRSIXLW"
+
+            request.set_var("display_options", view_display_options)
+            request.set_var("_display_options", view_display_options)
+
+        # Need to be loaded before processing the painter_options below.
+        # TODO: Make this dependency explicit
+        display_options.load_from_html(request, html)
+
+        painter_options = PainterOptions.get_instance()
+        painter_options.load(dashlet_name)
+
+    @staticmethod
+    def _get_context() -> VisualContext:
+        context = json.loads(request.get_ascii_input_mandatory("context"))
+        return {
+            filter_name: filter_values
+            for filter_name, filter_values in context.items()
+            # only include filters which have at least one set value
+            if {
+                var: value
+                for var, value in filter_values.items()
+                # These are the filters request variables. Keep set values
+                # For the TriStateFilters unset == ignore == "-1"
+                # all other cases unset is an empty string
+                if (var.startswith("is_") and value != "-1")  # TriState filters except ignore
+                or (not var.startswith("is_") and value)  # Rest of filters with some value
+            }
+        }

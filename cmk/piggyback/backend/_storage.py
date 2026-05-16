@@ -11,7 +11,7 @@ import os
 import shutil
 import tempfile
 import time
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Self
@@ -149,6 +149,25 @@ def get_messages_for(
         piggyback_data.append(PiggybackMessage(meta_data, raw_data))
 
     return piggyback_data
+
+
+def get_all_current_piggyback_sources(omd_root: Path) -> Collection[HostName]:
+    return {
+        m.source
+        for meta_infos in get_piggybacked_host_with_sources(omd_root).values()
+        for m in meta_infos
+    }
+
+
+def get_current_piggyback_sources_of_host(
+    omd_root: Path, piggybacked_host_name: HostName
+) -> Collection[HostName]:
+    return {
+        m.source
+        for m in get_piggybacked_host_with_sources(omd_root, piggybacked_host_name).get(
+            piggybacked_host_name, ()
+        )
+    }
 
 
 def get_piggybacked_host_with_sources(
@@ -324,13 +343,49 @@ def _get_piggybacked_file_path(
 #   '----------------------------------------------------------------------'
 
 
-def cleanup_piggyback_files(cut_off_timestamp: float, omd_root: Path) -> None:
+def _compute_largest_configured_threshold(rule_values: Iterable[Mapping[str, object]]) -> int:
+    """Compute the time after which any piggybacked data can definitively be removed
+
+    We don't need to know the hosts currently sending data for this, or perform any
+    ruleset matching. Let's just take the largest value that is configured anywhere.
+    """
+    return max(
+        (v for rule_value in rule_values for v in _extract_relevant_values(rule_value)),
+        default=0,
+    )
+
+
+def _extract_relevant_values(rule_value: Mapping[str, object]) -> Sequence[int]:
+    # We only need to look at max_cache_age s.
+    # They are validated to be larger than validity periods.
+    return [
+        i
+        for i in [
+            rule_value.get("global_max_cache_age"),
+            *(
+                v.get("max_cache_age")  #
+                for v in rule_value.get("per_piggybacked_host", ())  # type: ignore[attr-defined]  # just crash if it's not iterable.
+            ),
+        ]
+        if isinstance(i, int)
+    ]
+
+
+def cleanup_piggyback_files(
+    max_cache_file_age: int,
+    all_configured_rule_values: Iterable[Mapping[str, object]],
+    omd_root: Path,
+) -> None:
     """This is a housekeeping job to clean up different old files from the
     piggyback directories.
 
     # Source status files and/or piggybacked data files are cleaned up/deleted
     # if and only if they have exceeded the maximum cache age configured in the
     # global settings or in the rule 'Piggybacked Host Files'."""
+
+    cut_off_timestamp = time.time() - max(
+        max_cache_file_age, _compute_largest_configured_threshold(all_configured_rule_values)
+    )
     logger.debug(
         "Cleanup piggyback data from before %s (%s).",
         _render_datetime(cut_off_timestamp),

@@ -5,6 +5,7 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import { type VariantProps, cva } from 'class-variance-authority'
+
 const cmkSpaceVariants = cva('cmk-space', {
   variants: {
     direction: {
@@ -45,6 +46,7 @@ defineProps<CmkSpaceProps>()
   &.cmk-space--size-medium {
     width: var(--spacing);
   }
+
   &.cmk-space--size-small {
     width: var(--spacing-half);
   }

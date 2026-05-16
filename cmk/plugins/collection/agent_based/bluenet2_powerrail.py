@@ -2,6 +2,8 @@
 # Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
+
+import dataclasses
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -18,7 +20,7 @@ from cmk.agent_based.v2 import (
     State,
     StringTable,
 )
-from cmk.plugins.lib.elphase import check_elphase
+from cmk.plugins.lib.elphase import check_elphase, ElPhase, ReadingWithState
 from cmk.plugins.lib.humidity import check_humidity
 from cmk.plugins.lib.temperature import check_temperature, TempParamType
 
@@ -326,6 +328,31 @@ snmp_section_bluenet2_powerrail = SNMPSection(
 )
 
 
+def _elphase_from_dict_with_differential_currents_in_ampere(
+    raw_phase: Mapping[str, Any],
+) -> ElPhase:
+    elphase_with_diff_currents_in_ma = ElPhase.from_dict(raw_phase)
+    return dataclasses.replace(
+        elphase_with_diff_currents_in_ma,
+        differential_current_ac=(
+            ReadingWithState(
+                value=elphase_with_diff_currents_in_ma.differential_current_ac.value * 1e-3,
+                state=elphase_with_diff_currents_in_ma.differential_current_ac.state,
+            )
+            if elphase_with_diff_currents_in_ma.differential_current_ac
+            else None
+        ),
+        differential_current_dc=(
+            ReadingWithState(
+                value=elphase_with_diff_currents_in_ma.differential_current_dc.value * 1e-3,
+                state=elphase_with_diff_currents_in_ma.differential_current_dc.state,
+            )
+            if elphase_with_diff_currents_in_ma.differential_current_dc
+            else None
+        ),
+    )
+
+
 def discover_bluenet2_powerrail_phases(section: dict) -> DiscoveryResult:
     for key in section["phases"]:
         yield Service(item=key)
@@ -334,7 +361,11 @@ def discover_bluenet2_powerrail_phases(section: dict) -> DiscoveryResult:
 def check_bluenet2_powerrail_phases(
     item: str, params: Mapping[str, Any], section: dict
 ) -> CheckResult:
-    yield from check_elphase(item, params, section["phases"])
+    if phase := section["phases"].get(item):
+        yield from check_elphase(
+            params,
+            _elphase_from_dict_with_differential_currents_in_ampere(phase),
+        )
 
 
 check_plugin_bluenet2_powerrail = CheckPlugin(
@@ -366,7 +397,11 @@ def discover_bluenet2_powerrail_rcm_phases(section: dict) -> DiscoveryResult:
 def check_bluenet2_powerrail_rcm_phases(
     item: str, params: Mapping[str, Any], section: dict
 ) -> CheckResult:
-    yield from check_elphase(item, params, section["rcm_phases"])
+    if rcm_phase := section["rcm_phases"].get(item):
+        yield from check_elphase(
+            params,
+            _elphase_from_dict_with_differential_currents_in_ampere(rcm_phase),
+        )
 
 
 check_plugin_bluenet2_powerrail_rcm = CheckPlugin(
@@ -404,7 +439,11 @@ def discover_bluenet2_powerrail_sockets(section: dict) -> DiscoveryResult:
 def check_bluenet2_powerrail_sockets(
     item: str, params: Mapping[str, Any], section: dict
 ) -> CheckResult:
-    yield from check_elphase(item, params, section["sockets"])
+    if socket_phase := section["sockets"].get(item):
+        yield from check_elphase(
+            params,
+            _elphase_from_dict_with_differential_currents_in_ampere(socket_phase),
+        )
 
 
 check_plugin_bluenet2_powerrail_sockets = CheckPlugin(
@@ -438,7 +477,11 @@ def discover_bluenet2_powerrail_fuses(section: dict) -> DiscoveryResult:
 def check_bluenet2_powerrail_fuses(
     item: str, params: Mapping[str, Any], section: dict
 ) -> CheckResult:
-    yield from check_elphase(item, params, section["fuses"])
+    if fuse_phase := section["fuses"].get(item):
+        yield from check_elphase(
+            params,
+            _elphase_from_dict_with_differential_currents_in_ampere(fuse_phase),
+        )
 
 
 check_plugin_bluenet2_powerrail_fuses = CheckPlugin(
@@ -472,7 +515,11 @@ def discover_bluenet2_powerrail_inlet(section: dict) -> DiscoveryResult:
 def check_bluenet2_powerrail_inlet(
     item: str, params: Mapping[str, Any], section: dict
 ) -> CheckResult:
-    yield from check_elphase(item, params, section["inlet"])
+    if inlet_phase := section["inlet"].get(item):
+        yield from check_elphase(
+            params,
+            _elphase_from_dict_with_differential_currents_in_ampere(inlet_phase),
+        )
 
 
 check_plugin_bluenet2_powerrail_inlet = CheckPlugin(

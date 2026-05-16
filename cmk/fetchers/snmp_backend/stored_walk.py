@@ -9,10 +9,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
-from cmk.ccc.exceptions import MKException, MKGeneralException, MKSNMPError
-
-from cmk.utils.sectionname import SectionName
-
+from cmk.helper_interface import FetcherError
 from cmk.snmplib import OID, SNMPBackend, SNMPContext, SNMPHostConfig, SNMPRawValue, SNMPRowInfo
 
 from ._utils import strip_snmp_value
@@ -25,7 +22,7 @@ class StoredWalkSNMPBackend(SNMPBackend):
         super().__init__(snmp_config, logger)
         self.path: Final = path
         if not self.path.exists():
-            raise MKSNMPError(f"No snmpwalk file {self.path}")
+            raise FetcherError(f"No snmpwalk file {self.path}")
 
     def get(self, /, oid: OID, *, context: SNMPContext) -> SNMPRawValue | None:
         walk = self.walk(oid, context=context)
@@ -42,9 +39,9 @@ class StoredWalkSNMPBackend(SNMPBackend):
         /,
         oid: OID,
         *,
-        context: SNMPContext,
-        section_name: SectionName | None = None,
-        table_base_oid: OID | None = None,
+        context: object,
+        section_name: object = None,
+        table_base_oid: object = None,
     ) -> SNMPRowInfo:
         if oid.startswith("."):
             oid = oid[1:]
@@ -104,7 +101,7 @@ class StoredWalkSNMPBackend(SNMPBackend):
         try:
             return self.read_walk_from_path(self.path, self._logger)
         except OSError:
-            raise MKSNMPError(f"No snmpwalk file {self.path}")
+            raise FetcherError(f"No snmpwalk file {self.path}")
 
     @staticmethod
     def _compare_oids(a: OID, b: OID) -> int:
@@ -118,12 +115,7 @@ class StoredWalkSNMPBackend(SNMPBackend):
 
     @staticmethod
     def _to_bin_string(oid: OID) -> tuple[int, ...]:
-        try:
-            return tuple(map(int, oid.strip(".").split(".")))
-        except MKException:
-            raise
-        except Exception:
-            raise MKGeneralException(f"Invalid OID {oid}")
+        return tuple(map(int, oid.strip(".").split(".")))
 
     @staticmethod
     def _collect_until(

@@ -6,6 +6,8 @@ use crate::args::Args;
 use crate::config::system::{Logging, SystemConfig};
 use crate::config::OracleConfig;
 use crate::constants;
+use crate::platform::get_local_instances;
+use crate::types::{SectionFilter, UseHostClient};
 use anyhow::Result;
 use clap::Parser;
 use flexi_logger::{self, Cleanup, Criterion, DeferredNow, FileSpec, LogSpecification, Record};
@@ -28,6 +30,9 @@ pub struct Env {
 
     /// detect instances and stop
     detect_only: bool,
+
+    /// detect instances and stop
+    execution: SectionFilter,
 }
 
 impl Env {
@@ -44,6 +49,7 @@ impl Env {
             state_dir,
             disable_caching: args.no_spool,
             detect_only: args.detect_only,
+            execution: args.filter.clone().unwrap_or_default(),
         }
     }
 
@@ -68,6 +74,10 @@ impl Env {
 
     pub fn detect_only(&self) -> bool {
         self.detect_only
+    }
+
+    pub fn execution(&self) -> SectionFilter {
+        self.execution.clone()
     }
 
     /// guaranteed to return cache dir or None
@@ -262,6 +272,124 @@ fn make_log_file_spec(log_dir: &Path) -> FileSpec {
         .basename("mk-sql")
 }
 
+pub const RUNTIME_SUB_DIR: &str = "runtime";
+
+pub fn detect_host_runtime() -> Option<PathBuf> {
+    match get_local_instances() {
+        Ok(instances) => {
+            if instances.is_empty() {
+                log::warn!("No local Oracle instances found");
+                return None;
+            }
+            for instance in &instances {
+                log::info!(
+                    "Found local Oracle instance: name={}, home={:?}, base={:?}",
+                    instance.name,
+                    instance.home,
+                    instance.base
+                );
+                let candidate = instance.home.join("bin");
+                if candidate.is_dir() && validate_permissions(&candidate) {
+                    return Some(instance.home.join("bin"));
+                } else {
+                    log::warn!("Oracle home {:?} is not suitable", instance.home);
+                }
+            }
+            None
+        }
+        Err(e) => {
+            log::error!("Failed to get local Oracle instances: {e}");
+            None
+        }
+    }
+}
+
+pub fn detect_factory_runtime(env_var: Option<String>) -> Option<PathBuf> {
+    let env_var = env_var.unwrap_or_else(|| "MK_LIBDIR".to_string());
+    if let Ok(lib_path) = std::env::var(&env_var) {
+        let runtime_path = PathBuf::from(lib_path).join(RUNTIME_SUB_DIR);
+        if runtime_path.is_dir() {
+            Some(runtime_path)
+        } else {
+            log::error!(
+                "{:?} is set but {:?} is not a directory",
+                &env_var,
+                runtime_path
+            );
+            None
+        }
+    } else {
+        log::warn!("{:?} is not set", &env_var);
+        None
+    }
+}
+
+pub fn detect_runtime(use_host_client: &UseHostClient, env_var: Option<String>) -> Option<PathBuf> {
+    match use_host_client {
+        UseHostClient::Always => detect_host_runtime(),
+        UseHostClient::Never => detect_factory_runtime(env_var),
+        UseHostClient::Auto => detect_factory_runtime(env_var).or_else(detect_host_runtime),
+        UseHostClient::Path(p) => Some(PathBuf::from(p)),
+    }
+    .and_then(|p| {
+        if p.is_dir() {
+            log::info!("Runtime detected at {:?}", p);
+            Some(p)
+        } else {
+            log::error!("Runtime path {:?} is not a directory or missing", p);
+            None
+        }
+    })
+}
+
+#[cfg(windows)]
+const DEFAULT_ENV_VAR: &str = "PATH";
+#[cfg(unix)]
+const DEFAULT_ENV_VAR: &str = "LD_LIBRARY_PATH";
+#[cfg(windows)]
+const ENV_VAR_SEP: &str = ";";
+#[cfg(unix)]
+const ENV_VAR_SEP: &str = ":";
+
+/// On Unix/Windows, we modify LD_LIBRARY_PATH/PATH using config and, by default, MK_LIBDIR
+pub fn add_runtime_path_to_env(
+    config: &OracleConfig,
+    mk_lib_dir: Option<String>,
+    mut_env: Option<String>,
+) -> Option<PathBuf> {
+    log::info!("Runtime to be added");
+    let mutable_var = mut_env.unwrap_or(DEFAULT_ENV_VAR.to_string());
+    let mutable_var_content = std::env::var(&mutable_var).ok().unwrap_or_default();
+    log::info!("Current {mutable_var}={mutable_var_content}");
+    let use_host_client: UseHostClient = config.ora_sql()?.options().use_host_client().clone();
+    log::info!("Use host client {:?}", use_host_client);
+    let runtime = detect_runtime(&use_host_client, mk_lib_dir)?.into_os_string();
+    log::info!("Runtime found at {:?}", runtime);
+    let mut additional_path = runtime.clone();
+    additional_path.push(ENV_VAR_SEP);
+    additional_path.push(&mutable_var_content);
+    unsafe {
+        std::env::set_var(&mutable_var, additional_path);
+    }
+    Some(PathBuf::from(mutable_var_content))
+}
+
+pub fn reset_env(old_path: &Path, mut_env: Option<String>) {
+    let mutable_var = mut_env.unwrap_or(DEFAULT_ENV_VAR.to_string());
+    unsafe {
+        std::env::set_var(mutable_var, old_path);
+    }
+}
+
+/// Validate permissions of the given path(see mk-oracle)
+pub fn validate_permissions(_p: &Path) -> bool {
+    // TODO. Implement permission checks for Oracle home/bin
+    // If executable is elevated,
+    // then permissions for directory and all required binaries should be admin only.
+    log::warn!("CHECK PERMISSIONS is not implemented yet");
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,13 +436,46 @@ mod tests {
     }
     #[test]
     fn test_create_info_text() {
-        assert_eq!(
-            create_info_text(&log::Level::Debug, &Env::new(&Args::default())),
-            r#"
+        assert!(
+            create_info_text(&log::Level::Debug, &Env::new(&Args::default())).starts_with(
+                r#"
   - Log level: DEBUG
   - Log dir: 
   - Temp dir: .
-  - MK_CONFDIR: undefined"#
+  - MK_CONFDIR: "#
+            )
         );
+    }
+
+    fn base_dir() -> std::path::PathBuf {
+        std::path::PathBuf::from(std::env::var("MK_CONFDIR").unwrap_or_else(|_| {
+            let this_file: PathBuf = PathBuf::from(file!());
+            this_file
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .to_owned()
+                .into_os_string()
+                .into_string()
+                .unwrap()
+        }))
+    }
+
+    #[test]
+    fn test_detect_factory_runtime() {
+        unsafe {
+            std::env::remove_var("MK_LIBDIR");
+        }
+        assert!(detect_factory_runtime(None).is_none());
+        unsafe {
+            std::env::set_var("MK_LIBDIR", base_dir().join("runtimes"));
+        }
+        assert!(detect_factory_runtime(None).is_some());
+
+        unsafe {
+            std::env::set_var("MK_MY_VAR", base_dir().join("runtimes"));
+        }
+        assert!(detect_factory_runtime(Some("MK_MY_VAR".to_string())).is_some());
     }
 }

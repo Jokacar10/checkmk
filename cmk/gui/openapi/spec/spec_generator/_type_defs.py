@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from marshmallow import Schema
 
 from cmk.ccc.version import Edition
-
 from cmk.gui.http import HTTPMethod
 from cmk.gui.openapi.restful_objects.api_error import ApiError
 from cmk.gui.openapi.restful_objects.type_defs import (
@@ -41,7 +40,7 @@ class SpecEndpoint:
     family_name: str
     etag: ETagBehaviour | None
     expected_status_codes: set[StatusCodeInt]
-    content_type: str
+    content_type: str | None
     method: HTTPMethod
     status_descriptions: Mapping[StatusCodeInt, str]
     tag_group: TagGroup

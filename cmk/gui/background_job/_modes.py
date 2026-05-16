@@ -11,6 +11,7 @@ from typing import override
 from cmk.gui import gui_background_job
 from cmk.gui.background_job import BackgroundJob, BackgroundStatusSnapshot, job_registry
 from cmk.gui.breadcrumb import Breadcrumb
+from cmk.gui.config import Config
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
 from cmk.gui.i18n import _
@@ -22,7 +23,7 @@ from cmk.gui.page_menu import (
     PageMenuEntry,
     PageMenuTopic,
 )
-from cmk.gui.pages import AjaxPage, PageRegistry, PageResult
+from cmk.gui.pages import AjaxPage, PageEndpoint, PageRegistry, PageResult
 from cmk.gui.type_defs import ActionResult, Icon, PermissionName
 from cmk.gui.utils.output_funnel import output_funnel
 from cmk.gui.utils.urls import makeuri_contextless
@@ -36,7 +37,9 @@ def register(
     mode_registry: ModeRegistry,
     main_module_registry: MainModuleRegistry,
 ) -> None:
-    page_registry.register_page("ajax_background_job_details")(ModeAjaxBackgroundJobDetails)
+    page_registry.register(
+        PageEndpoint("ajax_background_job_details", ModeAjaxBackgroundJobDetails)
+    )
     mode_registry.register(ModeBackgroundJobsOverview)
     mode_registry.register(ModeBackgroundJobDetails)
     main_module_registry.register(MainModuleBackgroundJobs)
@@ -100,7 +103,7 @@ class ModeBackgroundJobsOverview(WatoMode):
         return _("Background jobs overview")
 
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         job_manager = gui_background_job.GUIBackgroundJobManager()
 
         back_url = makeuri_contextless(request, [("mode", "background_jobs_overview")])
@@ -108,7 +111,7 @@ class ModeBackgroundJobsOverview(WatoMode):
 
     # Mypy requires the explicit return, pylint does not like it.
     @override
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         action_handler = gui_background_job.ActionHandler(self.breadcrumb())
         action_handler.handle_actions()
         return None
@@ -135,7 +138,7 @@ class ModeBackgroundJobDetails(WatoMode):
         return _("Background job details")
 
     @override
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return PageMenu(
             dropdowns=[
                 PageMenuDropdown(
@@ -168,7 +171,7 @@ class ModeBackgroundJobDetails(WatoMode):
         return request.get_url_input("back_url", deflt="")
 
     @override
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         job = BackgroundJob(job_id := request.get_ascii_input_mandatory("job_id"))
         if job.is_active():
             html.div(html.render_message(_("Loading...")), id_="async_progress_msg")
@@ -190,12 +193,12 @@ class ModeAjaxBackgroundJobDetails(AjaxPage):
     """AJAX handler for supporting the background job state update"""
 
     @override
-    def handle_page(self) -> None:
+    def handle_page(self, config: Config) -> None:
         self.action()
-        super().handle_page()
+        super().handle_page(config)
 
     @override
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         with output_funnel.plugged():
             api_request = request.get_request()
             job_snapshot = self._show_details_page(api_request["job_id"])

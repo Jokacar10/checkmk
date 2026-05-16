@@ -9,8 +9,6 @@ from collections.abc import Mapping, Sequence
 import pytest
 import time_machine
 
-from tests.unit.checks.checktestlib import mock_item_state
-
 from cmk.agent_based.v2 import Metric, Result, Service, State, StringTable
 from cmk.plugins.collection.agent_based.threepar_capacity import (
     check_threepar_capacity,
@@ -18,6 +16,7 @@ from cmk.plugins.collection.agent_based.threepar_capacity import (
     parse_threepar_capacity,
 )
 from cmk.plugins.lib.df import FILESYSTEM_DEFAULT_PARAMS
+from tests.unit.cmk.base.legacy_checks.checktestlib import mock_item_state
 
 STRING_TABLE = [
     [
@@ -161,7 +160,10 @@ def test_discover_threepar_capacity(
                 Result(state=State.OK, summary="trend per 1 day 0 hours: +606 B"),
                 Result(state=State.OK, summary="trend per 1 day 0 hours: +<0.01%"),
                 Metric("trend", 0.0005776781631514493),
-                Result(state=State.WARN, summary="3.0 MB failed: 3.00% (warn/crit at 2.00%/5.00%)"),
+                Result(
+                    state=State.WARN,
+                    summary="Failed: 3.00% (warn/crit at 2.00%/5.00%) - 3.00 MiB of 100 MiB",
+                ),
             ],
             id="If the failed capacity is above the WARN level, the result is WARN.",
         ),
@@ -179,7 +181,10 @@ def test_discover_threepar_capacity(
                 Result(state=State.OK, summary="trend per 1 day 0 hours: +606 B"),
                 Result(state=State.OK, summary="trend per 1 day 0 hours: +<0.01%"),
                 Metric("trend", 0.0005776781631514493),
-                Result(state=State.CRIT, summary="6.0 MB failed: 6.00% (warn/crit at 2.00%/5.00%)"),
+                Result(
+                    state=State.CRIT,
+                    summary="Failed: 6.00% (warn/crit at 2.00%/5.00%) - 6.00 MiB of 100 MiB",
+                ),
             ],
             id="If the failed capacity is above the CRIT level, the result is CRIT.",
         ),

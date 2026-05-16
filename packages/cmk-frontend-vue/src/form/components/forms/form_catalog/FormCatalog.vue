@@ -11,11 +11,15 @@ import type {
   TopicGroup
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
 import { ref } from 'vue'
+
 import { immediateWatch } from '@/lib/watch'
-import { groupNestedValidations, type ValidationMessages } from '@/form/components/utils/validation'
+
+import CmkIcon from '@/components/CmkIcon.vue'
 import CmkSpace from '@/components/CmkSpace.vue'
-import TopicUngrouped from '@/form/components/forms/form_catalog/TopicUngrouped.vue'
+
 import TopicGrouped from '@/form/components/forms/form_catalog/TopicGrouped.vue'
+import TopicUngrouped from '@/form/components/forms/form_catalog/TopicUngrouped.vue'
+import { type ValidationMessages, groupNestedValidations } from '@/form/components/utils/validation'
 
 const props = defineProps<{
   spec: Catalog
@@ -68,7 +72,12 @@ function isGroupedTopic(topic: Topic): boolean {
         <thead>
           <tr class="heading" @click="toggleTopic(topic)">
             <td colspan="2">
-              <img class="vue nform treeangle" :class="getClass(topic.name)" />
+              <CmkIcon
+                class="form-catalog__icon"
+                :class="{ 'form-catalog__icon--open': !hiddenTopics[topic.name] }"
+                size="xxsmall"
+                name="tree_closed"
+              />
               {{ topic.title }}
             </td>
           </tr>
@@ -80,7 +89,6 @@ function isGroupedTopic(topic: Topic): boolean {
               v-model:data="data[topic.name]!"
               :elements="topic.elements as unknown as TopicGroup[]"
               :backend-validation="elementValidation[topic.name]!"
-              :i18n-base="props.spec.i18n_base"
             />
           </template>
           <template v-else>
@@ -88,7 +96,6 @@ function isGroupedTopic(topic: Topic): boolean {
               v-model:data="data[topic.name]!"
               :elements="topic.elements as unknown as TopicElement[]"
               :backend-validation="elementValidation[topic.name]!"
-              :i18n-base="props.spec.i18n_base"
             />
           </template>
         </tbody>
@@ -97,3 +104,15 @@ function isGroupedTopic(topic: Topic): boolean {
     </template>
   </span>
 </template>
+
+<style scoped>
+.form-catalog__icon {
+  margin-right: 10px;
+  transition: transform 0.2s ease-in-out;
+  transform: rotate(90deg);
+}
+
+.form-catalog__icon--open {
+  transform: rotate(0deg);
+}
+</style>

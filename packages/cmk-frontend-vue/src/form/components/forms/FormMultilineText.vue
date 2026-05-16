@@ -4,10 +4,12 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { computed } from 'vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { useValidation, type ValidationMessages } from '@/form/components/utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
+import { computed } from 'vue'
+
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, useValidation } from '@/form/components/utils/validation'
 import FormLabel from '@/form/private/FormLabel.vue'
 
 const props = defineProps<{
@@ -31,7 +33,7 @@ const style = computed(() => {
 </script>
 
 <template>
-  <div style="flex">
+  <div>
     <div v-if="spec.label">
       <FormLabel> {{ spec.label }}</FormLabel
       ><br />
@@ -43,7 +45,6 @@ const style = computed(() => {
       :aria-label="spec.label || spec.title"
       rows="4"
       cols="60"
-      type="text"
     />
     <FormValidation :validation="validation"></FormValidation>
   </div>

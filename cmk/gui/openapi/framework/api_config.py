@@ -13,10 +13,18 @@ class DeprecationDetails(TypedDict):
 
 
 class APIVersion(enum.Enum):
-    """API versions supported by the application"""
+    """API versions supported by the application
+
+    The unstable version is considered higher than any stable version (v1, etc.).
+    The internal version is considered higher than any other version.
+    Higher versions inherit all endpoints from lower versions except if either explicitly
+    removed or overridden.
+    All except the internal version have documentation available in the Checkmk site.
+    """
 
     V1 = "v1"
     UNSTABLE = "unstable"
+    INTERNAL = "internal"
 
     @staticmethod
     def from_string(api_version_string: str) -> "APIVersion":
@@ -28,7 +36,11 @@ class APIVersion(enum.Enum):
             return int(self.value[1:])
 
         # unstable versions are considered higher than any stable version
-        return 999
+        if self == APIVersion.UNSTABLE:
+            return 999
+
+        # internal versions are considered higher than any other version
+        return 1000
 
     def __lt__(self, other: object) -> bool:
         if not isinstance(other, APIVersion):
@@ -40,6 +52,9 @@ class APIVersion(enum.Enum):
             return NotImplemented
         return self.numeric_value <= other.numeric_value
 
+    def __str__(self) -> str:
+        return self.value
+
 
 class APIConfig:
     """Configuration for the versioned API system"""
@@ -47,6 +62,7 @@ class APIConfig:
     RELEASED_VERSIONS_IN_ORDER = [
         APIVersion.V1,  # Legacy version (includes all marshmallow endpoints)
         APIVersion.UNSTABLE,
+        APIVersion.INTERNAL,
     ]
 
     DEVELOPMENT_VERSIONS: Sequence[APIVersion] = []

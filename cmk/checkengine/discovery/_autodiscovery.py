@@ -14,17 +14,15 @@ from typing import assert_never, Generic, Literal, TypeVar
 import cmk.ccc.debug
 from cmk.ccc.exceptions import MKGeneralException, MKTimeout, OnError
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils.everythingtype import EVERYTHING
-from cmk.utils.labels import DiscoveredHostLabelsStore, HostLabel, merge_cluster_labels
-from cmk.utils.log import console, section
-from cmk.utils.paths import omd_root
-from cmk.utils.sectionname import SectionMap, SectionName
-from cmk.utils.servicename import ServiceName
-
 from cmk.checkengine.fetcher import FetcherFunction, HostKey
 from cmk.checkengine.parser import group_by_host, ParserFunction
-from cmk.checkengine.plugins import AutocheckEntry, CheckPluginName, DiscoveryPlugin, ServiceID
+from cmk.checkengine.plugins import (
+    AutocheckEntry,
+    CheckPluginName,
+    DiscoveryPlugin,
+    SectionName,
+    ServiceID,
+)
 from cmk.checkengine.sectionparser import (
     make_providers,
     Provider,
@@ -32,6 +30,11 @@ from cmk.checkengine.sectionparser import (
     store_piggybacked_sections,
 )
 from cmk.checkengine.summarize import SummarizerFunction
+from cmk.utils.everythingtype import EVERYTHING
+from cmk.utils.labels import DiscoveredHostLabelsStore, HostLabel, merge_cluster_labels
+from cmk.utils.log import console, section
+from cmk.utils.paths import omd_root
+from cmk.utils.servicename import ServiceName
 
 from ._autochecks import (
     AutochecksConfig,
@@ -137,8 +140,8 @@ def automation_discovery(
     parser: ParserFunction,
     fetcher: FetcherFunction,
     summarizer: SummarizerFunction,
-    section_plugins: SectionMap[SectionPlugin],
-    host_label_plugins: SectionMap[HostLabelPlugin],
+    section_plugins: Mapping[SectionName, SectionPlugin],
+    host_label_plugins: Mapping[SectionName, HostLabelPlugin],
     plugins: Mapping[CheckPluginName, DiscoveryPlugin],
     autochecks_config: AutochecksConfig,
     settings: DiscoverySettings,
@@ -453,9 +456,9 @@ def autodiscovery(
     fetcher: FetcherFunction,
     parser: ParserFunction,
     summarizer: SummarizerFunction,
-    section_plugins: SectionMap[SectionPlugin],
+    section_plugins: Mapping[SectionName, SectionPlugin],
     section_error_handling: Callable[[SectionName, Sequence[object]], str],
-    host_label_plugins: SectionMap[HostLabelPlugin],
+    host_label_plugins: Mapping[SectionName, HostLabelPlugin],
     plugins: Mapping[CheckPluginName, DiscoveryPlugin],
     autochecks_config: AutochecksConfig,
     schedule_discovery_check: Callable[[HostName], object],

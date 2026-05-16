@@ -10,17 +10,9 @@ import dataclasses
 from collections.abc import Mapping
 from typing import Any
 
-from cmk.utils.datastructures import denilled
-from cmk.utils.labels import LabelGroups
-from cmk.utils.rulesets.conditions import (
-    allow_host_label_conditions,
-    allow_service_label_conditions,
-)
-from cmk.utils.rulesets.ruleset_matcher import RuleOptionsSpec
-
 from cmk.gui import exceptions, http
 from cmk.gui.config import active_config
-from cmk.gui.i18n import _l
+from cmk.gui.form_specs.vue import get_visitor, RawDiskData, VisitorOptions
 from cmk.gui.logged_in import user
 from cmk.gui.openapi.endpoints.rule.fields import (
     APILabelGroupCondition,
@@ -44,7 +36,6 @@ from cmk.gui.openapi.utils import (
 from cmk.gui.utils import gen_id
 from cmk.gui.utils import permission_verification as permissions
 from cmk.gui.utils.escaping import strip_tags
-from cmk.gui.watolib.changes import add_change
 from cmk.gui.watolib.configuration_bundle_store import is_locked_by_quick_setup
 from cmk.gui.watolib.hosts_and_folders import Folder
 from cmk.gui.watolib.rulesets import (
@@ -58,6 +49,14 @@ from cmk.gui.watolib.rulesets import (
     visible_ruleset,
     visible_rulesets,
 )
+from cmk.gui.watolib.rulespecs import FormSpecNotImplementedError
+from cmk.utils.datastructures import denilled
+from cmk.utils.labels import LabelGroups
+from cmk.utils.rulesets.conditions import (
+    allow_host_label_conditions,
+    allow_service_label_conditions,
+)
+from cmk.utils.rulesets.ruleset_matcher import RuleOptionsSpec
 
 
 class FieldValidationException(Exception):
@@ -171,23 +170,11 @@ def move_rule_to(param: Mapping[str, Any]) -> http.Response:
             )
 
     dest_folder.permissions.need_permission("write")
-    source_entry.ruleset.move_to_folder(source_entry.rule, dest_folder, index)
-    source_entry.folder = dest_folder
-    all_rulesets.save(pprint_value=active_config.wato_pprint_config, debug=active_config.debug)
-    affected_sites = source_entry.folder.all_site_ids()
-
-    if dest_folder != source_entry.folder:
-        affected_sites.extend(dest_folder.all_site_ids())
-
-    add_change(
-        action_name="edit-rule",
-        text=_l('Changed properties of rule "%s", moved from folder "%s" to top of folder "%s"')
-        % (source_entry.rule.id, source_entry.folder.title(), dest_folder.title()),
-        user_id=user.id,
-        sites=list(set(affected_sites)),
-        object_ref=source_entry.rule.object_ref(),
-        use_git=active_config.wato_use_git,
+    source_entry.ruleset.move_to_folder(
+        source_entry.rule, dest_folder, index, use_git=active_config.wato_use_git
     )
+    source_entry.folder = dest_folder  # this ensures the correct folder is returned in the response
+    all_rulesets.save(pprint_value=active_config.wato_pprint_config, debug=active_config.debug)
 
     return serve_json(_serialize_rule(source_entry))
 
@@ -217,7 +204,6 @@ def create_rule(param):
 
     try:
         _validate_value(ruleset, value)
-
     except FieldValidationException as exc:
         return problem(
             status=400,
@@ -231,7 +217,7 @@ def create_rule(param):
 
     index = ruleset.append_rule(folder, rule)
     rulesets.save_folder(pprint_value=active_config.wato_pprint_config, debug=active_config.debug)
-    ruleset.add_new_rule_change(index, folder, rule)
+    ruleset.add_new_rule_change(index, folder, rule, use_git=active_config.wato_use_git)
     rule_entry = _get_rule_by_id(rule.id)
     return serve_json(_serialize_rule(rule_entry))
 
@@ -351,7 +337,7 @@ def delete_rule(param):
                         title="Rule is managed by Quick setup",
                         detail="Rules managed by Quick setup cannot be deleted.",
                     )
-                ruleset.delete_rule(rule)
+                ruleset.delete_rule(rule, create_change=True, use_git=active_config.wato_use_git)
                 all_rulesets.save(
                     pprint_value=active_config.wato_pprint_config, debug=active_config.debug
                 )
@@ -391,7 +377,6 @@ def edit_rule(param):
 
     try:
         _validate_value(ruleset, value)
-
     except FieldValidationException as exc:
         return problem(
             status=400,
@@ -408,14 +393,17 @@ def edit_rule(param):
         param["rule_id"],
     )
 
-    if rule_entry.rule.conditions != new_rule.conditions:
+    if (
+        is_locked_by_quick_setup(rule_entry.rule.locked_by)
+        and rule_entry.rule.conditions != new_rule.conditions
+    ):
         return problem(
             status=400,
             title="Rule is managed by Quick setup",
             detail="Conditions cannot be modified for rules managed by Quick setup.",
         )
 
-    ruleset.edit_rule(current_rule, new_rule)
+    ruleset.edit_rule(current_rule, new_rule, use_git=active_config.wato_use_git)
     rulesets.save_folder(
         folder, pprint_value=active_config.wato_pprint_config, debug=active_config.debug
     )
@@ -425,6 +413,20 @@ def edit_rule(param):
 
 
 def _validate_value(ruleset: Ruleset, value: Any) -> None:
+    # FormSpec validation
+    try:
+        if problems := get_visitor(
+            ruleset.rulespec.form_spec, VisitorOptions(migrate_values=False, mask_values=False)
+        ).validate(RawDiskData(value)):
+            exception = FieldValidationException()
+            exception.title = f"Problem in field {'.'.join(problems[0].location)}"
+            exception.detail = problems[0].message
+            raise exception
+        return
+    except FormSpecNotImplementedError:
+        pass
+
+    # Legacy valuespec validation
     try:
         valuespec = ruleset.valuespec()
         valuespec.validate_datatype(value, "")
@@ -491,7 +493,7 @@ def _create_rule(
     ruleset: Ruleset,
     conditions: dict[str, Any],
     properties: RuleOptionsSpec,
-    value: Any,
+    validated_value: Any,
     rule_id: str = gen_id(),
 ) -> Rule:
     rule = Rule(
@@ -517,7 +519,7 @@ def _create_rule(
             ),
         ),
         RuleOptions.from_config(properties),
-        ruleset.valuespec().transform_value(value),
+        validated_value,
     )
 
     return rule
@@ -540,6 +542,18 @@ def _retrieve_from_rulesets(rulesets: RulesetCollection, ruleset_name: str) -> R
     return ruleset
 
 
+def _get_masked_rule_value(rule: Rule) -> object:
+    try:
+        return repr(
+            get_visitor(
+                rule.ruleset.rulespec.form_spec,
+                VisitorOptions(migrate_values=False, mask_values=True),
+            ).to_disk(RawDiskData(rule.value))
+        )
+    except FormSpecNotImplementedError:
+        return repr(rule.ruleset.valuespec().mask(rule.value))
+
+
 def _serialize_rule(rule_entry: RuleEntry) -> DomainObject:
     rule = rule_entry.rule
     return constructors.domain_object(
@@ -552,7 +566,7 @@ def _serialize_rule(rule_entry: RuleEntry) -> DomainObject:
             "folder": "/" + rule_entry.folder.path(),
             "folder_index": rule_entry.index_nr,
             "properties": rule.rule_options.to_config(),
-            "value_raw": repr(rule.ruleset.valuespec().mask(rule.value)),
+            "value_raw": _get_masked_rule_value(rule),
             "conditions": denilled(
                 {
                     "host_name": rule.conditions.host_name,
@@ -566,10 +580,10 @@ def _serialize_rule(rule_entry: RuleEntry) -> DomainObject:
     )
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(move_rule_to)
-    endpoint_registry.register(create_rule)
-    endpoint_registry.register(list_rules)
-    endpoint_registry.register(show_rule)
-    endpoint_registry.register(delete_rule)
-    endpoint_registry.register(edit_rule)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(move_rule_to, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(create_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(list_rules, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(show_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(delete_rule, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(edit_rule, ignore_duplicates=ignore_duplicates)

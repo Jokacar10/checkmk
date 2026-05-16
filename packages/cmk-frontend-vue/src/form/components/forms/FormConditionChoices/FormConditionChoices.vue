@@ -4,15 +4,20 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import CmkList from '@/components/CmkList'
-import ConditionChoice from './ConditionChoice.vue'
 import type * as typing from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { validateValue, type ValidationMessages } from '@/form/components/utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
-import CmkDropdown from '@/components/CmkDropdown.vue'
 import { computed, ref } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
 import { immediateWatch } from '@/lib/watch'
+
+import CmkDropdown from '@/components/CmkDropdown.vue'
+import CmkList from '@/components/CmkList'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, validateValue } from '@/form/components/utils/validation'
 import { required } from '@/form/private/requiredValidator'
+
+import ConditionChoice from './ConditionChoice.vue'
 
 const props = defineProps<{
   spec: typing.ConditionChoices
@@ -103,12 +108,15 @@ const elementRequired = computed(() => {
     v-model:selected-option="selectedConditionGroup"
     :options="{
       type: remainingGroups.length > FILTER_SHOW_THRESHOLD ? 'filtered' : 'fixed',
-      suggestions: remainingGroups.map(([name, value]) => ({ name, title: value.title }))
+      suggestions: remainingGroups.map(([name, value]) => ({
+        name,
+        title: untranslated(value.title)
+      }))
     }"
-    :input-hint="spec.i18n.select_condition_group_to_add"
-    :required-text="elementRequired ? spec.i18n_base.required : ''"
-    :no-elements-text="spec.i18n.no_more_condition_groups_to_add"
-    :label="spec.i18n.select_condition_group_to_add"
+    :input-hint="untranslated(spec.i18n.select_condition_group_to_add)"
+    :required="elementRequired"
+    :no-elements-text="untranslated(spec.i18n.no_more_condition_groups_to_add)"
+    :label="untranslated(spec.i18n.select_condition_group_to_add)"
     @update:selected-option="addElement"
   />
   <FormValidation :validation="validation"></FormValidation>

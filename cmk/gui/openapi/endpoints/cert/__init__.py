@@ -10,16 +10,13 @@ Checkmk uses TLS certificates to secure agent communication.
 """
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 from cryptography import x509
 from dateutil.relativedelta import relativedelta
 
-from cmk.utils.certs import cert_dir, CertManagementEvent, root_cert_path, RootCA
-from cmk.utils.log.security_event import log_security_event
-from cmk.utils.paths import omd_root
-
+from cmk.crypto.certificate import CertificateSigningRequest
+from cmk.crypto.x509 import SAN, SubjectAlternativeNames
 from cmk.gui import config
 from cmk.gui.default_permissions import PERMISSION_SECTION_GENERAL
 from cmk.gui.http import Response
@@ -35,9 +32,9 @@ from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.utils import ProblemException, serve_json
 from cmk.gui.permissions import Permission, permission_registry
 from cmk.gui.utils import permission_verification as permissions
-
-from cmk.crypto.certificate import CertificateSigningRequest
-from cmk.crypto.x509 import SAN, SubjectAlternativeNames
+from cmk.utils.certs import agent_root_ca_path, cert_dir, CertManagementEvent, RootCA, SiteCA
+from cmk.utils.log.security_event import log_security_event
+from cmk.utils.paths import omd_root
 
 _403_STATUS_DESCRIPTION = "You do not have the permission for agent pairing."
 
@@ -60,16 +57,13 @@ def _user_is_authorized() -> bool:
     return user.may("general.agent_pairing")
 
 
-def _get_root_ca() -> RootCA:
-    return RootCA.load(root_cert_path(cert_dir(Path(omd_root))))
-
-
 def _get_agent_ca() -> RootCA:
-    return RootCA.load(root_cert_path(cert_dir(Path(omd_root)) / "agents"))
+    return RootCA.load(agent_root_ca_path(omd_root))
 
 
 def _serialized_root_cert() -> str:
-    return _get_root_ca().certificate.dump_pem().str
+    # loading and dumping the PEM is needed here to ensure that we don't send the private key along
+    return SiteCA.load(cert_dir(omd_root)).root_ca.certificate.dump_pem().str
 
 
 def _serialized_signed_cert(csr: x509.CertificateSigningRequest) -> str:
@@ -178,7 +172,9 @@ def agent_controller_certificates_settings(param: object) -> Response:
     return serve_json(config.active_config.agent_controller_certificates)
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(root_cert)
-    endpoint_registry.register(make_certificate)
-    endpoint_registry.register(agent_controller_certificates_settings)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(root_cert, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(make_certificate, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(
+        agent_controller_certificates_settings, ignore_duplicates=ignore_duplicates
+    )

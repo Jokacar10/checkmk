@@ -6,19 +6,20 @@ import datetime
 
 import pytest
 
-from tests.testlib.unit.rest_api_client import ClientRegistry
-
-from tests.unit.cmk.web_test_app import SetConfig
-
 from cmk.ccc import version
-
+from cmk.gui.openapi.endpoints.downtime import _with_defaulted_timezone
 from cmk.utils import paths
 from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
-
-from cmk.gui.openapi.endpoints.downtime import _with_defaulted_timezone
+from tests.testlib.unit.rest_api_client import ClientRegistry
+from tests.unit.cmk.web_test_app import SetConfig
 
 managedtest = pytest.mark.skipif(
     version.edition(paths.omd_root) is not version.Edition.CME, reason="see #7213"
+)
+
+_DOWNTIME_COLUMNS = (
+    "Columns: id host_name service_description is_service author start_time end_time recurring "
+    "comment fixed duration"
 )
 
 
@@ -27,12 +28,7 @@ def test_openapi_list_all_downtimes(
     mock_livestatus: MockLiveStatusConnection,
     clients: ClientRegistry,
 ) -> None:
-    mock_livestatus.expect_query(
-        [
-            "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
-        ]
-    )
+    mock_livestatus.expect_query(["GET downtimes", _DOWNTIME_COLUMNS])
 
     with mock_livestatus:
         resp = clients.Downtime.get_all()
@@ -46,10 +42,7 @@ def test_openapi_list_all_downtimes_for_a_specific_site(
     clients: ClientRegistry,
 ) -> None:
     mock_livestatus.expect_query(
-        [
-            "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
-        ],
+        ["GET downtimes", _DOWNTIME_COLUMNS],
         sites=["NO_SITE"],
     )
 
@@ -263,6 +256,8 @@ def test_openapi_show_downtimes_with_query(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -274,6 +269,8 @@ def test_openapi_show_downtimes_with_query(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -281,7 +278,7 @@ def test_openapi_show_downtimes_with_query(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             "Filter: host_name ~ heute",
         ]
     )
@@ -310,6 +307,8 @@ def test_openapi_show_downtime_with_params(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -321,6 +320,8 @@ def test_openapi_show_downtime_with_params(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -328,7 +329,7 @@ def test_openapi_show_downtime_with_params(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             "Filter: is_service = 0",
             "Filter: host_name = example.com",
             "And: 2",
@@ -357,6 +358,8 @@ def test_openapi_show_downtime_of_non_existing_host(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -368,6 +371,8 @@ def test_openapi_show_downtime_of_non_existing_host(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -375,7 +380,7 @@ def test_openapi_show_downtime_of_non_existing_host(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             "Filter: host_name = nothing",
         ]
     )
@@ -401,6 +406,8 @@ def test_openapi_create_host_downtime_with_query(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -412,6 +419,8 @@ def test_openapi_create_host_downtime_with_query(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -548,6 +557,8 @@ def test_openapi_delete_downtime_with_query(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -559,6 +570,8 @@ def test_openapi_delete_downtime_with_query(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -600,6 +613,8 @@ def test_openapi_delete_downtime_by_id(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 1234,
@@ -611,6 +626,8 @@ def test_openapi_delete_downtime_by_id(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some service downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -651,6 +668,8 @@ def test_openapi_delete_downtime_with_params(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -662,6 +681,8 @@ def test_openapi_delete_downtime_with_params(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some service downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -746,6 +767,8 @@ def test_openapi_delete_downtime_with_host_group(
                 "recurring": 0,
                 "comment": "some service downtime",
                 "host_groups": [],
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -758,6 +781,8 @@ def test_openapi_delete_downtime_with_host_group(
                 "recurring": 0,
                 "comment": "some service downtime",
                 "host_groups": ["windows"],
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 125,
@@ -770,6 +795,8 @@ def test_openapi_delete_downtime_with_host_group(
                 "recurring": 0,
                 "comment": "some service downtime",
                 "host_groups": ["windows"],
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 126,
@@ -782,6 +809,8 @@ def test_openapi_delete_downtime_with_host_group(
                 "recurring": 0,
                 "comment": "some host downtime",
                 "host_groups": ["windows"],
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -837,6 +866,8 @@ def test_openapi_delete_downtime_with_service_group(
                 "recurring": 0,
                 "comment": "some service downtime",
                 "service_groups": ["CPU"],
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -849,6 +880,8 @@ def test_openapi_delete_downtime_with_service_group(
                 "recurring": 0,
                 "comment": "some service downtime",
                 "service_groups": ["CPU"],
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 125,
@@ -861,6 +894,8 @@ def test_openapi_delete_downtime_with_service_group(
                 "recurring": 0,
                 "comment": "some service downtime",
                 "service_groups": [],
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 125,
@@ -873,6 +908,8 @@ def test_openapi_delete_downtime_with_service_group(
                 "recurring": 0,
                 "comment": "some host downtime",
                 "service_groups": [],
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -972,6 +1009,8 @@ def test_openapi_downtime_get_single(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -983,6 +1022,8 @@ def test_openapi_downtime_get_single(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some service downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -990,7 +1031,7 @@ def test_openapi_downtime_get_single(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             "Filter: id = 123",
         ],
         sites=["NO_SITE"],
@@ -1010,7 +1051,7 @@ def test_openapi_downtime_invalid_single(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             "Filter: id = 123",
         ],
         sites=["NO_SITE"],
@@ -1130,6 +1171,8 @@ def test_openapi_service_description_for_service_downtimes(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "literally nothing",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -1141,16 +1184,13 @@ def test_openapi_service_description_for_service_downtimes(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "some host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
 
-    mock_livestatus.expect_query(
-        [
-            "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
-        ]
-    )
+    mock_livestatus.expect_query(["GET downtimes", _DOWNTIME_COLUMNS])
     with mock_livestatus:
         resp = clients.Downtime.get_all()
         assert len(resp.json["value"]) == 2
@@ -1182,6 +1222,8 @@ def test_openapi_service_description_for_single_downtime(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "a service downtime",
+                "fixed": 1,
+                "duration": 0,
             },
             {
                 "id": 124,
@@ -1193,6 +1235,8 @@ def test_openapi_service_description_for_single_downtime(
                 "end_time": 1606913913,
                 "recurring": 0,
                 "comment": "a host downtime",
+                "fixed": 1,
+                "duration": 0,
             },
         ],
     )
@@ -1202,7 +1246,7 @@ def test_openapi_service_description_for_single_downtime(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             f"Filter: id = {service_id}",
         ],
         sites=["NO_SITE"],
@@ -1610,7 +1654,7 @@ def test_openapi_downtime_fields_format(
     mock_livestatus.expect_query(
         [
             "GET downtimes",
-            "Columns: id host_name service_description is_service author start_time end_time recurring comment",
+            _DOWNTIME_COLUMNS,
             "Filter: is_service = 0",
             "Filter: host_name = example.com",
             "And: 2",
@@ -1622,3 +1666,103 @@ def test_openapi_downtime_fields_format(
             attributes = dt["extensions"]
             assert isinstance(attributes["recurring"], bool)
             assert isinstance(attributes["is_service"], bool)
+
+
+@pytest.mark.usefixtures("with_host")
+def test_openapi_schedule_flexible_downtime(
+    clients: ClientRegistry,
+    mock_livestatus: MockLiveStatusConnection,
+) -> None:
+    mock_livestatus.expect_query("GET hosts\nColumns: name\nFilter: name = example.com")
+    mock_livestatus.expect_query("GET hosts\nColumns: name\nFilter: name = example.com")
+    mock_livestatus.expect_query(
+        "COMMAND [...] SCHEDULE_HOST_DOWNTIME;example.com;1577836800;1577923200;0;0;7200;test123-...;Downtime for ...",
+        match_type="ellipsis",
+    )
+    with mock_livestatus:
+        clients.Downtime.create_for_host(
+            downtime_type="host",
+            host_name="example.com",
+            start_time="2020-01-01T00:00:00Z",
+            end_time="2020-01-02T00:00:00Z",
+            duration=120,  # flexible, with max 2h
+        )
+
+
+@pytest.mark.usefixtures("with_host")
+def test_openapi_downtime_mode_fixed(
+    clients: ClientRegistry, mock_livestatus: MockLiveStatusConnection
+) -> None:
+    downtime_id = 123
+    mock_livestatus.add_table(
+        "downtimes",
+        [
+            {
+                "id": downtime_id,
+                "host_name": "heute",
+                "service_description": "CPU load",
+                "is_service": 1,
+                "author": "random",
+                "start_time": 1606913913,
+                "end_time": 1606913913,
+                "recurring": 0,
+                "comment": "a service downtime",
+                "fixed": 1,
+                "duration": 0,
+            },
+        ],
+    )
+
+    mock_livestatus.expect_query(
+        [
+            "GET downtimes",
+            _DOWNTIME_COLUMNS,
+            f"Filter: id = {downtime_id}",
+        ],
+        sites=["NO_SITE"],
+    )
+
+    with mock_livestatus:
+        resp = clients.Downtime.get(downtime_id=downtime_id, site_id="NO_SITE")
+        assert resp.json["extensions"]["mode"] == {"type": "fixed"}
+
+
+@pytest.mark.usefixtures("with_host")
+def test_openapi_downtime_mode_flexible(
+    clients: ClientRegistry, mock_livestatus: MockLiveStatusConnection
+) -> None:
+    downtime_id = 123
+    mock_livestatus.add_table(
+        "downtimes",
+        [
+            {
+                "id": downtime_id,
+                "host_name": "heute",
+                "service_description": "CPU load",
+                "is_service": 1,
+                "author": "random",
+                "start_time": 1606913913,
+                "end_time": 1606913913,
+                "recurring": 0,
+                "comment": "a service downtime",
+                "fixed": 0,
+                "duration": 3600,  # in seconds
+            },
+        ],
+    )
+
+    mock_livestatus.expect_query(
+        [
+            "GET downtimes",
+            _DOWNTIME_COLUMNS,
+            f"Filter: id = {downtime_id}",
+        ],
+        sites=["NO_SITE"],
+    )
+
+    with mock_livestatus:
+        resp = clients.Downtime.get(downtime_id=downtime_id, site_id="NO_SITE")
+        assert resp.json["extensions"]["mode"] == {
+            "type": "flexible",
+            "duration_minutes": 60,  # in minutes
+        }

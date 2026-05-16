@@ -12,16 +12,15 @@ import pytest
 from _pytest.monkeypatch import MonkeyPatch
 
 from cmk.ccc.hostaddress import HostName
+from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils.redis import disable_redis
-
 from cmk.gui.background_job._interface import BackgroundProcessInterface
 from cmk.gui.utils.script_helpers import gui_context
 from cmk.gui.watolib import check_mk_automations
 from cmk.gui.watolib.host_attributes import HostAttributes
 from cmk.gui.watolib.host_rename import perform_rename_hosts
 from cmk.gui.watolib.hosts_and_folders import folder_tree
+from cmk.utils.redis import disable_redis
 
 
 @pytest.fixture(autouse=True)
@@ -114,16 +113,41 @@ def test_rename_host(
         folder = (
             folder_tree()
             .root_folder()
-            .create_subfolder("some_subfolder", "Some Subfolder", {}, pprint_value=False)
+            .create_subfolder(
+                "some_subfolder", "Some Subfolder", {}, pprint_value=False, use_git=False
+            )
         )
     else:
         folder = folder_tree().root_folder()
-    folder.create_hosts(hosts_to_create, pprint_value=False)
+    folder.create_hosts(hosts_to_create, pprint_value=False, use_git=False)
 
     # WHEN
     perform_rename_hosts(
         renamings=[(folder, old, new) for old, new in renamings],
         job_interface=job_interface,
+        custom_user_attributes=[],
+        site_configs={
+            SiteId("NO_SITE"): {
+                "id": SiteId("NO_SITE"),
+                "alias": "Local site NO_SITE",
+                "socket": ("local", None),
+                "disable_wato": True,
+                "disabled": False,
+                "insecure": False,
+                "url_prefix": "/NO_SITE/",
+                "multisiteurl": "",
+                "persist": False,
+                "replicate_ec": False,
+                "replicate_mkps": False,
+                "replication": None,
+                "timeout": 5,
+                "user_login": True,
+                "proxy": None,
+                "user_sync": "all",
+                "status_host": None,
+                "message_broker_port": 5672,
+            }
+        },
         pprint_value=False,
         use_git=False,
         debug=False,

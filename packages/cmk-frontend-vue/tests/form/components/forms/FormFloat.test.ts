@@ -4,8 +4,10 @@
  * conditions defined in the file COPYING, which is part of this source code package.
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
-import FormFloat from '@/form/components/forms/FormFloat.vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
+import FormFloat from '@/form/components/forms/FormFloat.vue'
+
 import { renderFormWithData } from '../cmk-form-helper'
 
 const validators: FormSpec.Validator[] = [
@@ -21,7 +23,6 @@ const spec: FormSpec.Float = {
   type: 'float',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   validators: validators,
   label: 'fooLabel',
   unit: 'fooUnit',

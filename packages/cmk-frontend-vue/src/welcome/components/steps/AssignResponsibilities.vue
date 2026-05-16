@@ -1,0 +1,176 @@
+<!--
+Copyright (C) 2025 Checkmk GmbH - License: GNU General Public License v2
+This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+conditions defined in the file COPYING, which is part of this source code package.
+-->
+
+<script setup lang="ts">
+import type { WelcomeUrls } from 'cmk-shared-typing/typescript/welcome'
+import type { Ref } from 'vue'
+
+import usei18n from '@/lib/i18n.ts'
+import usePersistentRef from '@/lib/usePersistentRef.ts'
+
+import CmkAccordionStepPanelItem from '@/components/CmkAccordionStepPanel/CmkAccordionStepPanelItem.vue'
+import CmkLinkCard from '@/components/CmkLinkCard.vue'
+import CmkWizard from '@/components/CmkWizard/CmkWizard.vue'
+import CmkWizardButton from '@/components/CmkWizard/CmkWizardButton.vue'
+import CmkWizardStep from '@/components/CmkWizard/CmkWizardStep.vue'
+import CmkHeading from '@/components/typography/CmkHeading.vue'
+
+import StepCardsRow from '@/welcome/components/steps/components/StepCardsRow.vue'
+import StepParagraph from '@/welcome/components/steps/components/StepParagraph.vue'
+import { type StepId, markStepAsComplete } from '@/welcome/components/steps/utils.ts'
+
+const { _t } = usei18n()
+
+const props = defineProps<{
+  step: number
+  stepId: StepId
+  urls: WelcomeUrls
+  accomplished: boolean
+}>()
+
+const currentStep: Ref<number> = usePersistentRef<number>(`${props.stepId}-currentStep`, 0, 'local')
+</script>
+
+<template>
+  <CmkAccordionStepPanelItem
+    :step="step"
+    :disabled="false"
+    :accomplished="accomplished"
+    :title="_t('Assign responsibilities')"
+    :info="_t('5-7 min')"
+  >
+    <StepParagraph>
+      {{
+        _t(
+          `The recommended way to manage responsibilities in Checkmk is by using contact groups.
+            Contact groups can be assigned to users, hosts, and services, making them a flexible
+            and scalable tool for defining who is responsible for what.`
+        )
+      }}
+    </StepParagraph>
+
+    <CmkWizard v-model="currentStep" mode="guided">
+      <CmkWizardStep :index="0" :is-completed="() => currentStep >= 0">
+        <template #header>
+          <CmkHeading type="h3">{{ _t('Create a contact group') }}</CmkHeading>
+        </template>
+        <template v-if="currentStep === 0" #content>
+          <StepParagraph>
+            {{ _t('By default, there is one contact group available, called "Everything".') }}
+            <br />
+            {{ _t('Go to Setup > Users > Contact groups to create or edit contact groups.') }}
+          </StepParagraph>
+          <StepCardsRow>
+            <CmkLinkCard
+              icon-name="contactgroups"
+              :title="_t('Contact groups')"
+              :url="urls.create_contactgroups"
+              :open-in-new-tab="false"
+            />
+          </StepCardsRow>
+        </template>
+        <template #actions>
+          <CmkWizardButton type="next" />
+        </template>
+      </CmkWizardStep>
+
+      <CmkWizardStep :index="1" :is-completed="() => currentStep >= 1">
+        <template #header>
+          <CmkHeading type="h3">{{ _t('Assign users to a contact group') }}</CmkHeading>
+        </template>
+        <template v-if="currentStep === 1" #content>
+          <StepParagraph>
+            {{
+              _t(
+                'Each user can belong to multiple contact groups. You can assign them to contact groups in the "Contact groups" section when editing or creating a user.'
+              )
+            }}
+          </StepParagraph>
+          <StepCardsRow>
+            <CmkLinkCard
+              icon-name="users"
+              :title="_t('Users')"
+              :url="urls.users"
+              :open-in-new-tab="false"
+            />
+          </StepCardsRow>
+        </template>
+        <template #actions>
+          <CmkWizardButton type="next" />
+          <CmkWizardButton type="previous" />
+        </template>
+      </CmkWizardStep>
+
+      <CmkWizardStep :index="2" :is-completed="() => currentStep >= 2">
+        <template #header>
+          <CmkHeading type="h3">{{ _t('Assign the contact group to hosts') }}</CmkHeading>
+        </template>
+        <template v-if="currentStep === 2" #content>
+          <StepParagraph>
+            {{
+              _t(
+                'There are two options available for assigning hosts to contact groups. Either make a direct assignment when creating or editing hosts, or use a rule.'
+              )
+            }}
+            <br />
+            {{
+              _t(
+                'We recommend using the latter, as rules can adapt more easily to changes in your environment.'
+              )
+            }}
+          </StepParagraph>
+          <StepCardsRow>
+            <CmkLinkCard
+              icon-name="assign"
+              :title="_t('Assignment of hosts to contact groups')"
+              :url="urls.assign_host_to_contactgroups"
+              :open-in-new-tab="false"
+            />
+          </StepCardsRow>
+        </template>
+        <template #actions>
+          <CmkWizardButton type="next" />
+          <CmkWizardButton type="previous" />
+        </template>
+      </CmkWizardStep>
+
+      <CmkWizardStep :index="3" :is-completed="() => currentStep >= 3">
+        <template #header>
+          <CmkHeading type="h3">{{ _t('Activate changes') }}</CmkHeading>
+        </template>
+        <template v-if="currentStep === 3" #content>
+          <StepParagraph>
+            {{
+              _t(
+                `Changes are saved in a temporary environment first,
+                letting you review and adjust them safely.`
+              )
+            }}
+            <br />
+            {{ _t('Activate changes to apply them to live monitoring.') }}
+          </StepParagraph>
+          <StepCardsRow>
+            <CmkLinkCard
+              icon-name="main_changes"
+              :title="_t('Activate changes')"
+              :url="urls.activate_changes"
+              :open-in-new-tab="false"
+            />
+          </StepCardsRow>
+        </template>
+        <template #actions>
+          <CmkWizardButton
+            v-if="!accomplished && stepId"
+            type="finish"
+            :override-label="_t('Mark as complete')"
+            @click="markStepAsComplete(urls.mark_step_completed, stepId)"
+          />
+          <CmkWizardButton type="previous" />
+        </template>
+      </CmkWizardStep>
+    </CmkWizard>
+  </CmkAccordionStepPanelItem>
+</template>

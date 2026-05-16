@@ -3,10 +3,12 @@
  * This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
  * conditions defined in the file COPYING, which is part of this source code package.
  */
-import { fireEvent, waitFor, render, screen } from '@testing-library/vue'
-import FormDictionary from '@/form/components/forms/FormDictionary.vue'
-import FormEdit from '@/form/components/FormEdit.vue'
+import { fireEvent, render, screen, waitFor } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
+import FormEdit from '@/form/components/FormEdit.vue'
+import FormDictionary from '@/form/components/forms/FormDictionary/FormDictionary.vue'
+
 import { renderFormWithData } from '../cmk-form-helper'
 
 const stringValidators: FormSpec.Validator[] = [
@@ -23,7 +25,6 @@ const stringFormSpec: FormSpec.String = {
   title: 'barTitle',
   help: 'barHelp',
   label: 'barLabel',
-  i18n_base: { required: 'required' },
   validators: stringValidators,
   input_hint: '',
   autocompleter: null,
@@ -41,8 +42,6 @@ const spec: FormSpec.Dictionary = {
   type: 'dictionary',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
-  layout: 'one_column',
   validators: [],
   groups: [],
   additional_static_elements: null,
@@ -158,7 +157,6 @@ test('FormDictionary renders required only once depending on label presence', as
     title: 'optionalTitle',
     help: 'optionalHelp',
     label: 'optionalLabel',
-    i18n_base: { required: 'required' },
     validators: stringValidators,
     input_hint: '',
     autocompleter: null,
@@ -170,7 +168,6 @@ test('FormDictionary renders required only once depending on label presence', as
     title: 'optionalUnlabeledTitle',
     help: 'optionalUnlabeledHelp',
     label: null,
-    i18n_base: { required: 'required' },
     validators: stringValidators,
     input_hint: '',
     autocompleter: null,
@@ -182,7 +179,6 @@ test('FormDictionary renders required only once depending on label presence', as
     title: 'reqLabeledTitle',
     help: 'reqLabeledHelp',
     label: 'reqLabeledLabel',
-    i18n_base: { required: 'required' },
     validators: stringValidators,
     input_hint: '',
     autocompleter: null,
@@ -194,7 +190,6 @@ test('FormDictionary renders required only once depending on label presence', as
     title: 'reqTitle',
     help: 'reqHelp',
     label: null,
-    i18n_base: { required: 'required' },
     validators: stringValidators,
     input_hint: '',
     autocompleter: null,
@@ -205,8 +200,6 @@ test('FormDictionary renders required only once depending on label presence', as
     type: 'dictionary',
     title: 'fooTitle',
     help: 'fooHelp',
-    i18n_base: { required: 'required' },
-    layout: 'one_column',
     validators: [],
     groups: [],
     additional_static_elements: null,
@@ -280,9 +273,7 @@ test('FormDictionary appends default of required element if missing in data', as
     spec: {
       type: 'dictionary',
       title: 'fooTitle',
-      layout: 'one_column',
       help: 'fooHelp',
-      i18n_base: { required: 'required' },
       groups: [],
       validators: [],
       no_elements_text: 'no_text',
@@ -327,9 +318,7 @@ test('FormDictionary reads new defaultValue on updated spec', async () => {
     return {
       type: 'dictionary',
       title: 'fooTitle',
-      layout: 'one_column',
       help: 'fooHelp',
-      i18n_base: { required: 'required' },
       groups: [],
       validators: [],
       additional_static_elements: null,
@@ -366,9 +355,7 @@ test('FormDictionary is able to be rerenderd: static value', async () => {
     return {
       type: 'dictionary',
       title: 'fooTitle',
-      layout: 'one_column',
       help: 'fooHelp',
-      i18n_base: { required: 'required' },
       additional_static_elements: staticElements,
       no_elements_text: 'no_text',
       groups: [],
@@ -413,8 +400,6 @@ test('Default values of dict elements dont influence each other', async () => {
     type: 'dictionary',
     title: 'dictTitle',
     help: 'fooHelp',
-    i18n_base: { required: 'required' },
-    layout: 'one_column',
     validators: [],
     groups: [],
     no_elements_text: 'no_text',

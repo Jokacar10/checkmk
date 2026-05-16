@@ -15,17 +15,16 @@ import flask
 from flask import Flask
 from flask.sessions import SessionInterface, SessionMixin
 
+from cmk import trace
 from cmk.ccc.exceptions import MKException
 from cmk.ccc.site import omd_site
 from cmk.ccc.user import UserId
-
-from cmk.utils.log.security_event import log_security_event
-
 from cmk.gui import config, userdb
 from cmk.gui.auth import (
     check_auth,
     parse_and_check_cookie,
 )
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKAuthException
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import LoggedInNobody, LoggedInRemoteSite, LoggedInSuperUser, LoggedInUser
@@ -36,10 +35,10 @@ from cmk.gui.userdb.session import auth_cookie_value
 from cmk.gui.userdb.store import convert_idle_timeout, load_custom_attr
 from cmk.gui.utils import roles
 from cmk.gui.utils.flashed_messages import MsgType
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.security_log_events import AuthenticationSuccessEvent
 from cmk.gui.wsgi.utils import dict_property
-
-from cmk import trace
+from cmk.utils.log.security_event import log_security_event
 
 tracer = trace.get_tracer()
 
@@ -49,6 +48,7 @@ class CheckmkFileBasedSession(dict, SessionMixin):
     session_info = dict_property[SessionInfo]()
     exc = dict_property[MKException | None](default=None)
     is_gui_session = dict_property[bool](default=True)
+    is_secure = dict_property[bool](default=False)
 
     def update_cookie(self) -> None:
         # Cookies only get set when the session is new, so we make ourselves new again.
@@ -119,12 +119,14 @@ class CheckmkFileBasedSession(dict, SessionMixin):
         cls,
         user_name: UserId,
         auth_type: AuthType,
+        secure_flag: bool,
     ) -> CheckmkFileBasedSession:
         sess = cls()
         sess.initialize(
             user_name,
             auth_type,
         )
+        sess.is_secure = secure_flag
         return sess
 
     @classmethod
@@ -182,9 +184,10 @@ class CheckmkFileBasedSession(dict, SessionMixin):
         return sess
 
     @tracer.instrument("CheckmkFileBas.login")
-    def login(self, user_obj: LoggedInUser) -> None:
+    def login(self, user_obj: LoggedInUser, secure_flag: bool) -> None:
         userdb.session.on_succeeded_login(user_obj.ident, datetime.now())
         self.user = user_obj
+        self.is_secure = secure_flag
 
     def persist(self) -> None:
         """Save the session as "session_info" custom user attribute"""
@@ -274,10 +277,10 @@ class CheckmkFileBasedSession(dict, SessionMixin):
             and not self.session_info.two_factor_completed
         )
 
-    def two_factor_enforced(self) -> bool:
+    def two_factor_enforced(self, user_permissions: UserPermissions) -> bool:
         return (
             config.active_config.require_two_factor_all_users
-            or roles.is_two_factor_required(logged_in_user.ident)
+            or roles.is_two_factor_required(user_permissions, logged_in_user.ident)
         ) and not self.session_info.two_factor_completed
 
 
@@ -331,13 +334,15 @@ class FileBasedSession(SessionInterface):
             return None
         return sess
 
-    def _authenticate_and_open(self, app: Flask, request: flask.Request) -> CheckmkFileBasedSession:
+    def _authenticate_and_open(
+        self, app: Flask, request: flask.Request, config: Config
+    ) -> CheckmkFileBasedSession:
         """Authenticate and open new session
 
         try to authenticate a request based on headers, password login is
         handled in login.py"""
 
-        identity, auth_type = check_auth()
+        identity, auth_type = check_auth(config)
 
         if isinstance(identity, PseudoUserId):
             return self.session_class.create_pseudo_user_session(identity)
@@ -359,7 +364,7 @@ class FileBasedSession(SessionInterface):
 
         self.update_last_login(user_name, auth_type, request)
 
-        return self.session_class.create_session(user_name, auth_type)
+        return self.session_class.create_session(user_name, auth_type, request.is_secure)
 
     def update_last_login(
         self, userid: UserId, auth_type: AuthType, request: flask.Request
@@ -378,7 +383,9 @@ class FileBasedSession(SessionInterface):
         config.initialize()
 
         try:
-            return self._resume_session(app, request) or self._authenticate_and_open(app, request)
+            return self._resume_session(app, request) or self._authenticate_and_open(
+                app, request, config.active_config
+            )
         except MKAuthException as exc:
             return self.session_class.create_empty_session(exc=exc)
 
@@ -401,7 +408,7 @@ class FileBasedSession(SessionInterface):
         cookie_name = self.get_cookie_name(app)
         domain = self.get_cookie_domain(app)
         path = self.get_cookie_path(app)
-        secure = self.get_cookie_secure(app)
+        secure = session.is_secure
         expires = self.get_expiration_time(app, session)
 
         if not self.should_set_cookie(app, session):

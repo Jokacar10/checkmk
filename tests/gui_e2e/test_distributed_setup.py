@@ -5,7 +5,6 @@
 
 """This test module verifies the distributed monitoring setup through the GUI."""
 
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -14,20 +13,21 @@ from playwright.sync_api import Page
 
 from tests.gui_e2e.testlib.host_details import AddressFamily, AgentAndApiIntegration, HostDetails
 from tests.gui_e2e.testlib.playwright.helpers import CmkCredentials
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard
 from tests.gui_e2e.testlib.playwright.pom.login import LoginPage
 from tests.gui_e2e.testlib.playwright.pom.monitor.all_hosts import AllHosts
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard
 from tests.gui_e2e.testlib.playwright.pom.setup.distributed_monitoring import (
     DistributedMonitoring,
 )
 from tests.gui_e2e.testlib.playwright.pom.setup.hosts import HostProperties
 from tests.testlib.pytest_helpers.calls import exit_pytest_on_exceptions
 from tests.testlib.site import Site, SiteFactory
+from tests.testlib.utils import is_cleanup_enabled
 
 
 @contextmanager
 def _configure_a_host_to_be_deleted(
-    dashboard_page: Dashboard, central_site: Site, remote_site: Site
+    dashboard_page: MainDashboard, central_site: Site, remote_site: Site
 ) -> Iterator[HostDetails]:
     """Context Manager to configure a host to be deleted on exit.
 
@@ -86,23 +86,33 @@ def fixture_remote_site(
     request: pytest.FixtureRequest, site_factory: SiteFactory
 ) -> Iterator[Site]:
     """Return the remote Checkmk site object."""
+
     with exit_pytest_on_exceptions(
         exit_msg=f"Failure in site creation using fixture '{__file__}::{request.fixturename}'!"
     ):
-        yield from site_factory.get_test_site(name="remote")
+        with site_factory.get_test_site_ctx(name="remote") as _remote_site:
+            yield _remote_site
+
+            # Cleanup: Remove files to unlock local setup again in remote site.
+            for file_to_delete in (
+                "etc/check_mk/multisite.d/wato/sitespecific.mk",
+                "etc/check_mk/conf.d/distributed_wato.mk",
+            ):
+                if _remote_site.file_exists(file_to_delete):
+                    _remote_site.delete_file(file_to_delete)
 
 
 def test_remote_host_configuring(
-    dashboard_page: Dashboard, test_site: Site, credentials: CmkCredentials, remote_site: Site
+    dashboard_page: MainDashboard, test_site: Site, credentials: CmkCredentials, remote_site: Site
 ) -> None:
     """Test distributed monitoring setup and verify it creating a host.
 
-    This test performs the following steps:
-    1. Configure the remote site in the distributed monitoring setup of the central site.
-    2. Activate changes and ensure the remote site is online.
-    3. Add a host to the remote site from the central site.
-    4. Verify that the host is being monitored from the remote site.
-    5. Clean up the distributed monitoring setup by removing all site connections.
+    Steps:
+        1. Configure the remote site in the distributed monitoring setup of the central site.
+        2. Activate changes and ensure the remote site is online.
+        3. Add a host to the remote site from the central site.
+        4. Verify that the host is being monitored from the remote site.
+        5. Clean up the distributed monitoring setup by removing all site connections.
     """
     try:
         distributed_monitoring_page = DistributedMonitoring(dashboard_page.page)
@@ -126,7 +136,7 @@ def test_remote_host_configuring(
             )
 
     finally:
-        if os.getenv("CLEANUP", "1") == "1":
+        if is_cleanup_enabled():
             distributed_monitoring_page.navigate()
             if distributed_monitoring_page.clean_all_site_connections() > 0:
                 distributed_monitoring_page.activate_changes(test_site)

@@ -10,10 +10,7 @@ import subprocess
 from contextlib import suppress
 from typing import Final
 
-from cmk.ccc.exceptions import MKFetcherError
-
-from cmk.utils.agentdatatype import AgentRawData
-from cmk.utils.log import VERBOSE
+from cmk.helper_interface import AgentRawData, FetcherError
 
 from ._abstract import Fetcher, Mode
 
@@ -109,7 +106,7 @@ class ProgramFetcher(Fetcher[AgentRawData]):
         self._process = None
 
     def _fetch_from_io(self, mode: Mode) -> AgentRawData:
-        self._logger.log(VERBOSE, "Get data from program")
+        self._logger.debug("Get data from program")
         if self._process is None:
             raise TypeError("no process")
         # ? do they have the default byte type, because in open() none of the "text", "encoding",
@@ -119,9 +116,9 @@ class ProgramFetcher(Fetcher[AgentRawData]):
         )
         if self._process.returncode == 127:
             exepath = self.cmdline.split()[0]  # for error message, hide options!
-            raise MKFetcherError(f"Program '{exepath}' not found (exit code 127)")
+            raise FetcherError(f"Program '{exepath}' not found (exit code 127)")
         if self._process.returncode:
-            raise MKFetcherError(
+            raise FetcherError(
                 f"Agent exited with code {self._process.returncode}: {stderr.decode().strip()}"
             )
         return stdout

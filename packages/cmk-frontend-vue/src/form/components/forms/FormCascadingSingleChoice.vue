@@ -4,24 +4,27 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { computed, ref, watch, toRaw } from 'vue'
-
-import CmkDropdown from '@/components/CmkDropdown.vue'
-import CmkSpace from '@/components/CmkSpace.vue'
-import HelpText from '@/components/HelpText.vue'
-import ToggleButtonGroup from '@/components/ToggleButtonGroup.vue'
-import FormValidation from '@/form/components/FormValidation.vue'
-import { validateValue, type ValidationMessages } from '@/form/components/utils/validation'
 import type {
   CascadingSingleChoice,
   CascadingSingleChoiceElement,
   FormSpec
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { useFormEditDispatcher } from '@/form/private'
-import { useId } from '@/form/utils'
+import { computed, ref, toRaw, watch } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
 import { immediateWatch } from '@/lib/watch'
-import FormLabel from '@/form/private/FormLabel.vue'
+
+import CmkDropdown from '@/components/CmkDropdown.vue'
 import FormIndent from '@/components/CmkIndent.vue'
+import CmkSpace from '@/components/CmkSpace.vue'
+import HelpText from '@/components/HelpText.vue'
+import ToggleButtonGroup from '@/components/ToggleButtonGroup.vue'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, validateValue } from '@/form/components/utils/validation'
+import { useFormEditDispatcher } from '@/form/private'
+import FormLabel from '@/form/private/FormLabel.vue'
+import { useId } from '@/form/utils'
 
 const props = defineProps<{
   spec: CascadingSingleChoice
@@ -122,8 +125,8 @@ const { FormEditDispatcher } = useFormEditDispatcher()
 
 <template>
   <div
-    class="form_cascading_single_choice"
-    :class="{ form_cascading_single_choice__horizontal: props.spec.layout === 'horizontal' }"
+    class="form-cascading-single-choice"
+    :class="{ 'form-cascading-single-choice__horizontal': props.spec.layout === 'horizontal' }"
   >
     <div>
       <FormLabel v-if="$props.spec.label" :for="componentId">
@@ -135,7 +138,7 @@ const { FormEditDispatcher } = useFormEditDispatcher()
         <ToggleButtonGroup
           v-model="selectedOption"
           :options="buttonGroupButtons"
-          class="form_cascading_single_choice__button_group"
+          class="form-cascading-single-choice__button-group"
         />
       </template>
       <template v-else>
@@ -144,17 +147,20 @@ const { FormEditDispatcher } = useFormEditDispatcher()
           :component-id="componentId"
           :options="{
             type: spec.elements.length > FILTER_SHOW_THRESHOLD ? 'filtered' : 'fixed',
-            suggestions: spec.elements
+            suggestions: spec.elements.map((element) => ({
+              name: element.name,
+              title: untranslated(element.title)
+            }))
           }"
-          :no-elements-text="spec.no_elements_text"
-          :required-text="props.spec.i18n_base.required"
-          :input-hint="props.spec.input_hint || ''"
-          :label="props.spec.label || props.spec.title"
+          :no-elements-text="untranslated(spec.no_elements_text)"
+          :input-hint="untranslated(props.spec.input_hint || '')"
+          :label="untranslated(props.spec.label || props.spec.title)"
+          required
         />
       </template>
       <template v-if="activeElement !== null">
         <CmkSpace size="small" />
-        <HelpText :help="activeElement.spec.help" />
+        <HelpText :help="untranslated(activeElement.spec.help)" />
       </template>
     </div>
     <CmkSpace v-if="props.spec.layout === 'horizontal'" :size="'medium'" />
@@ -175,15 +181,15 @@ const { FormEditDispatcher } = useFormEditDispatcher()
 </template>
 
 <style scoped>
-.form_cascading_single_choice {
+.form-cascading-single-choice {
   display: flex;
   flex-direction: column;
 
-  &.form_cascading_single_choice__horizontal {
+  &.form-cascading-single-choice__horizontal {
     flex-direction: row;
   }
 
-  .form_cascading_single_choice__button_group {
+  .form-cascading-single-choice__button-group {
     display: inline-block;
   }
 }

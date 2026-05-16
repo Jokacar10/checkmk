@@ -7,17 +7,16 @@ conditions defined in the file COPYING, which is part of this source code packag
 import type {
   Dictionary,
   DictionaryElement,
-  I18NFormSpecBase,
   TopicGroup
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
+
 import { type ValidationMessages } from '@/form/components/utils/validation'
-import { useId } from '@/form/utils'
 import { useFormEditDispatcher } from '@/form/private'
+import { useId } from '@/form/utils'
 
 const props = defineProps<{
   elements: TopicGroup[]
   backendValidation: ValidationMessages
-  i18nBase: I18NFormSpecBase
 }>()
 
 const data = defineModel<Record<string, unknown>>('data', { required: true })
@@ -28,12 +27,10 @@ function convertToDictionarySpec(topicGroup: TopicGroup): Dictionary {
     type: 'dictionary',
     title: topicGroup.title,
     help: '',
-    layout: 'one_column',
     additional_static_elements: [],
     validators: [],
     groups: [],
     no_elements_text: '',
-    i18n_base: props.i18nBase,
     elements: topicGroup.elements.map((element): DictionaryElement => {
       return {
         name: element.name,
@@ -75,11 +72,14 @@ tr {
   padding-bottom: 4px;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 td.group_title {
   width: 240px;
   min-width: 240px;
   max-width: 240px;
   vertical-align: top;
+
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   span.fixed_content_width {
     width: 230px;
     display: inline-block;
@@ -88,6 +88,7 @@ td.group_title {
   }
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 td.value {
   width: 100%;
   vertical-align: top;

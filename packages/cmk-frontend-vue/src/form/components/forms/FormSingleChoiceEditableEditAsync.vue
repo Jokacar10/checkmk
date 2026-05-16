@@ -9,15 +9,19 @@ import type {
   ValidationMessage
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
 import { ref, toRaw } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
+import { immediateWatch } from '@/lib/watch'
+
+import CmkAlertBox from '@/components/CmkAlertBox.vue'
+import CmkButtonCancel from '@/components/CmkButtonCancel.vue'
+import CmkButtonSubmit from '@/components/CmkButtonSubmit.vue'
+import CmkDialog from '@/components/CmkDialog.vue'
 import CmkIcon from '@/components/CmkIcon.vue'
 import CmkSpace from '@/components/CmkSpace.vue'
-import CmkButtonSubmit from '@/components/CmkButtonSubmit.vue'
-import CmkButtonCancel from '@/components/CmkButtonCancel.vue'
-import CmkAlertBox from '@/components/CmkAlertBox.vue'
 import { useErrorBoundary } from '@/components/useErrorBoundary'
-import { immediateWatch } from '@/lib/watch'
+
 import { useFormEditDispatcher } from '@/form/private'
-import CmkDialog from '@/components/CmkDialog.vue'
 
 export type Payload = Record<string, unknown>
 
@@ -102,16 +106,17 @@ const { ErrorBoundary } = useErrorBoundary()
 </script>
 
 <template>
-  <div class="edit-object__wrapper">
+  <div class="form-single-choice-editable-edit-async__wrapper">
     <ErrorBoundary>
       <CmkDialog
-        :message="props.i18n.permanent_choice_warning"
+        class="form-single-choice-editable-edit-async__dialog"
+        :message="untranslated(props.i18n.permanent_choice_warning)"
         :dismissal_button="{
-          title: props.i18n.permanent_choice_warning_dismissal,
+          title: untranslated(props.i18n.permanent_choice_warning_dismissal),
           key: DISMISSAL_KEY
         }"
       />
-      <div class="edit-object__buttons">
+      <div class="form-single-choice-editable-edit-async__buttons">
         <CmkButtonSubmit @click="save">
           {{
             objectId === undefined ? props.i18n.create_button : props.i18n.save_button
@@ -139,12 +144,17 @@ const { ErrorBoundary } = useErrorBoundary()
 </template>
 
 <style scoped>
-.edit-object__wrapper {
+.form-single-choice-editable-edit-async__wrapper {
   display: flex;
   flex-direction: column;
   height: 100%;
 }
-.edit-object__buttons {
+
+.form-single-choice-editable-edit-async__dialog {
+  margin: 8px 0 24px;
+}
+
+.form-single-choice-editable-edit-async__buttons {
   margin-bottom: 1em;
 }
 </style>

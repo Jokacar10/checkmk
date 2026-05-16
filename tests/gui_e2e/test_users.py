@@ -10,20 +10,21 @@ import pytest
 from playwright.sync_api import BrowserContext, Page
 
 from tests.gui_e2e.testlib.playwright.helpers import CmkCredentials
-from tests.gui_e2e.testlib.playwright.pom.dashboard import Dashboard, ProblemDashboard
 from tests.gui_e2e.testlib.playwright.pom.login import LoginPage
+from tests.gui_e2e.testlib.playwright.pom.monitor.dashboard import MainDashboard, ProblemDashboard
 from tests.gui_e2e.testlib.playwright.pom.setup.edit_role import EditRole, RoleData
 from tests.gui_e2e.testlib.playwright.pom.setup.roles_and_permissions import RolesAndPermissions
 from tests.gui_e2e.testlib.playwright.pom.setup.user import AddUser, EditUser, UserData
 from tests.gui_e2e.testlib.playwright.pom.setup.users import Users
 from tests.testlib.site import Site
+from tests.testlib.utils import is_cleanup_enabled
 
 logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(name="new_role")
 def create_new_role_by_cloning(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     request: pytest.FixtureRequest,
     test_site: Site,
 ) -> Iterator[RoleData]:
@@ -53,14 +54,15 @@ def create_new_role_by_cloning(
     edit_role_page.alias_text_field.fill(role_data.alias)
     edit_role_page.save_button.click()
     yield role_data
-    roles_and_permissions_page.navigate()
-    roles_and_permissions_page.delete_role(role_data.role_id)
-    roles_and_permissions_page.activate_changes(test_site)
+    if is_cleanup_enabled():
+        roles_and_permissions_page.navigate()
+        roles_and_permissions_page.delete_role(role_data.role_id, test_site.openapi.user_role)
+        roles_and_permissions_page.activate_changes(test_site)
 
 
 @pytest.fixture(name="new_user")
 def create_new_user(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     request: pytest.FixtureRequest,
     test_site: Site,
 ) -> Iterator[UserData]:
@@ -77,9 +79,10 @@ def create_new_user(
     add_user_page.fill_users_data(user_data)
     add_user_page.save_button.click()
     yield user_data
-    users_page = Users(dashboard_page.page)
-    users_page.delete_user(user_data.user_id)
-    users_page.activate_changes(test_site)
+    if is_cleanup_enabled():
+        users_page = Users(dashboard_page.page)
+        users_page.delete_user(user_data.user_id, test_site.openapi.users)
+        users_page.activate_changes(test_site)
 
 
 @pytest.mark.parametrize(
@@ -94,7 +97,7 @@ def create_new_user(
     indirect=True,
 )
 def test_delete_role_in_use(
-    dashboard_page: Dashboard, new_role: RoleData, new_user: UserData
+    dashboard_page: MainDashboard, new_role: RoleData, new_user: UserData
 ) -> None:
     """Test that a role in use cannot be deleted.
 
@@ -121,7 +124,7 @@ def test_delete_role_in_use(
     indirect=True,
 )
 def test_locked_user(
-    dashboard_page: Dashboard,
+    dashboard_page: MainDashboard,
     new_browser_context_and_page: tuple[BrowserContext, Page],
     new_user: UserData,
     test_site: Site,
@@ -139,7 +142,8 @@ def test_locked_user(
     login_page = LoginPage(new_page, test_site.internal_url)
     logger.info("As '%s': login", user_data.user_id)
     login_page.login(new_user_credentials)
-    problem_dashboard_page = ProblemDashboard(login_page.page, navigate_to_page=False)
+    # TODO: add test validating non-admin user's default dashboard.
+    problem_dashboard_page = ProblemDashboard(login_page.page)
 
     logger.info("As cmkadmin: lock the user '%s'", user_data.user_id)
     edit_user_page = EditUser(dashboard_page.page, user_data.user_id)

@@ -6,11 +6,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal, NotRequired, TypedDict
 
-from cmk.utils import paths
-
 from cmk.gui.groups import AllGroupSpecs, GroupName, GroupSpec, GroupSpecs
 from cmk.gui.hooks import request_memoize
 from cmk.gui.watolib.simple_config_file import ConfigFileRegistry, WatoMultiConfigFile
+from cmk.utils import paths
 
 NothingOrChoices = Literal["nothing"] | tuple[Literal["choices"], Sequence[str]]
 
@@ -37,6 +36,7 @@ class GroupConfig(TypedDict):
 
 class ContactGroupConfig(GroupConfig):
     inventory_paths: NotRequired[InventoryPaths]
+    nagvis_maps: NotRequired[list[str]]
 
 
 class GroupConfigs(TypedDict):

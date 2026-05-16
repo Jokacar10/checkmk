@@ -5,13 +5,17 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import type { DataSize } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { useValidation, type ValidationMessages } from '@/form/components/utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
-import { useId } from '@/form/utils'
+import { computed } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
+
 import CmkDropdown from '@/components/CmkDropdown.vue'
 import CmkSpace from '@/components/CmkSpace.vue'
-import { computed } from 'vue'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages, useValidation } from '@/form/components/utils/validation'
 import FormLabel from '@/form/private/FormLabel.vue'
+import { useId } from '@/form/utils'
 
 const props = defineProps<{
   spec: DataSize
@@ -31,7 +35,7 @@ const magnitudeOptions = computed(() => {
   return props.spec.displayed_magnitudes.map((element: string) => {
     return {
       name: element,
-      title: element
+      title: untranslated(element)
     }
   })
 })
@@ -52,23 +56,26 @@ const magnitudeOptions = computed(() => {
   <CmkDropdown
     v-model:selected-option="value[1]"
     :options="{ type: 'fixed', suggestions: magnitudeOptions }"
-    :label="spec.i18n.choose_unit"
+    :label="untranslated(spec.i18n.choose_unit)"
   />
   <FormValidation :validation="validation"></FormValidation>
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .no-spinner::-webkit-outer-spin-button,
 .no-spinner::-webkit-inner-spin-button {
-  -webkit-appearance: none;
+  appearance: none;
   margin: 0;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 input.number {
   width: 5.8ex;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .no-spinner[type='number'] {
-  -moz-appearance: textfield;
+  appearance: textfield;
 }
 </style>

@@ -33,12 +33,13 @@ $(DEPS_INSTALL_BAZEL):
 	#       resulting in different builds
 	# IMPORTANT: Keep the executio log file name in sync with what bazel_logs.groovy cleans-up.
 	# TODO: Find a better way to sync the generation and its clean up.
-	bazel build --cmk_version=$(VERSION) --cmk_edition=$(EDITION_SHORT) --cmk_distro=$(shell echo $(DISTRO_NAME)-$(DISTRO_VERSION) | tr A-Z a-z) \
+	bazel build --cmk_version=$(VERSION) --cmk_edition=$(EDITION_SHORT) \
 	    $(if $(filter sles15%,$(DISTRO_CODE)),--define git-ssl-no-verify=true) \
+	    $(if $(filter cre,$(EDITION_SHORT)),--//:repo_license="gpl") \
 	    --execution_log_json_file="$(REPO_PATH)/deps_install.json" \
 	    //omd:deps_install_$(EDITION_SHORT)
-	$(MKDIR) $(DESTDIR)$(OMD_ROOT)
-	tar -C $(DESTDIR)$(OMD_ROOT) -xf $(BAZEL_BIN)/omd/deps_install_$(EDITION_SHORT).tar.gz
+	$(MKDIR) $(DESTDIR)
+	tar -C $(DESTDIR) -xf $(BAZEL_BIN)/omd/deps_install_$(EDITION_SHORT).tar.xz
 
 	#TODO: The following code should be executed by Bazel instead of make
 	# Fix sysconfigdata
@@ -182,14 +183,9 @@ debug:
 # Include rules to make packages
 include \
     packages/apache-omd/apache-omd.make \
-    packages/cpp-libs/cpp-libs.make \
     packages/check_mk/check_mk.make \
-    packages/check-cert/check-cert.make \
-    packages/heirloom-mailx/heirloom-mailx.make \
-    packages/pnp4nagios/pnp4nagios.make \
     packages/omd/omd.make \
     packages/appliance/appliance.make \
-    packages/xmlsec1/xmlsec1.make \
 
 ifeq ($(EDITION),enterprise)
 include \
@@ -213,8 +209,4 @@ include \
     packages/enterprise/enterprise.make \
     packages/cloud/cloud.make \
     packages/saas/saas.make
-else
-# Ship nagvis for all but saas edition: CMK-14926
-include \
-    packages/nagvis/nagvis.make
 endif

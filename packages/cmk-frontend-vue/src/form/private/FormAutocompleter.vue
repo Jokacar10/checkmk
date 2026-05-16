@@ -4,14 +4,19 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import CmkDropdown from '@/components/CmkDropdown.vue'
 import type { Autocompleter } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { type Suggestion, ErrorResponse, Response } from '@/components/suggestions'
+
+import { untranslated } from '@/lib/i18n'
+import type { TranslatedString } from '@/lib/i18nString'
+
+import CmkDropdown from '@/components/CmkDropdown.vue'
+import { ErrorResponse, Response, type Suggestion } from '@/components/suggestions'
+
 import { fetchSuggestions } from '@/form/components/utils/autocompleter'
 
 const props = defineProps<{
   id?: string
-  placeholder: string
+  placeholder: TranslatedString
   autocompleter?: Autocompleter
   filter?: (element: Suggestion) => boolean
   startOfGroup?: boolean
@@ -48,7 +53,7 @@ async function suggestionCallback(query: string): Promise<ErrorResponse | Respon
     v-model:selected-option="model"
     :options="{ type: 'callback-filtered', querySuggestions: suggestionCallback }"
     :input-hint="placeholder"
-    :label="label || ''"
+    :label="untranslated(label || '')"
     :start-of-group="startOfGroup || false"
     width="wide"
   />

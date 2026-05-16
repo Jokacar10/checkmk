@@ -7,24 +7,23 @@
 import base64
 import time
 import traceback
-from collections.abc import Collection, Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from typing import cast, Literal, overload
 
 from cmk.ccc.user import UserId
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils import paths, render
-
+from cmk.crypto.password import Password, PasswordPolicy
 from cmk.gui import background_job, forms, gui_background_job, userdb
 from cmk.gui.background_job import JobTarget
 from cmk.gui.breadcrumb import Breadcrumb, BreadcrumbItem
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.customer import ABCCustomerAPI, customer_api
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request
-from cmk.gui.i18n import _, _u, get_language_alias, get_languages, is_community_translation
+from cmk.gui.i18n import _, _u, get_language_alias, get_languages
+from cmk.gui.ldap.ldap_connector import LDAPUserConnector
 from cmk.gui.log import logger
 from cmk.gui.logged_in import user
 from cmk.gui.page_menu import (
@@ -38,8 +37,10 @@ from cmk.gui.page_menu import (
     PageMenuSearch,
     PageMenuTopic,
 )
+from cmk.gui.permissions import permission_registry
 from cmk.gui.table import show_row_count, table_element
-from cmk.gui.type_defs import ActionResult, Choices, PermissionName, UserObject, UserSpec
+from cmk.gui.type_defs import ActionResult, Choices, CustomUserAttrSpec, PermissionName, UserSpec
+from cmk.gui.user_connection_config_types import UserConnectionConfig
 from cmk.gui.user_sites import get_configured_site_choices
 from cmk.gui.userdb import (
     active_connections,
@@ -53,13 +54,12 @@ from cmk.gui.userdb import (
     UserConnector,
 )
 from cmk.gui.userdb.htpasswd import hash_password
-from cmk.gui.userdb.ldap_connector import LDAPUserConnector
 from cmk.gui.userdb.user_sync_job import sync_entry_point, UserSyncArgs, UserSyncBackgroundJob
 from cmk.gui.utils.csrf_token import check_csrf_token
 from cmk.gui.utils.flashed_messages import flash
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.ntop import get_ntop_connection_mandatory, is_ntop_available
-from cmk.gui.utils.roles import user_may
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.selection_id import SelectionId
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import (
@@ -86,6 +86,7 @@ from cmk.gui.watolib.sites import ldap_connections_are_configurable
 from cmk.gui.watolib.timeperiods import load_timeperiods
 from cmk.gui.watolib.user_scripts import load_notification_scripts
 from cmk.gui.watolib.users import (
+    create_user,
     delete_users,
     edit_users,
     get_vs_user_idle_timeout,
@@ -93,8 +94,7 @@ from cmk.gui.watolib.users import (
     user_features_registry,
     verify_password_policy,
 )
-
-from cmk.crypto.password import Password
+from cmk.utils import paths, render
 
 
 def register(_mode_registry: ModeRegistry) -> None:
@@ -139,7 +139,7 @@ class ModeUsers(WatoMode):
         # "Users" topic to the breadcrumb. Else we get "Users > Users"
         return ()
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         topics = (
             [
                 PageMenuTopic(
@@ -162,11 +162,11 @@ class ModeUsers(WatoMode):
         topics += [
             PageMenuTopic(
                 title=_("On selected users"),
-                entries=list(self._page_menu_entries_on_selected_users()),
+                entries=list(self._page_menu_entries_on_selected_users(config.user_connections)),
             ),
             PageMenuTopic(
                 title=_("Synchronized users"),
-                entries=list(self._page_menu_entries_synchronized_users()),
+                entries=list(self._page_menu_entries_synchronized_users(config.user_connections)),
             ),
             PageMenuTopic(
                 title=_("User messages"),
@@ -198,7 +198,9 @@ class ModeUsers(WatoMode):
         menu.add_doc_reference(_("Users, roles and permissions"), DocReference.WATO_USER)
         return menu
 
-    def _page_menu_entries_on_selected_users(self) -> Iterator[PageMenuEntry]:
+    def _page_menu_entries_on_selected_users(
+        self, user_connections: Sequence[UserConnectionConfig]
+    ) -> Iterator[PageMenuEntry]:
         if self._can_create_and_delete_users:
             yield PageMenuEntry(
                 title=_("Delete users"),
@@ -229,12 +231,14 @@ class ModeUsers(WatoMode):
                 ),
                 is_shortcut=True,
                 is_suggested=True,
-                is_enabled=len(active_connections()) > 1,
+                is_enabled=len(active_connections(user_connections)) > 1,
                 disabled_tooltip=_("There is only one active user connector available"),
             )
 
-    def _page_menu_entries_synchronized_users(self) -> Iterator[PageMenuEntry]:
-        if _sync_possible():
+    def _page_menu_entries_synchronized_users(
+        self, user_connections: Sequence[UserConnectionConfig]
+    ) -> Iterator[PageMenuEntry]:
+        if _sync_possible(user_connections):
             if not self._job_snapshot.is_active:
                 yield PageMenuEntry(
                     title=_("Synchronize users"),
@@ -279,7 +283,7 @@ class ModeUsers(WatoMode):
                 item=make_simple_link(folder_preserving_link([("mode", "saml_config")])),
             )
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         check_csrf_token()
 
         if not transactions.check_transaction():
@@ -288,7 +292,13 @@ class ModeUsers(WatoMode):
         if self._can_create_and_delete_users and (
             delete_user := request.get_validated_type_input(UserId, "_delete")
         ):
-            delete_users([delete_user], user_features_registry.features().sites)
+            delete_users(
+                [delete_user],
+                user_features_registry.features().sites,
+                get_user_attributes(config.wato_user_attrs),
+                use_git=config.wato_use_git,
+                acting_user=user,
+            )
             return redirect(self.mode_url())
 
         if request.var("_sync"):
@@ -298,7 +308,12 @@ class ModeUsers(WatoMode):
                     result := job.start(
                         JobTarget(
                             callable=sync_entry_point,
-                            args=UserSyncArgs(add_to_changelog=True, enforce_sync=True),
+                            args=UserSyncArgs(
+                                add_to_changelog=True,
+                                enforce_sync=True,
+                                custom_user_attributes=config.wato_user_attrs,
+                                default_user_profile=config.default_user_profile,
+                            ),
                         ),
                         background_job.InitialStatusArgs(
                             title=job.gui_title(),
@@ -318,7 +333,10 @@ class ModeUsers(WatoMode):
             return redirect(self.mode_url())
 
         if self._can_create_and_delete_users and request.var("_bulk_delete_users"):
-            self._bulk_delete_users_after_confirm()
+            self._bulk_delete_users_after_confirm(
+                get_user_attributes(config.wato_user_attrs),
+                use_git=config.wato_use_git,
+            )
             return redirect(self.mode_url())
 
         action_handler = gui_background_job.ActionHandler(self.breadcrumb())
@@ -330,7 +348,9 @@ class ModeUsers(WatoMode):
 
         return None
 
-    def _bulk_delete_users_after_confirm(self):
+    def _bulk_delete_users_after_confirm(
+        self, user_attributes: Sequence[tuple[str, UserAttribute]], *, use_git: bool
+    ) -> None:
         selected_users = []
         users = userdb.load_users()
         for varname, _value in request.itervars(prefix="_c_user_"):
@@ -342,9 +362,15 @@ class ModeUsers(WatoMode):
                     selected_users.append(user_id)
 
         if selected_users:
-            delete_users(selected_users, user_features_registry.features().sites)
+            delete_users(
+                selected_users,
+                user_features_registry.features().sites,
+                user_attributes,
+                use_git=use_git,
+                acting_user=user,
+            )
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         if not self._job_snapshot.exists:
             # Skip if snapshot doesnt exists
             pass
@@ -373,7 +399,9 @@ class ModeUsers(WatoMode):
 
         users = userdb.load_users()
         with html.form_context("bulk_delete_form", method="POST"):
-            self._show_user_list(users)
+            self._show_user_list(
+                users, config.wato_user_attrs, user_online_maxage=config.user_online_maxage
+            )
         self._show_user_list_footer(users)
 
     def _job_details_link(self):
@@ -401,9 +429,16 @@ class ModeUsers(WatoMode):
         job_manager.show_job_details_from_snapshot(job_snapshot=self._job_snapshot)
         html.br()
 
-    def _show_user_list(self, users: dict[UserId, UserSpec]) -> None:
+    def _show_user_list(
+        self,
+        users: Mapping[UserId, UserSpec],
+        custom_user_attributes: Sequence[CustomUserAttrSpec],
+        *,
+        user_online_maxage: int,
+    ) -> None:
+        user_attributes = get_user_attributes(custom_user_attributes)
         visible_custom_attrs = [
-            (name, attr) for name, attr in get_user_attributes() if attr.show_in_table()
+            (name, attr) for name, attr in user_attributes if attr.show_in_table()
         ]
         entries = list(users.items())
         roles = load_roles()
@@ -413,7 +448,7 @@ class ModeUsers(WatoMode):
 
         customer = customer_api()
         with table_element("users", None, empty_text=_("No users are defined yet.")) as table:
-            online_threshold = time.time() - active_config.user_online_maxage
+            online_threshold = time.time() - user_online_maxage
             for uid, user_spec in sorted(entries, key=lambda x: x[1].get("alias", x[0]).lower()):
                 table.row()
 
@@ -457,7 +492,10 @@ class ModeUsers(WatoMode):
                     html.icon_button(delete_url, _("Delete"), "delete")
 
                 notifications_url = folder_preserving_link(
-                    [("mode", "user_notifications"), ("user", uid)]
+                    [
+                        ("mode", "user_notifications"),
+                        ("user", uid),
+                    ]
                 )
                 html.icon_button(
                     notifications_url,
@@ -510,7 +548,9 @@ class ModeUsers(WatoMode):
                     table.cell(
                         _("Connection"), f"{connection.short_title()} ({user_connection_id})"
                     )
-                    locked_attributes = userdb.locked_attributes(user_connection_id)
+                    locked_attributes = userdb.locked_attributes(
+                        user_connection_id, user_attributes
+                    )
                 else:
                     table.cell(
                         _("Connection"),
@@ -674,7 +714,7 @@ class ModeEditUser(WatoMode):
 
         self._can_edit_users = edition(paths.omd_root) != Edition.CSE
 
-    def _from_vars(self):
+    def _from_vars(self) -> None:
         # TODO: Should we turn the both fields below into UserId | None?
         try:
             self._user_id = request.get_validated_type_input(UserId, "edit", empty_is_none=True)
@@ -699,7 +739,7 @@ class ModeEditUser(WatoMode):
         # TODO: Nuke the field below? It effectively hides facts about _user_id for mypy.
         self._is_new_user: bool = self._user_id is None
         self._users = userdb.load_users(lock=transactions.is_transaction())
-        new_user = new_user_template("htpasswd")
+        new_user = new_user_template("htpasswd", active_config.default_user_profile)
 
         if self._user_id is not None:
             self._user = self._users.get(self._user_id, new_user)
@@ -708,14 +748,17 @@ class ModeEditUser(WatoMode):
         else:
             self._user = new_user
 
-        self._locked_attributes = userdb.locked_attributes(self._user.get("connector"))
+        # TODO: Move out of constructor to get rid of active_config dependency
+        self._locked_attributes = userdb.locked_attributes(
+            self._user.get("connector"), get_user_attributes(active_config.wato_user_attrs)
+        )
 
     def title(self) -> str:
         if self._is_new_user:
             return _("Add user")
         return _("Edit user %s") % self._user_id
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         menu = make_simple_form_page_menu(
             _("User"), breadcrumb, form_name="user", button_name="_save"
         )
@@ -737,7 +780,10 @@ class ModeEditUser(WatoMode):
                 icon_name="topic_events",
                 item=make_simple_link(
                     folder_preserving_link(
-                        [("mode", "user_notifications"), ("user", self._user_id)]
+                        [
+                            ("mode", "user_notifications"),
+                            ("user", self._user_id),
+                        ]
                     )
                 ),
             )
@@ -775,7 +821,7 @@ class ModeEditUser(WatoMode):
                 ),
             )
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         check_csrf_token()
 
         if not transactions.check_transaction():
@@ -799,7 +845,13 @@ class ModeEditUser(WatoMode):
         # to edit users *hust* CSE *hust*
         is_automation_user = self._user.get("is_automation_user", False)
         if is_automation_user or self._can_edit_users:
-            self._get_security_userattrs(user_attrs)
+            self._get_security_userattrs(
+                user_attrs,
+                PasswordPolicy(
+                    config.password_policy.get("min_length"),
+                    config.password_policy.get("num_groups"),
+                ),
+            )
 
         # Language configuration
         language = request.get_ascii_input_mandatory("language", "")
@@ -818,20 +870,30 @@ class ModeEditUser(WatoMode):
         user_attrs["fallback_contact"] = html.get_checkbox("fallback_contact")
 
         # Custom user attributes
-        for name, attr in get_user_attributes():
+        for name, attr in (user_attributes := get_user_attributes(config.wato_user_attrs)):
             value = attr.valuespec().from_html_vars("ua_" + name)
             # TODO: Dynamically fiddling around with a TypedDict is a bit questionable
             user_attrs[name] = value  # type: ignore[literal-required]
 
-        # Generate user "object" to update
-        user_object: UserObject = {
-            self._user_id: {
-                "attributes": user_attrs,
-                "is_new_user": self._is_new_user,
-            }
-        }
-        # The following call validates and updated the users
-        edit_users(user_object, user_features_registry.features().sites)
+        # Update or create the user
+        if self._is_new_user:
+            create_user(
+                self._user_id,
+                user_attrs,
+                user_features_registry.features().sites,
+                user_attributes,
+                use_git=config.wato_use_git,
+                acting_user=user,
+            )
+        else:
+            edit_users(
+                {self._user_id: user_attrs},
+                user_features_registry.features().sites,
+                user_attributes,
+                use_git=config.wato_use_git,
+                acting_user=user,
+            )
+
         return redirect(mode_url("users"))
 
     def _get_identity_userattrs(self, user_attrs: UserSpec) -> None:
@@ -890,7 +952,9 @@ class ModeEditUser(WatoMode):
     def _increment_auth_serial(self, user_attrs: UserSpec) -> None:
         user_attrs["serial"] = user_attrs.get("serial", 0) + 1
 
-    def _handle_auth_attributes(self, user_attrs: UserSpec) -> None:
+    def _handle_auth_attributes(
+        self, user_attrs: UserSpec, password_policy: PasswordPolicy
+    ) -> None:
         increase_serial = False
 
         if request.var("authmethod") == "secret":  # automation secret
@@ -920,7 +984,7 @@ class ModeEditUser(WatoMode):
                 user_attrs["last_pw_change"] = int(time.time())
                 user_attrs.pop("enforce_pw_change", None)
 
-            elif "automation_secret" not in user_attrs and "password" in user_attrs:
+            elif not user_attrs.get("is_automation_user", False) and "password" in user_attrs:
                 del user_attrs["password"]
 
         else:  # password
@@ -941,14 +1005,16 @@ class ModeEditUser(WatoMode):
                 raise MKUserError(password2_field_name, _("Passwords don't match"))
 
             # Detect switch from automation to password
-            if "automation_secret" in user_attrs:
-                del user_attrs["automation_secret"]
+            if user_attrs.get("is_automation_user", False):
+                user_attrs.pop("automation_secret", None)
+                user_attrs.pop("store_automation_secret", None)
                 if "password" in user_attrs:
                     del user_attrs["password"]  # which was the hashed automation secret!
             user_attrs["is_automation_user"] = False
 
             if password:
-                verify_password_policy(password, password_field_name)
+                verify_password_policy(password, password_field_name, password_policy)
+
                 if "password" in user_attrs:
                     send_security_message(self._user_id, SecurityNotificationEvent.password_change)
                 user_attrs["password"] = hash_password(password)
@@ -964,7 +1030,9 @@ class ModeEditUser(WatoMode):
         if increase_serial:
             self._increment_auth_serial(user_attrs)
 
-    def _get_security_userattrs(self, user_attrs: UserSpec) -> None:
+    def _get_security_userattrs(
+        self, user_attrs: UserSpec, password_policy: PasswordPolicy
+    ) -> None:
         # Locking
         user_attrs["locked"] = html.get_checkbox("locked") or False
         if (  # toggled for an existing user
@@ -977,7 +1045,7 @@ class ModeEditUser(WatoMode):
                 user_attrs["num_failed_logins"] = 0
 
         # Authentication: Password or Secret
-        self._handle_auth_attributes(user_attrs)
+        self._handle_auth_attributes(user_attrs, password_policy)
 
         # Roles
         if edition(paths.omd_root) != Edition.CSE:
@@ -985,16 +1053,25 @@ class ModeEditUser(WatoMode):
                 role for role in self._roles.keys() if html.get_checkbox("role_" + role)
             ]
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         # Let exceptions from loading notification scripts happen now
         load_notification_scripts()
 
         with html.form_context("user", method="POST"):
-            self._show_form()
+            self._show_form(
+                config.default_language,
+                config.wato_user_attrs,
+                UserPermissions.from_config(config, permission_registry),
+            )
 
-    def _show_form(self) -> None:
+    def _show_form(
+        self,
+        default_language: str,
+        custom_user_attributes: Sequence[CustomUserAttrSpec],
+        user_permissions: UserPermissions,
+    ) -> None:
         html.prevent_password_auto_completion()
-        custom_user_attr_topics = get_user_attributes_by_topic()
+        custom_user_attr_topics = get_user_attributes_by_topic(custom_user_attributes)
         is_automation_user = self._user.get("is_automation_user", False)
 
         if self._can_edit_users:
@@ -1010,6 +1087,7 @@ class ModeEditUser(WatoMode):
                 },
                 custom_user_attr_topics,
                 is_automation_user,
+                user_permissions,
             )
         elif is_automation_user:
             self._render_security(
@@ -1019,6 +1097,7 @@ class ModeEditUser(WatoMode):
                 },
                 None,
                 is_automation_user,
+                user_permissions,
             )
 
         # Contact groups
@@ -1104,7 +1183,7 @@ class ModeEditUser(WatoMode):
         self._show_custom_user_attributes(custom_user_attr_topics.get("notify", []))
 
         forms.header(_("Personal settings"), isopen=False)
-        select_language(self._user)
+        select_language(self._user, default_language)
         self._show_custom_user_attributes(custom_user_attr_topics.get("personal", []))
         forms.header(_("Interface settings"), isopen=False)
         self._show_custom_user_attributes(custom_user_attr_topics.get("interface", []))
@@ -1207,6 +1286,7 @@ class ModeEditUser(WatoMode):
         ],
         custom_user_attr_topics: dict[str, list[tuple[str, UserAttribute]]] | None,
         is_automation: bool,
+        user_permissions: UserPermissions,
     ) -> None:
         forms.header(_("Security"))
 
@@ -1242,8 +1322,8 @@ class ModeEditUser(WatoMode):
                 html.open_td()
                 # Only make password enforcement selection possible when user is allowed to change the PW
                 if self._is_new_user or (
-                    user_may(self._user_id, "general.edit_profile")
-                    and user_may(self._user_id, "general.change_password")
+                    user_permissions.user_may(self._user_id, "general.edit_profile")
+                    and user_permissions.user_may(self._user_id, "general.change_password")
                 ):
                     html.checkbox(
                         "enforce_pw_change",
@@ -1437,18 +1517,8 @@ class ModeEditUser(WatoMode):
             html.help(_u(vs_help) if isinstance(vs_help, str) else vs_help)
 
 
-def select_language(user_spec: UserSpec) -> None:
-    languages: Choices = [
-        (ident, alias)
-        for (ident, alias) in get_languages()
-        if ident not in active_config.hide_languages
-    ]
-    if not active_config.enable_community_translations:
-        languages = [
-            (ident, alias)
-            for (ident, alias) in languages
-            if ident and not is_community_translation(ident)
-        ]
+def select_language(user_spec: UserSpec, default_language: str) -> None:
+    languages: Choices = [(ident, alias) for (ident, alias) in get_languages()]
     if not languages:
         return
 
@@ -1457,7 +1527,7 @@ def select_language(user_spec: UserSpec) -> None:
         0,
         (
             "_default_",
-            _("Use the default language (%s)") % get_language_alias(active_config.default_language),
+            _("Use the default language (%s)") % get_language_alias(default_language),
         ),
     )
 
@@ -1486,9 +1556,9 @@ def select_language(user_spec: UserSpec) -> None:
     )
 
 
-def _sync_possible() -> bool:
+def _sync_possible(user_connections: Sequence[UserConnectionConfig]) -> bool:
     """When at least one LDAP connection is defined and active a sync is possible"""
     return any(
         connection.type() == ConnectorType.LDAP
-        for _connection_id, connection in active_connections()
+        for _connection_id, connection in active_connections(user_connections)
     )

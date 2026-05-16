@@ -5,8 +5,9 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import FormOptionalChoice from '@/form/components/forms/FormOptionalChoice.vue'
+
 import FormEdit from '@/form/components/FormEdit.vue'
+import FormOptionalChoice from '@/form/components/forms/FormOptionalChoice.vue'
 
 const validators: FormSpec.Validator[] = [
   {
@@ -20,7 +21,6 @@ const integerSpec: FormSpec.Integer = {
   type: 'integer',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   validators: validators,
   label: 'fooLabel',
   unit: 'fooUnit',

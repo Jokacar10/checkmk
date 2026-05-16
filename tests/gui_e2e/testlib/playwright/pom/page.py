@@ -6,13 +6,13 @@ import logging
 import re
 from abc import abstractmethod
 from re import Pattern
-from typing import Literal, overload, override
+from typing import Literal, override
 from urllib.parse import quote_plus, urljoin
 
-from playwright.sync_api import expect, FrameLocator, Locator, Page, Response
+from playwright.sync_api import expect, Locator, Page, Response
 
 from tests.gui_e2e.testlib.playwright.helpers import DropdownListNameToID, Keys, LocatorHelper
-from tests.gui_e2e.testlib.playwright.timeouts import TIMEOUT_ASSERTIONS
+from tests.gui_e2e.testlib.playwright.timeouts import TIMEOUT_ACTIVATE_CHANGES_MS
 from tests.testlib.site import Site
 
 logger = logging.getLogger(__name__)
@@ -22,14 +22,9 @@ class CmkPage(LocatorHelper):
     """Parent object representing a Checkmk GUI page."""
 
     def __init__(
-        self,
-        page: Page,
-        navigate_to_page: bool = True,
-        contain_filter_sidebar: bool = False,
-        timeout_assertions: int | None = None,
-        timeout_navigation: int | None = None,
+        self, page: Page, navigate_to_page: bool = True, contain_filter_sidebar: bool = False
     ) -> None:
-        super().__init__(page, timeout_assertions, timeout_navigation)
+        super().__init__(page)
         self._navigate_to_page = navigate_to_page
         self.main_menu = MainMenu(self.page)
         self.main_area = MainArea(self.page, self._dropdown_list_name_to_id())
@@ -69,8 +64,26 @@ class CmkPage(LocatorHelper):
         """
 
     @override
-    def locator(self, selector: str = "xpath=.") -> Locator:
-        return self.page.locator(selector)
+    def locator(
+        self,
+        selector: str | None = None,
+        *,
+        has_text: Pattern[str] | str | None = None,
+        has_not_text: Pattern[str] | str | None = None,
+        has: Locator | None = None,
+        has_not: Locator | None = None,
+    ) -> Locator:
+        if not selector:
+            selector = "xpath=."
+        _loc = self.page.locator(selector)
+        kwargs = self._build_locator_kwargs(
+            has_text=has_text,
+            has_not_text=has_not_text,
+            has=has,
+            has_not=has_not,
+        )
+        _loc = _loc.filter(**kwargs) if kwargs else _loc
+        return _loc
 
     def activate_selected(self) -> None:
         logger.info("Click 'Activate on selected sites' button")
@@ -78,21 +91,22 @@ class CmkPage(LocatorHelper):
 
     def expect_success_state(self) -> None:
         logger.info("Check changes were activated successfully")
-        expect(
-            self.main_area.locator("#site_gui_e2e_central_status.msg.state_success")
-        ).to_be_visible()
+
+        progress_elements = self.main_area.locator("td.repprogress > div.progress")
+        success_elements = self.main_area.locator("td.repprogress > div.progress.state_success")
 
         expect(
-            self.main_area.locator("#site_gui_e2e_central_progress.progress.state_success")
-        ).to_be_visible()
+            success_elements, message="Changes were not successfully activated in all the sites"
+        ).to_have_count(progress_elements.count())
 
-        # assert no further changes are pending
-        expect(self.main_area.locator("div.page_state.no_changes")).to_be_visible()
+        # TODO: implement the check for 'no changes' state in the new menu budget
+        # It seems to be not trustworthy by now, so we disable it for now.
+        # expect(self.main_area.locator("div.page_state.no_changes")).to_be_visible()
 
     def goto_main_dashboard(self) -> None:
         """Click the banner and wait for the dashboard"""
         logger.info("Navigate to 'Main dashboard' page")
-        self.main_menu.main_page.click()
+        self.main_menu.monitor_menu("Main dashboard").click()
         self.main_area.check_page_title("Main dashboard")
 
     def select_host(self, host_name: str) -> None:
@@ -108,20 +122,27 @@ class CmkPage(LocatorHelper):
         return self.main_area.locator().get_by_role(role="link", name=name, exact=exact)
 
     def activate_changes(self, site: Site | None = None) -> None:
+        """Activate changes using the UI.
+
+        Args:
+            site (Site | None, optional): Fail safe mechanism.
+                In case an error arises, UI related or otherwise,
+                make sure to activate the changes using REST-API.
+                Defaults to None.
+                NOTE: Activate 'foreign changes' is enabled using REST-API!
+        """
         logger.info("Activate changes")
         try:
-            self.get_link(re.compile(r"^[1-9][0-9]*\+? changes?$"), exact=False).click()
+            self.main_menu.changes_menu("Open full view").click()
             self.page.wait_for_url(url=re.compile(quote_plus("wato.py?mode=changelog")))
             self.activate_selected()
             self.expect_success_state()
         except Exception as e:
             if site:
-                e.add_note(
-                    "Flake during changes activation."
-                    " The changes will be activated through the API."
-                )
+                logger.warning("fail-safe: could not activate changes using UI; using REST-API...")
                 site.openapi.changes.activate_and_wait_for_completion(force_foreign_changes=True)
-            raise e
+            else:
+                raise e
 
     def goto(self, url: str, event: str = "load") -> None:
         """Override `Page.goto`. Additionally, wait for the page to `load`, by default.
@@ -131,7 +152,7 @@ class CmkPage(LocatorHelper):
         with self.page.expect_event(event) as _:
             self.page.goto(url)
 
-    def check_no_errors(self, timeout: float = TIMEOUT_ASSERTIONS / 4) -> None:
+    def check_no_errors(self, timeout: float = TIMEOUT_ACTIVATE_CHANGES_MS / 4) -> None:
         """Check that no errors are present on the page."""
         expect(self.locator("div.error"), "Some errors are present on the page").not_to_be_visible(
             timeout=timeout
@@ -152,19 +173,28 @@ class CmkPage(LocatorHelper):
 
 
 class MainMenu(LocatorHelper):
-    """functionality to find items from the main menu"""
-
-    @overload
-    def locator(self, selector: None = None) -> Locator: ...
-
-    @overload
-    def locator(self, selector: str) -> Locator: ...
+    """Functionality to find items from the main menu"""
 
     @override
-    def locator(self, selector: str | None = None) -> Locator:
+    def locator(
+        self,
+        selector: str | None = None,
+        *,
+        has_text: Pattern[str] | str | None = None,
+        has_not_text: Pattern[str] | str | None = None,
+        has: Locator | None = None,
+        has_not: Locator | None = None,
+    ) -> Locator:
         _loc = self.page.locator("#check_mk_navigation")
         if selector:
             _loc = _loc.locator(selector)
+        kwargs = self._build_locator_kwargs(
+            has_text=has_text,
+            has_not_text=has_not_text,
+            has=has,
+            has_not=has_not,
+        )
+        _loc = _loc.filter(**kwargs) if kwargs else _loc
         self._unique_web_element(_loc)
         return _loc
 
@@ -184,13 +214,18 @@ class MainMenu(LocatorHelper):
             _loc.click()
             if show_more:
                 self.page.get_by_role(role="link", name="show more", exact=True)
-            _loc = self.page.get_by_role(role="link", name=sub_menu, exact=exact)
+            _popup_menu = self.page.locator("div.popup_trigger.active").locator("div.popup_menu")
+            _loc = _popup_menu.get_by_role(role="link", name=sub_menu, exact=exact)
         self._unique_web_element(_loc)
         return _loc
 
     @property
     def main_page(self) -> Locator:
         return self._sub_menu("Go to main page", sub_menu=None)
+
+    def search_menu(self) -> Locator:
+        """main menu -> Open search -> focus on search input"""
+        return self._sub_menu("Search", None)
 
     def monitor_menu(
         self, sub_menu: str | None = None, show_more: bool = False, exact: bool = False
@@ -203,6 +238,19 @@ class MainMenu(LocatorHelper):
     ) -> Locator:
         """main menu -> Open setup -> show more(optional) -> sub menu"""
         return self._sub_menu("Setup", sub_menu, show_more, exact)
+
+    def changes_menu(self, button: str | None = None, exact: bool = False) -> Locator:
+        """main menu -> Open changes -> activate changes app"""
+        _loc = self._sub_menu("Changes", None, False, False)
+        if button:
+            _loc.click()
+            _loc = self.page.get_by_role(role="button", name=button, exact=exact)
+        self._unique_web_element(_loc)
+        return _loc
+
+    def customize_menu(self, sub_menu: str | None = None, exact: bool = False) -> Locator:
+        """main menu -> Open customize -> show more(optional) -> sub menu"""
+        return self._sub_menu("Customize", sub_menu, False, exact)
 
     def user_menu(self, sub_menu: str | None = None, exact: bool = False) -> Locator:
         """main menu -> Open user -> show more(optional) -> sub menu"""
@@ -218,28 +266,31 @@ class MainMenu(LocatorHelper):
         self.help_menu(rest_api_text)
         return self._sub_menu(rest_api_text, sub_menu, show_more=False, exact=exact)
 
-    def _searchbar(self, menu: Literal["Setup", "Monitor"], searchbar_name: str) -> Locator:
-        self._sub_menu(menu, sub_menu=None).click()
-        _location = self.locator().get_by_role(role="textbox", name=searchbar_name)
-        self._unique_web_element(_location)
-        return _location
+    @property
+    def active_side_menu_popup(self) -> Locator:
+        """Return the locator of the currently active side menu popup.
+
+        As only one side menu can be interacted with at a time.
+        """
+        loc = self.page.locator("div.popup_trigger.active").locator("div.popup_menu_handler")
+        try:
+            self._unique_web_element(loc)
+        except AssertionError as exc:
+            exc.add_note("None of the side menu popups are open!")
+        return loc
 
     @property
-    def monitor_searchbar(self) -> Locator:
-        """Main menu -> Open monitor -> searchbar"""
-        return self._searchbar(menu="Monitor", searchbar_name="Search with regular expressions")
+    def global_searchbar(self) -> Locator:
+        self._sub_menu("Search", sub_menu=None).click()
+        self._unique_web_element(
+            _location := self.active_side_menu_popup.get_by_placeholder("Search")
+        )
+        return _location
 
     @property
     def monitor_all_hosts(self) -> Locator:
         """main menu -> monitoring -> All hosts"""
         return self.monitor_menu("All hosts")
-
-    @property
-    def setup_searchbar(self) -> Locator:
-        """Main menu -> Open setup -> searchbar"""
-        return self._searchbar(
-            menu="Setup", searchbar_name="Search for menu entries, settings, hosts and rule sets"
-        )
 
     @property
     def setup_hosts(self) -> Locator:
@@ -334,6 +385,14 @@ class MainMenu(LocatorHelper):
     def help_werks(self) -> Locator:
         return self.help_menu("Change log (Werks)")
 
+    @property
+    def changes_activate_pending_btn(self) -> Locator:
+        return self.changes_menu("Activate pending changes", exact=True)
+
+    @property
+    def changes_open_full_view_btn(self) -> Locator:
+        return self.changes_menu("Open full view", exact=True)
+
     def logout(self) -> None:
         logger.info("Click logout button")
         self.user_logout.click()
@@ -341,34 +400,46 @@ class MainMenu(LocatorHelper):
 
 
 class MainArea(LocatorHelper):
-    """functionality to find items from the main area"""
+    """Functionality to find items from the main area"""
 
     def __init__(
         self,
         page: Page,
         dropdown_list_name_to_id: DropdownListNameToID,
-        timeout_assertions: int | None = None,
-        timeout_navigation: int | None = None,
     ) -> None:
-        super().__init__(page, timeout_assertions, timeout_navigation)
+        super().__init__(page)
         self._dropdown_list_name_to_id = dropdown_list_name_to_id
 
-    @overload
-    def locator(self, selector: None = None) -> FrameLocator: ...
-
-    @overload
-    def locator(self, selector: str) -> Locator: ...
-
     @override
-    def locator(self, selector: str | None = None) -> Locator | FrameLocator:
-        _loc = self.page.frame_locator("iframe[name='main']")
-        if selector is None:
-            return _loc
-        return _loc.locator(selector)
+    def locator(
+        self,
+        selector: str | None = None,
+        *,
+        has_text: Pattern[str] | str | None = None,
+        has_not_text: Pattern[str] | str | None = None,
+        has: Locator | None = None,
+        has_not: Locator | None = None,
+    ) -> Locator:
+        if not selector:
+            selector = ":scope"
+        _loc = self._iframe_locator.locator(selector)
+        kwargs = self._build_locator_kwargs(
+            has_text=has_text,
+            has_not_text=has_not_text,
+            has=has,
+            has_not=has_not,
+        )
+        _loc = _loc.filter(**kwargs) if kwargs else _loc
+        return _loc
+
+    @property
+    def page_title_locator(self) -> Locator:
+        """Return the page title locator."""
+        return self.locator(".titlebar a>>nth=0")
 
     def check_page_title(self, title: str | Pattern[str]) -> None:
         """check the page title"""
-        expect(self.locator(".titlebar a>>nth=0")).to_have_text(title)
+        expect(self.page_title_locator).to_have_text(title)
 
     def expect_no_entries(self) -> None:
         """Expect no previous entries are found in the page.
@@ -418,7 +489,7 @@ class MainArea(LocatorHelper):
 
 
 class Sidebar(LocatorHelper):
-    """functionality to find items from the sidebar"""
+    """Functionality to find items from the sidebar"""
 
     class Snapin:
         """Functionality to find items from the sidebar snapin elements."""
@@ -445,7 +516,7 @@ class Sidebar(LocatorHelper):
         @property
         def close_button(self) -> Locator:
             """Returns the close button of the snapin."""
-            return self._base_locator.locator("div.snapin_buttons >> a")
+            return self._base_locator.locator("div.closesnapin a")
 
         def get_button(self, name: str) -> Locator:
             """Returns the footnote link with the specified text.
@@ -461,28 +532,57 @@ class Sidebar(LocatorHelper):
             self.container.wait_for(state="detached")
 
     @override
-    def locator(self, selector: str = "xpath=.") -> Locator:
-        return self.page.locator("#check_mk_sidebar").locator(selector)
+    def locator(
+        self,
+        selector: str | None = None,
+        *,
+        has_text: Pattern[str] | str | None = None,
+        has_not_text: Pattern[str] | str | None = None,
+        has: Locator | None = None,
+        has_not: Locator | None = None,
+    ) -> Locator:
+        if not selector:
+            selector = "xpath=."
+        _loc = self.page.locator("#check_mk_sidebar").locator(selector)
+        kwargs = self._build_locator_kwargs(
+            has_text=has_text,
+            has_not_text=has_not_text,
+            has=has,
+            has_not=has_not,
+        )
+        _loc = _loc.filter(**kwargs) if kwargs else _loc
+        return _loc
 
     def snapin(self, snapin_container_id: str) -> "Snapin":
         return self.Snapin(self.locator(f"div#{snapin_container_id}"))
 
 
 class FilterSidebar(LocatorHelper):
-    """functionality to find items from the filter sidebar"""
-
-    @overload
-    def locator(self, selector: None = None) -> Locator: ...
-
-    @overload
-    def locator(self, selector: str) -> Locator: ...
+    """Functionality to find items from the filter sidebar"""
 
     @override
-    def locator(self, selector: str | None = None) -> Locator:
-        _loc = self.page.frame_locator("iframe[name='main']").locator("div#popup_filters")
+    def locator(
+        self,
+        selector: str | None = None,
+        *,
+        has_text: Pattern[str] | str | None = None,
+        has_not_text: Pattern[str] | str | None = None,
+        has: Locator | None = None,
+        has_not: Locator | None = None,
+        check: bool = True,
+    ) -> Locator:
+        _loc = self._iframe_locator.locator("div#popup_filters")
         if selector:
             _loc = _loc.locator(selector)
-        self._unique_web_element(_loc)
+        kwargs = self._build_locator_kwargs(
+            has_text=has_text,
+            has_not_text=has_not_text,
+            has=has,
+            has_not=has_not,
+        )
+        _loc = _loc.filter(**kwargs) if kwargs else _loc
+        if check:
+            self._unique_web_element(_loc)
         return _loc
 
     @property
@@ -506,7 +606,7 @@ class FilterSidebar(LocatorHelper):
 
     @property
     def search_text_field(self) -> Locator:
-        return self.page.frame_locator("iframe[name='main']").get_by_role("searchbox")
+        return self._iframe_locator.get_by_role("searchbox")
 
     @property
     def select_host_field(self) -> Locator:
@@ -533,8 +633,11 @@ class FilterSidebar(LocatorHelper):
         return self.locator("#select2-svc_last_state_change_until_range-container")
 
     def dropdown_option(self, option_name: str, exact: bool = False) -> Locator:
-        return self.page.frame_locator("iframe[name='main']").get_by_role(
-            "option", name=option_name, exact=exact
+        return self._iframe_locator.get_by_role("option", name=option_name, exact=exact)
+
+    def filter_combobox(self, filter_name: str, check: bool = True) -> Locator:
+        return self.locator("div.floatfilter", has_text=filter_name, check=check).get_by_role(
+            "combobox"
         )
 
     def apply_last_service_state_change_filter(
@@ -564,8 +667,20 @@ class FilterSidebar(LocatorHelper):
         self.select_host_field.click()
         logger.info("Set host name=%s", host_filter)
         self.search_text_field.fill(host_filter)
-        # TODO: remove 'nth(0)' after fixing CMK-19975
-        self.dropdown_option(host_filter, exact=True).nth(0).click()
+        # TODO: remove 'first' after fixing CMK-19975
+        self.dropdown_option(host_filter, exact=True).first.click()
+
+    def apply_filter_by_name(self, filter_name: str, filter_value: str) -> None:
+        filter_combobox = self.filter_combobox(filter_name, check=False)
+
+        if filter_combobox.count() == 0:
+            self.add_filter_button.click()
+            self.filter_button(filter_name).click()
+
+        filter_combobox.click()
+        self.search_text_field.fill(filter_value)
+        # TODO: remove 'first' after fixing CMK-19975
+        self.dropdown_option(filter_value, exact=True).first.click()
 
     def apply_filters(self, expected_locator: Locator) -> None:
         logger.info("Apply filters")

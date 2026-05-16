@@ -11,23 +11,20 @@ from typing import Any, Literal, TypedDict
 
 import cmk.ccc.debug
 import cmk.ccc.version as cmk_version
-from cmk.ccc import crash_reporting
-from cmk.ccc.crash_reporting import CrashInfo
-from cmk.ccc.hostaddress import HostName
-
 import cmk.utils.encoding
 import cmk.utils.paths
-from cmk.utils.agentdatatype import AgentRawData
-from cmk.utils.sectionname import SectionName
-from cmk.utils.servicename import ServiceName
-
-from cmk.snmplib import SNMPBackendEnum
-
-from cmk.checkengine.plugins import CheckPluginName
-
+from cmk.ccc.crash_reporting import (
+    ABCCrashReport,
+    CrashInfo,
+    CrashReportStore,
+    make_crash_report_base_path,
+)
+from cmk.ccc.hostaddress import HostName
+from cmk.checkengine.plugins import CheckPluginName, SectionName
+from cmk.helper_interface import AgentRawData
 from cmk.piggyback.backend import get_messages_for
-
-CrashReportStore = crash_reporting.CrashReportStore
+from cmk.snmplib import SNMPBackendEnum
+from cmk.utils.servicename import ServiceName
 
 
 def create_section_crash_dump(
@@ -43,8 +40,8 @@ def create_section_crash_dump(
     text = f"{operation.title()} of section {section_name} failed"
     try:
         crash = SectionCrashReport(
-            cmk.utils.paths.crash_dir,
-            SectionCrashReport.make_crash_info(
+            crash_report_base_path=make_crash_report_base_path(cmk.utils.paths.omd_root),
+            crash_info=SectionCrashReport.make_crash_info(
                 cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
                 details={
                     "section_name": str(section_name),
@@ -83,8 +80,8 @@ def create_check_crash_dump(
     text = "check failed - please submit a crash report!"
     try:
         crash = CheckCrashReport(
-            cmk.utils.paths.crash_dir,
-            CheckCrashReport.make_crash_info(
+            crash_report_base_path=make_crash_report_base_path(cmk.utils.paths.omd_root),
+            crash_info=CheckCrashReport.make_crash_info(
                 cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
                 CheckDetails(
                     check_output=text,
@@ -110,15 +107,16 @@ def create_check_crash_dump(
         return "check failed - failed to create a crash report: %s" % traceback.format_exc()
 
 
-class CrashReportWithAgentOutput[T](crash_reporting.ABCCrashReport[T]):
+class CrashReportWithAgentOutput[T](ABCCrashReport[T]):
     def __init__(
         self,
-        crashdir: Path,
+        *,
+        crash_report_base_path: Path,
         crash_info: CrashInfo,
         snmp_info: bytes | None = None,
         agent_output: bytes | None = None,
     ) -> None:
-        super().__init__(crashdir, crash_info)
+        super().__init__(crash_report_base_path=crash_report_base_path, crash_info=crash_info)
         self.snmp_info = snmp_info
         self.agent_output = agent_output
 
@@ -142,7 +140,6 @@ class SectionDetails(TypedDict):
     section_content: Sequence[object]
 
 
-@crash_reporting.crash_report_registry.register
 class SectionCrashReport(CrashReportWithAgentOutput[SectionDetails]):
     @staticmethod
     def type() -> Literal["section"]:
@@ -163,7 +160,6 @@ class CheckDetails(TypedDict):
     description: str
 
 
-@crash_reporting.crash_report_registry.register
 class CheckCrashReport(CrashReportWithAgentOutput[CheckDetails]):
     @staticmethod
     def type() -> Literal["check"]:

@@ -4,17 +4,22 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
+import {
+  type Condition,
+  type ConditionChoicesValue,
+  type ConditionGroup
+} from 'cmk-shared-typing/typescript/vue_formspec_components'
+import { computed, ref, watch } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
+import type { TranslatedString } from '@/lib/i18nString'
+import { immediateWatch } from '@/lib/watch'
+
+import CmkDropdown from '@/components/CmkDropdown.vue'
 import CmkList from '@/components/CmkList'
 import CmkSpace from '@/components/CmkSpace.vue'
-import CmkDropdown from '@/components/CmkDropdown.vue'
-import {
-  type ConditionChoicesValue,
-  type ConditionGroup,
-  type Condition
-} from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { immediateWatch } from '@/lib/watch'
-import { computed, ref, watch } from 'vue'
-import { type OperatorI18n, type Operator } from './utils'
+
+import { type Operator, type OperatorI18n } from './utils'
 
 const props = defineProps<{
   data: ConditionChoicesValue
@@ -56,24 +61,24 @@ immediateWatch(
   }
 )
 
-const operatorChoices = computed<{ name: Operator; title: string }[]>(() => {
+const operatorChoices = computed<{ name: Operator; title: TranslatedString }[]>(() => {
   if (props.group.conditions.length > 1) {
     return [
-      { name: 'oper_eq', title: props.i18n.eq_operator },
-      { name: 'oper_ne', title: props.i18n.ne_operator },
-      { name: 'oper_or', title: props.i18n.or_operator },
-      { name: 'oper_nor', title: props.i18n.nor_operator }
+      { name: 'oper_eq', title: untranslated(props.i18n.eq_operator) },
+      { name: 'oper_ne', title: untranslated(props.i18n.ne_operator) },
+      { name: 'oper_or', title: untranslated(props.i18n.or_operator) },
+      { name: 'oper_nor', title: untranslated(props.i18n.nor_operator) }
     ]
   }
   return [
-    { name: 'oper_eq', title: props.i18n.eq_operator },
-    { name: 'oper_ne', title: props.i18n.ne_operator }
+    { name: 'oper_eq', title: untranslated(props.i18n.eq_operator) },
+    { name: 'oper_ne', title: untranslated(props.i18n.ne_operator) }
   ]
 })
 
 const allValueChoices = computed(() => {
   return props.group.conditions.map((condition) => {
-    return { name: condition.name, title: condition.title }
+    return { name: condition.name, title: untranslated(condition.title) }
   })
 })
 
@@ -124,7 +129,7 @@ watch(selectedOperator, (operator) => {
   <CmkDropdown
     v-model:selected-option="selectedOperator"
     :options="{ type: 'fixed', suggestions: operatorChoices }"
-    :label="props.i18n.choose_operator"
+    :label="untranslated(props.i18n.choose_operator)"
   />
   <CmkSpace :size="'small'" />
   <template v-if="allValueChoices.length === 1">
@@ -151,15 +156,15 @@ watch(selectedOperator, (operator) => {
                 .filter(({ name }) => name === selectedValue)
                 .map((condition) => ({
                   name: condition.name,
-                  title: condition.title
+                  title: untranslated(condition.title)
                 })),
               ...remainingConditions.map((condition) => ({
                 name: condition.name,
-                title: condition.title
+                title: untranslated(condition.title)
               }))
             ]
           }"
-          :label="props.i18n.choose_condition"
+          :label="untranslated(props.i18n.choose_condition)"
           @update:selected-option="(value) => updateMultiValue(index, value!)"
         />
       </template>
@@ -172,7 +177,7 @@ watch(selectedOperator, (operator) => {
         type: allValueChoices.length > FILTER_SHOW_THRESHOLD ? 'filtered' : 'fixed',
         suggestions: allValueChoices
       }"
-      :label="props.i18n.choose_condition"
+      :label="untranslated(props.i18n.choose_condition)"
       @update:selected-option="(value) => updateValue(selectedOperator, value)"
     />
   </template>

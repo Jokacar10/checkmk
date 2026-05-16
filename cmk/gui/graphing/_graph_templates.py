@@ -16,18 +16,15 @@ from pydantic import BaseModel
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
-
-from cmk.utils.servicename import ServiceName
-
+from cmk.graphing.v1 import graphs as graphs_api
 from cmk.gui.config import active_config
 from cmk.gui.graphing._unit import user_specific_unit
 from cmk.gui.i18n import _, translate_to_current_language
 from cmk.gui.logged_in import user
 from cmk.gui.painter_options import PainterOptions
-from cmk.gui.type_defs import Row, VisualContext
-from cmk.gui.visuals import livestatus_query_bare
-
-from cmk.graphing.v1 import graphs as graphs_api
+from cmk.gui.type_defs import Row
+from cmk.gui.utils.roles import UserPermissions
+from cmk.utils.servicename import ServiceName
 
 from ._from_api import RegisteredMetric
 from ._graph_specification import (
@@ -357,35 +354,6 @@ def graph_and_single_metric_template_choices_for_metrics(
                     _("Metric: %s") % translated_metric.title,
                 )
             )
-    return graph_template_choices, single_metric_template_choices
-
-
-def graph_and_single_metric_templates_choices_for_context(
-    context: VisualContext,
-    registered_metrics: Mapping[str, RegisteredMetric],
-    registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
-) -> tuple[list[GraphTemplateChoice], list[GraphTemplateChoice]]:
-    graph_template_choices: list[GraphTemplateChoice] = []
-    single_metric_template_choices: list[GraphTemplateChoice] = []
-
-    for row in livestatus_query_bare(
-        "service",
-        context,
-        ["service_check_command", "service_perf_data", "service_metrics"],
-    ):
-        graph_template_choices_for_row, single_metric_template_choices_for_row = (
-            graph_and_single_metric_template_choices_for_metrics(
-                translated_metrics_from_row(
-                    row,
-                    registered_metrics,
-                ),
-                registered_metrics,
-                registered_graphs,
-            )
-        )
-        graph_template_choices.extend(graph_template_choices_for_row)
-        single_metric_template_choices.extend(single_metric_template_choices_for_row)
-
     return graph_template_choices, single_metric_template_choices
 
 
@@ -731,6 +699,7 @@ class TemplateGraphSpecification(GraphSpecification, frozen=True):
         row: Row,
         translated_metrics: Mapping[str, TranslatedMetric],
         index: int,
+        user_permissions: UserPermissions,
     ) -> GraphRecipe | None:
         return _create_graph_recipe_from_template(
             row["site"],
@@ -752,6 +721,7 @@ class TemplateGraphSpecification(GraphSpecification, frozen=True):
         self,
         registered_metrics: Mapping[str, RegisteredMetric],
         registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+        user_permissions: UserPermissions,
     ) -> list[GraphRecipe]:
         row = self._get_graph_data_from_livestatus()
         translated_metrics = translated_metrics_from_row(row, registered_metrics)
@@ -770,6 +740,7 @@ class TemplateGraphSpecification(GraphSpecification, frozen=True):
                     row=row,
                     translated_metrics=translated_metrics,
                     index=index,
+                    user_permissions=user_permissions,
                 )
             )
         ]

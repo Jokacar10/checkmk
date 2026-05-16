@@ -8,17 +8,14 @@ import logging
 import os
 import socket
 import ssl
-from collections.abc import Buffer
+from collections.abc import Buffer, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from cmk.ccc.exceptions import MKFetcherError, MKTimeout
+from cmk.ccc.exceptions import MKTimeout
 from cmk.ccc.hostaddress import HostAddress, HostName
-
-from cmk.utils.agent_registration import get_uuid_link_manager
-from cmk.utils.agentdatatype import AgentRawData
-from cmk.utils.certs import write_cert_store
+from cmk.helper_interface import AgentRawData, FetcherError
 
 from ._abstract import Fetcher, Mode
 from ._agentprtcl import (
@@ -29,7 +26,11 @@ from ._agentprtcl import (
     validate_agent_protocol,
 )
 
-__all__ = ["TCPFetcher", "TLSConfig"]
+__all__ = [
+    "TCPFetcher",
+    "TCPFetcherConfig",
+    "TLSConfig",
+]
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -48,22 +49,48 @@ def recvall(sock: socket.socket, flags: int = 0) -> bytes:
                 break
             buffer += data
     except OSError as e:
-        raise MKFetcherError("Communication failed: %s" % e)
+        raise FetcherError("Communication failed: %s" % e)
 
     return bytes(buffer)
 
 
 def wrap_tls(sock: socket.socket, server_hostname: str, *, tls_config: TLSConfig) -> ssl.SSLSocket:
-    if not tls_config.ca_store.exists():
-        # agent cert store should be written on agent receiver startup.
-        # However, if it's missing for some reason, we have to write it.
-        write_cert_store(source_dir=tls_config.cas_dir, store_path=tls_config.ca_store)
+    # Create a helpful error message if CA store is missing. Avoid silently falling back to the system's.
     try:
-        ctx = ssl.create_default_context(cafile=str(tls_config.ca_store))
+        cadata = tls_config.ca_store.read_text()
+    except FileNotFoundError as exc:
+        raise FetcherError(
+            f"Error establishing TLS connection: no CA store at {tls_config.ca_store}"
+        ) from exc
+
+    try:
+        ctx = ssl.create_default_context(cadata=cadata)
         ctx.load_cert_chain(certfile=tls_config.site_crt)
         return ctx.wrap_socket(sock, server_hostname=server_hostname)
     except ssl.SSLError as e:
-        raise MKFetcherError("Error establishing TLS connection") from e
+        raise FetcherError("Error establishing TLS connection") from e
+
+
+@dataclass(frozen=True)
+class TCPFetcherConfig:
+    """Configuration for TCP fetchers"""
+
+    agent_port: Callable[[HostName], int]
+    connect_timeout: Callable[[HostName], float]
+    encryption_handling: Callable[[HostName], Mapping[str, object] | None]
+    symmetric_agent_encryption: Callable[[HostName], str | None]
+
+    def parsed_encryption_handling(self, host_name: HostName) -> TCPEncryptionHandling:
+        if not (setting := self.encryption_handling(host_name)):
+            return TCPEncryptionHandling.ANY_AND_PLAIN
+        match setting["accept"]:
+            case "tls_encrypted_only":
+                return TCPEncryptionHandling.TLS_ENCRYPTED_ONLY
+            case "any_encrypted":
+                return TCPEncryptionHandling.ANY_ENCRYPTED
+            case "any_and_plain":
+                return TCPEncryptionHandling.ANY_AND_PLAIN
+        raise ValueError("Unknown setting: %r" % setting)
 
 
 class TCPFetcher(Fetcher[AgentRawData]):
@@ -76,6 +103,7 @@ class TCPFetcher(Fetcher[AgentRawData]):
         host_name: HostName,
         encryption_handling: TCPEncryptionHandling,
         pre_shared_secret: str | None,
+        uuid_file: Path,
         tls_config: TLSConfig,
     ) -> None:
         super().__init__()
@@ -84,6 +112,7 @@ class TCPFetcher(Fetcher[AgentRawData]):
         self.timeout: Final = timeout
         self.host_name: Final = host_name
         self.encryption_handling: Final = encryption_handling
+        self.uuid_file: Final = uuid_file
         self.pre_shared_secret: Final = pre_shared_secret
         self.tls_config: Final = tls_config
         self._logger: Final = logging.getLogger("cmk.helper.tcp")
@@ -98,6 +127,7 @@ class TCPFetcher(Fetcher[AgentRawData]):
                     f"timeout={self.timeout!r}",
                     f"host_name={self.host_name!r}",
                     f"encryption_handling={self.encryption_handling!r}",
+                    f"uuid_file={self.uuid_file!r}",
                     f"pre_shared_secret={self.pre_shared_secret!r}",
                 )
             )
@@ -140,7 +170,7 @@ class TCPFetcher(Fetcher[AgentRawData]):
             self._socket.settimeout(None)
         except OSError as e:
             self.close()
-            raise MKFetcherError("Communication failed: %s" % e)
+            raise FetcherError("Communication failed: %s" % e)
 
     def close(self) -> None:
         if self._socket is None:
@@ -154,11 +184,15 @@ class TCPFetcher(Fetcher[AgentRawData]):
         if sock is None:
             raise OSError(errno.ENOTCONN, os.strerror(errno.ENOTCONN))
 
-        controller_uuid = get_uuid_link_manager().get_uuid(self.host_name)
-        agent_data = self._get_agent_data(
-            sock, str(controller_uuid) if controller_uuid is not None else None
-        )
+        agent_data = self._get_agent_data(sock, self._get_uuid_as_expected_server_name())
         return agent_data
+
+    def _get_uuid_as_expected_server_name(self) -> str | None:
+        try:
+            return str(self.uuid_file.readlink())
+        except FileNotFoundError:
+            # so we have no registration. This might be fine.
+            return None
 
     def _from_tls(
         self, sock: socket.socket, server_hostname: str
@@ -170,18 +204,16 @@ class TCPFetcher(Fetcher[AgentRawData]):
         try:
             agent_data = AgentCtlMessage.from_bytes(raw_agent_data).payload
         except ValueError as e:
-            raise MKFetcherError(f"Failed to deserialize versioned agent data: {e!r}") from e
+            raise FetcherError(f"Failed to deserialize versioned agent data: {e!r}") from e
 
         if len(memoryview(agent_data)) <= 2:
-            raise MKFetcherError("Empty payload from controller at %s:%d" % self.address)
+            raise FetcherError("Empty payload from controller at %s:%d" % self.address)
 
         try:
             # I don't understand that recursive protocol thing.
             protocol = TransportProtocol.from_bytes(agent_data)
         except ValueError:
-            raise MKFetcherError(
-                f"Unknown transport protocol: {bytes(memoryview(agent_data)[:2])!r}"
-            )
+            raise FetcherError(f"Unknown transport protocol: {bytes(memoryview(agent_data)[:2])!r}")
 
         self._logger.debug("Detected transport protocol: %s", protocol)
         return protocol, memoryview(agent_data)[2:]
@@ -190,15 +222,15 @@ class TCPFetcher(Fetcher[AgentRawData]):
         try:
             raw_protocol = sock.recv(2, socket.MSG_WAITALL)
         except OSError as e:
-            raise MKFetcherError(f"Communication failed: {e}") from e
+            raise FetcherError(f"Communication failed: {e}") from e
 
         if not raw_protocol:
-            raise MKFetcherError("Empty output from host %s:%d" % self.address)
+            raise FetcherError("Empty output from host %s:%d" % self.address)
 
         try:
             protocol = TransportProtocol.from_bytes(raw_protocol)
         except ValueError:
-            raise MKFetcherError(f"Unknown transport protocol: {raw_protocol!r}")
+            raise FetcherError(f"Unknown transport protocol: {raw_protocol!r}")
 
         self._logger.debug("Detected transport protocol: %s", protocol)
         validate_agent_protocol(
@@ -207,7 +239,7 @@ class TCPFetcher(Fetcher[AgentRawData]):
 
         if protocol is TransportProtocol.TLS:
             if server_hostname is None:
-                raise MKFetcherError("Agent controller not registered")
+                raise FetcherError("Agent controller not registered")
 
             protocol, output = self._from_tls(sock, server_hostname)
         else:
@@ -221,7 +253,7 @@ class TCPFetcher(Fetcher[AgentRawData]):
             return AgentRawData(protocol.value + output)  # bring back stolen bytes
 
         if (secret := self.pre_shared_secret) is None:
-            raise MKFetcherError("Data is encrypted but no secret is known")
+            raise FetcherError("Data is encrypted but no secret is known")
 
         self._logger.debug("Try to decrypt output")
         try:
@@ -229,4 +261,4 @@ class TCPFetcher(Fetcher[AgentRawData]):
         except MKTimeout:
             raise
         except Exception as e:
-            raise MKFetcherError("Failed to decrypt agent output: %r" % e) from e
+            raise FetcherError("Failed to decrypt agent output: %r" % e) from e

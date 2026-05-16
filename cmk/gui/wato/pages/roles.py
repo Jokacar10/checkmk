@@ -6,13 +6,8 @@
 
 In order to make getting started easier - Checkmk Multisite comes with three
 builtin-roles: admin, user and guest. These roles have predefined permissions.
-The built-in roles cannot be deleted. Users listed in admin_users in
-multisite.mk automatically get the role admin - even if no such user or contact
-has been configured yet. By that way an initial login - e.g. as omdamin - is
-possible. The admin role cannot be removed from that user as long as he is
-listed in admin_users. Also the variables guest_users, users and default_user_
-role still work. That way Multisite is fully operable without Setup and also
-backwards compatible.  In Setup you can create further roles and also edit the
+The built-in roles cannot be deleted.
+In Setup you can create further roles and also edit the
 permissions of the existing roles. Users can be assigned to built-in and custom
 roles.  This modes manages the creation of custom roles and the permissions
 configuration of all roles.
@@ -25,7 +20,7 @@ from marshmallow import ValidationError
 import cmk.gui.watolib.changes as _changes
 from cmk.gui import forms, userdb
 from cmk.gui.breadcrumb import Breadcrumb
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
@@ -51,9 +46,10 @@ from cmk.gui.permissions import (
 from cmk.gui.site_config import get_login_sites
 from cmk.gui.table import Foldable, table_element
 from cmk.gui.type_defs import ActionResult, Choices, PermissionName
-from cmk.gui.userdb import UserRole
+from cmk.gui.userdb import get_user_attributes, UserRole
 from cmk.gui.utils.csrf_token import check_csrf_token
 from cmk.gui.utils.html import HTML
+from cmk.gui.utils.roles import builtin_role_id_from_str
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import (
     DocReference,
@@ -86,7 +82,7 @@ class ModeRoles(WatoMode):
     def title(self) -> str:
         return _("Roles & permissions")
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         menu = PageMenu(
             dropdowns=[
                 PageMenuDropdown(
@@ -114,35 +110,39 @@ class ModeRoles(WatoMode):
         menu.add_doc_reference(_("Users, roles and permissions"), DocReference.WATO_USER)
         return menu
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         if not transactions.check_transaction():
             return redirect(self.mode_url())
 
         if request.var("_delete"):
             role_id = RoleID(request.get_ascii_input_mandatory("_delete"))
-            userroles.delete_role(role_id, pprint_value=active_config.wato_pprint_config)
+            userroles.delete_role(
+                role_id,
+                get_user_attributes(config.wato_user_attrs),
+                pprint_value=config.wato_pprint_config,
+            )
             _changes.add_change(
                 action_name="edit-roles",
                 text=_("Deleted role '%s'") % role_id,
                 user_id=user.id,
-                sites=get_login_sites(),
-                use_git=active_config.wato_use_git,
+                sites=get_login_sites(config.sites),
+                use_git=config.wato_use_git,
             )
 
         elif request.var("_clone"):
             role_id = RoleID(request.get_ascii_input_mandatory("_clone"))
-            userroles.clone_role(role_id, pprint_value=active_config.wato_pprint_config)
+            userroles.clone_role(role_id, pprint_value=config.wato_pprint_config)
             _changes.add_change(
                 action_name="edit-roles",
                 text=_("Created new role '%s'") % role_id,
                 user_id=user.id,
-                sites=get_login_sites(),
-                use_git=active_config.wato_use_git,
+                sites=get_login_sites(config.sites),
+                use_git=config.wato_use_git,
             )
 
         return redirect(self.mode_url())
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         with table_element("roles") as table:
             users = userdb.load_users()
             for nr, role in enumerate(
@@ -233,7 +233,7 @@ class ModeRoleTwoFactor(WatoMode):
     def title(self) -> str:
         return _("Enforce two-factor on %s role") % self._role_id
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         request.get_ascii_input_mandatory("two_factor_enforce")
         confirm_url = makeactionuri(request, transactions, [("_action", "confirm")])
         cancel_url = makeuri_contextless(
@@ -260,7 +260,7 @@ class ModeRoleTwoFactor(WatoMode):
             confirm_text=_("Confirm"),
         )
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         check_csrf_token()
         if request.var("_action") != "confirm":
             return None
@@ -273,15 +273,15 @@ class ModeRoleTwoFactor(WatoMode):
             role=self._role,
             old_roleid=self._role_id,
             new_roleid=self._role_id,
-            pprint_value=active_config.wato_pprint_config,
+            pprint_value=config.wato_pprint_config,
         )
-        userroles.logout_users_with_role(self._role_id)
+        userroles.logout_users_with_role(self._role_id, get_user_attributes(config.wato_user_attrs))
         _changes.add_change(
             action_name="edit-roles",
             text=_("Modified user role '%s'") % self._role_id,
             user_id=user.id,
-            sites=get_login_sites(),
-            use_git=active_config.wato_use_git,
+            sites=get_login_sites(config.sites),
+            use_git=config.wato_use_git,
         )
         return redirect(mode_url(ModeRoles.name()))
 
@@ -313,14 +313,14 @@ class ModeEditRole(WatoMode):
     def title(self) -> str:
         return _("Edit role %s") % self._role_id
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         menu = make_simple_form_page_menu(
             _("Role"), breadcrumb, form_name="role", button_name="_save"
         )
         menu.inpage_search = PageMenuSearch()
         return menu
 
-    def action(self) -> ActionResult:
+    def action(self, config: Config) -> ActionResult:
         check_csrf_token()
 
         if html.form_submitted("search"):
@@ -335,8 +335,9 @@ class ModeEditRole(WatoMode):
         self._role.alias = new_alias
 
         if not self._role.builtin:
-            basedon = request.get_ascii_input_mandatory("basedon")
-            self._role.basedon = basedon
+            self._role.basedon = builtin_role_id_from_str(
+                request.get_ascii_input_mandatory("basedon")
+            )
 
         new_id = request.get_ascii_input_mandatory("id")
         try:
@@ -363,7 +364,7 @@ class ModeEditRole(WatoMode):
             role=self._role,
             old_roleid=self._role_id,
             new_roleid=RoleID(new_id),
-            pprint_value=active_config.wato_pprint_config,
+            pprint_value=config.wato_pprint_config,
         )
         self._role_id = RoleID(new_id)
 
@@ -371,12 +372,12 @@ class ModeEditRole(WatoMode):
             action_name="edit-roles",
             text=_("Modified user role '%s'") % new_id,
             user_id=user.id,
-            sites=get_login_sites(),
-            use_git=active_config.wato_use_git,
+            sites=get_login_sites(config.sites),
+            use_git=config.wato_use_git,
         )
         return url
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         with html.form_context(
             "role",
             method="POST",
@@ -503,16 +504,16 @@ class ModeRoleMatrix(WatoMode):
     def title(self) -> str:
         return _("Permission matrix")
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return PageMenu(breadcrumb=breadcrumb, inpage_search=PageMenuSearch())
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         for section in permission_section_registry.get_sorted_sections():
             with table_element(
                 section.name,
                 section.title,
                 foldable=Foldable.FOLDABLE_SAVE_STATE,
-                limit=max(200, active_config.table_row_limit),
+                limit=max(200, config.table_row_limit),
             ) as table:
                 permission_list = permission_registry.get_sorted_permissions(section)
 

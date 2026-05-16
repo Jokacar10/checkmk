@@ -6,16 +6,15 @@ from collections.abc import Mapping, Sequence
 from typing import Final
 
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils import paths
-
 from cmk.rulesets.v1 import Help, Label, Title
 from cmk.rulesets.v1.form_specs import (
+    BooleanChoice,
     CascadingSingleChoice,
     CascadingSingleChoiceElement,
     DefaultValue,
     DictElement,
     Dictionary,
+    FieldSize,
     FixedValue,
     List,
     MatchingScope,
@@ -32,8 +31,9 @@ from cmk.rulesets.v1.form_specs import (
     validators,
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
+from cmk.utils.paths import omd_root
 
-# Note: the first element of the tuple should match the id of the metric specified in ALL_SERVICES
+# Note: the first element of the tuple should match the id of the metric specified in ALL_METRICS
 # in the azure special agent
 RAW_AZURE_SERVICES: Final = [
     ("users_count", Title("Users in Entra ID")),
@@ -60,6 +60,7 @@ RAW_AZURE_SERVICES: Final = [
     ),
     ("Microsoft.Network/trafficmanagerprofiles", Title("Traffic Manager")),
     ("Microsoft.Network/loadBalancers", Title("Load Balancer")),
+    ("Microsoft.Cache/Redis", Title("Redis Caches")),
 ]
 
 CCE_AZURE_SERVICES: Final = [
@@ -73,7 +74,7 @@ def _azure_service_name_to_valid_formspec(azure_service_name: str) -> str:
 
 
 def get_azure_services() -> Sequence[tuple[str, Title]]:
-    if edition(paths.omd_root) in (Edition.CME, Edition.CCE, Edition.CSE):
+    if edition(omd_root) in (Edition.CME, Edition.CCE, Edition.CSE):
         return RAW_AZURE_SERVICES + CCE_AZURE_SERVICES
     return RAW_AZURE_SERVICES
 
@@ -138,7 +139,7 @@ def _migrate_tag_based_config(values: object) -> dict:
     raise TypeError(values)
 
 
-def _special_agents_azure_tag_based_config():
+def _special_agents_azure_tag_based_config_resources() -> DictElement:
     return DictElement(
         parameter_form=List(
             custom_validate=(validators.LengthInRange(min_value=1),),
@@ -177,7 +178,58 @@ def _special_agents_azure_tag_based_config():
             ),
             title=Title("Resources matching tag based criteria"),
             add_element_label=Label("Add resource tag"),
-        )
+            help_text=Help(
+                "Add the tags you want to use to filter the resources. "
+                "Only resources with every tags matching, will be monitored."
+            ),
+        ),
+    )
+
+
+def _special_agents_azure_tag_based_config_subscriptions() -> List:
+    return List(
+        custom_validate=(validators.LengthInRange(min_value=1),),
+        element_template=Dictionary(
+            migrate=_migrate_tag_based_config,
+            elements={
+                "tag": DictElement(
+                    parameter_form=String(
+                        title=Title("The subscription tag"),
+                        custom_validate=(validators.LengthInRange(min_value=1),),
+                        field_size=FieldSize.LARGE,
+                    ),
+                    required=True,
+                ),
+                "condition": DictElement(
+                    parameter_form=CascadingSingleChoice(
+                        title=None,
+                        elements=[
+                            CascadingSingleChoiceElement(
+                                name="exists",
+                                title=Title("exists"),
+                                parameter_form=FixedValue(value=None),
+                            ),
+                            CascadingSingleChoiceElement(
+                                name="equals",
+                                title=Title("is"),
+                                parameter_form=String(
+                                    title=Title("Tag value"),
+                                    field_size=FieldSize.LARGE,
+                                ),
+                            ),
+                        ],
+                        prefill=DefaultValue("exists"),
+                    ),
+                    required=True,
+                ),
+            },
+        ),
+        title=Title("Subscriptions matching tag based criteria"),
+        add_element_label=Label("Add subscription tag"),
+        help_text=Help(
+            "Add the tags you want to use to filter the subscriptions. "
+            "Only subscriptions with every tags matching, will be monitored."
+        ),
     )
 
 
@@ -196,9 +248,21 @@ def _migrate(value: object) -> Mapping[str, object]:
     if not isinstance(value, dict):
         raise TypeError(value)
 
-    value.pop("sequential", None)
+    if "safe_hostnames" not in value:
+        value["safe_hostnames"] = False
 
+    if "subscription" not in value:
+        value["subscription"] = ("no_subscriptions", None)
+    elif isinstance(value["subscription"], str):
+        value["subscription"] = ("explicit_subscriptions", [value["subscription"]])
+    elif isinstance(value["subscription"], tuple):
+        ...  # already in the correct format
+    else:
+        raise TypeError("Unexpected type for subscription: %s" % type(value["subscription"]))
+
+    value.pop("sequential", None)
     value.pop("import_tags", None)
+    value.pop("piggyback_vms", None)
     return value
 
 
@@ -213,10 +277,39 @@ def _migrate_authority(value: object) -> str:
 def configuration_authentication() -> Mapping[str, DictElement]:
     return {
         "subscription": DictElement(
-            parameter_form=String(
-                title=Title("Subscription ID"),
-                custom_validate=(validators.LengthInRange(min_value=1),),
-            )
+            parameter_form=CascadingSingleChoice(
+                title=Title("Subscriptions to monitor"),
+                help_text=Help("Select the subscriptions you want to monitor."),
+                elements=[
+                    CascadingSingleChoiceElement(
+                        name="no_subscriptions",
+                        title=Title("Do not monitor subscriptions"),
+                        parameter_form=FixedValue(value=None),
+                    ),
+                    CascadingSingleChoiceElement(
+                        name="explicit_subscriptions",
+                        title=Title("Explicit list of subscription IDs"),
+                        parameter_form=List(
+                            title=Title("Explicitly specify subscription IDs"),
+                            element_template=String(macro_support=True, field_size=FieldSize.LARGE),
+                            custom_validate=(validators.LengthInRange(min_value=1),),
+                            editable_order=False,
+                        ),
+                    ),
+                    CascadingSingleChoiceElement(
+                        name="all_subscriptions",
+                        title=Title("Monitor all subscriptions"),
+                        parameter_form=FixedValue(value=None),
+                    ),
+                    CascadingSingleChoiceElement(
+                        name="tag_matching_subscriptions",
+                        title=Title("Tag matching subscriptions"),
+                        parameter_form=_special_agents_azure_tag_based_config_subscriptions(),
+                    ),
+                ],
+                prefill=DefaultValue("no_subscriptions"),
+            ),
+            required=True,
         ),
         "tenant": DictElement(
             parameter_form=String(
@@ -294,6 +387,19 @@ def configuration_services() -> Mapping[str, DictElement]:
 
 def configuration_advanced() -> Mapping[str, DictElement]:
     return {
+        "safe_hostnames": DictElement(
+            parameter_form=BooleanChoice(
+                label=Label("Enable safe host names"),
+                help_text=Help(
+                    "Using this option will let Checkmk create safe host names for piggyback hosts "
+                    "to avoid conflicts in entity names from Azure. This option will prepend 'azr-' and append the last part "
+                    "of the subscription ID to host names. Example: 'azr-my-vm-1a2b3c4d'. "
+                    "Enable this option if you have resources or resource groups with the same name."
+                ),
+                prefill=DefaultValue(False),
+            ),
+            required=True,
+        ),
         "config": DictElement(
             parameter_form=Dictionary(
                 title=Title("Retrieve information"),
@@ -311,31 +417,14 @@ def configuration_advanced() -> Mapping[str, DictElement]:
                 % ("12000", "200"),
                 elements={
                     "explicit": _special_agents_azure_explicit_config(),
-                    "tag_based": _special_agents_azure_tag_based_config(),
+                    "tag_based": _special_agents_azure_tag_based_config_resources(),
                 },
             ),
             required=True,
         ),
-        "piggyback_vms": DictElement(
-            parameter_form=SingleChoice(
-                title=Title("Map data relating to VMs"),
-                help_text=Help(
-                    "By default, data relating to a VM is sent to the group host"
-                    " corresponding to the resource group of the VM, the same way"
-                    " as for any other resource. If the VM is present in your"
-                    " monitoring as a separate host, you can choose to send the data"
-                    " to the VM itself."
-                ),
-                elements=[
-                    SingleChoiceElement(name="grouphost", title=Title("Map data to group host")),
-                    SingleChoiceElement(name="self", title=Title("Map data to the VM itself")),
-                ],
-                prefill=DefaultValue("grouphost"),
-            ),
-        ),
         "filter_tags": DictElement(
             parameter_form=CascadingSingleChoice(
-                title=Title("Filter tags imported as host/service labels"),
+                title=Title("Filter Azure tags imported as host/service labels"),
                 help_text=Help(
                     "Enable this option to import Azure tags as host/service labels. "
                     "The imported tags are added as host labels for resource groups and "

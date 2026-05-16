@@ -4,7 +4,6 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 import logging
 import re
-import time
 from typing import override
 from urllib.parse import quote_plus
 
@@ -38,8 +37,8 @@ class SetupHost(CmkPage):
     @override
     def validate_page(self) -> None:
         logger.info("Validate that current page is 'Setup hosts' page")
-        expect(self.get_link("Add host")).to_be_visible()
-        expect(self.get_link("Add folder")).to_be_visible()
+        expect(self.add_host).to_be_visible()
+        expect(self.add_folder).to_be_visible()
 
     @override
     def _dropdown_list_name_to_id(self) -> DropdownListNameToID:
@@ -132,6 +131,22 @@ class SetupHost(CmkPage):
         buttons.get_by_role("link", name="Delete this folder").click()
         self.main_area.locator().get_by_role("button", name="Delete").click()
 
+    def check_host_not_present(self, host_name: str) -> None:
+        """Check that a host is not present in the list of hosts."""
+        logger.info("Check that host '%s' is not present", host_name)
+        expect(
+            self._host_row(host_name),
+            message=f"Host '{host_name}' is still present in the list after deletion.",
+        ).not_to_be_visible()
+
+    def delete_host(self, host_name: str) -> None:
+        host_link = self.main_area.locator("a", has_text="localhost")
+        host_row = self.main_area.locator("table.data tr", has=host_link)
+        host_row.get_by_role("link", name="Delete").click()
+        self.main_area.get_confirmation_popup_button("Yes, delete host").click()
+        self.check_host_not_present(host_name)
+        self.activate_changes()
+
 
 class AddHost(CmkPage):
     """Represents page `setup -> Hosts -> Add host`."""
@@ -193,6 +208,9 @@ class AddHost(CmkPage):
     def ipv4_address_text_field(self) -> Locator:
         return self.main_area.get_input("ipaddress")
 
+    def save_and_run_discovery(self) -> None:
+        self.main_area.get_suggestion("Save & run service discovery").click()
+
     @override
     def validate_page(self) -> None:
         logger.info("Validate that current page is '%s' page", self.page_title)
@@ -220,7 +238,9 @@ class AddHost(CmkPage):
     def snmp_dropdown_button(self) -> Locator:
         return self.main_area.locator("div#attr_entry_tag_snmp_ds >> b")
 
-    def create_host(self, host: HostDetails, test_site: Site | None = None) -> None:
+    def create_host(
+        self, host: HostDetails, test_site: Site | None = None, activate_changes: bool = True
+    ) -> None:
         """On `Setup -> Hosts -> Add host` page, create a new host and activate changes.
 
         Note: only host name and ip address are filled in this method. If needed the method can
@@ -262,7 +282,8 @@ class AddHost(CmkPage):
                 )
                 e.add_note(error_msg)
             raise e
-        self.activate_changes(test_site)
+        if activate_changes:
+            self.activate_changes(test_site)
 
 
 class HostProperties(CmkPage):
@@ -290,23 +311,12 @@ class HostProperties(CmkPage):
     ]
 
     def __init__(
-        self,
-        page: Page,
-        host: HostDetails,
-        exists: bool = False,
-        navigate_to_page: bool = True,
-        timeout_assertions: int | None = None,
-        timeout_navigation: int | None = None,
+        self, page: Page, host: HostDetails, exists: bool = False, navigate_to_page: bool = True
     ) -> None:
         self.details = host
         self._exists = exists
         self.page_title = f"Properties of host {host.name}"
-        super().__init__(
-            page=page,
-            navigate_to_page=navigate_to_page,
-            timeout_assertions=timeout_assertions,
-            timeout_navigation=timeout_navigation,
-        )
+        super().__init__(page=page, navigate_to_page=navigate_to_page)
 
     @override
     def navigate(self) -> None:
@@ -339,16 +349,12 @@ class HostProperties(CmkPage):
         setattr(mapping, "Host", "menu_host")
         return mapping
 
-    def delete_host(self, test_site: Site | None = None) -> None:
+    def delete_host(self, test_site: Site | None = None, activate: bool = True) -> None:
         """On `setup -> Hosts -> Properties`, delete host and activate changes."""
         logger.info("Delete host: %s", self.details.name)
         self.main_area.click_item_in_dropdown_list(dropdown_button="Host", item="Delete")
         self.main_area.locator().get_by_role(role="button", name="Delete").click()
-        # TODO - validate something meaningful
-        # Force serialization of pages being navigated to by introducing a delay.
-        # self.page.wait_for_url(
-        #     url=re.compile(quote_plus("wato.py?folder=&mode=folder")), wait_until="load"
-        # )
-        time.sleep(0.5)
-        self.activate_changes(test_site)
-        self._exists = False
+        SetupHost(self.page, navigate_to_page=False).check_host_not_present(self.details.name)
+        if activate:
+            self.activate_changes(test_site)
+            self._exists = False

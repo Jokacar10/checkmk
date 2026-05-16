@@ -3,23 +3,23 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-from cmk.ccc.user import UserId
+from collections.abc import Sequence
 
 import cmk.utils.paths
-
+from cmk.ccc.user import UserId
+from cmk.crypto import password_hashing
+from cmk.crypto.password import Password
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.i18n import _
 from cmk.gui.type_defs import UserSpec
+from cmk.gui.user_connection_config_types import HtpasswdUserConnectionConfig, UserConnectionConfig
 from cmk.gui.userdb import (
     CheckCredentialsResult,
     ConnectorType,
-    HtpasswdUserConnectionConfig,
+    UserAttribute,
     UserConnector,
 )
 from cmk.gui.utils.htpasswd import Htpasswd
-
-from cmk.crypto import password_hashing
-from cmk.crypto.password import Password
 
 
 # Checkmk supports different authentication frontends for verifying the
@@ -80,7 +80,14 @@ class HtpasswdUserConnector(UserConnector[HtpasswdUserConnectionConfig]):
     def is_enabled(self) -> bool:
         return True
 
-    def check_credentials(self, user_id: UserId, password: Password) -> CheckCredentialsResult:
+    def check_credentials(
+        self,
+        user_id: UserId,
+        password: Password,
+        user_attributes: Sequence[tuple[str, UserAttribute]],
+        user_connections: Sequence[UserConnectionConfig],
+        default_user_profile: UserSpec,
+    ) -> CheckCredentialsResult:
         if not (pw_hash := self._htpasswd.get_hash(user_id)):
             return None  # not user in htpasswd, skip so other connectors can try
 

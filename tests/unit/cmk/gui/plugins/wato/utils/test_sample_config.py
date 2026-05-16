@@ -4,10 +4,8 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import cmk.ccc.version as cmk_version
-
-from cmk.utils import paths
-
 import cmk.gui.watolib.config_domain_name as utils
+from cmk.utils import paths
 
 
 def test_registered_generators() -> None:
@@ -15,6 +13,8 @@ def test_registered_generators() -> None:
         "acknowledge_initial_werks",
         "contact_groups",
         "basic_wato_config",
+        "create_initial_admin_user",
+        "create_local_site_connection",
         "create_registration_automation_user",
         "ec_sample_rule_pack",
     ]
@@ -32,6 +32,7 @@ def test_get_sorted_generators() -> None:
     expected = [
         "contact_groups",
         "basic_wato_config",
+        "create_local_site_connection",
     ]
 
     if cmk_version.edition(paths.omd_root) is not cmk_version.Edition.CRE:
@@ -43,6 +44,7 @@ def test_get_sorted_generators() -> None:
     expected += [
         "acknowledge_initial_werks",
         "ec_sample_rule_pack",
+        "create_initial_admin_user",
         "create_registration_automation_user",
     ]
 

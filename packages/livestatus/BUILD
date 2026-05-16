@@ -1,6 +1,6 @@
-load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "pkg_mklink")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("//bazel/rules:xcomp/cc.bzl", "cc_library", "cc_test")
 
 cc_library(
     name = "livestatus_poller",
@@ -20,7 +20,7 @@ cc_library(
         "-std=c++20",
     ],
     strip_include_prefix = "include/",
-    visibility = ["//visibility:public"],
+    visibility = ["//:__subpackages__"],
 )
 
 cc_library(
@@ -28,7 +28,7 @@ cc_library(
     hdrs = glob(["include/livestatus/*.h"]),
     copts = ["-std=c++20"],
     strip_include_prefix = "include/",
-    visibility = ["//visibility:public"],
+    visibility = ["//:__subpackages__"],
     deps = ["@asio"],
 )
 
@@ -50,7 +50,10 @@ cc_library(
         "ASIO_DISABLE_CONCEPTS",
         "ASIO_NO_DEPRECATED",
     ],
-    visibility = ["//visibility:public"],
+    visibility = [
+        # Should rather be private
+        "//packages/neb:__pkg__",
+    ],
     deps = [
         ":livestatus_headers",
         ":livestatus_poller",
@@ -61,11 +64,16 @@ cc_library(
 
 cc_shared_library(
     name = "livestatus_shared",
+    exports_filter = [
+        # It's either this or we need to add a version script for
+        # the linker or default to `-fvisibility=hidden` and export
+        # symbols explicitly in the code.
+        "@re2",
+    ],
     shared_lib_name = "liblivestatus.so",
     visibility = ["//visibility:public"],
     deps = [
         ":livestatus_base",
-        "@re2",
     ],
 )
 
@@ -101,7 +109,10 @@ pkg_tar(
 cc_test(
     name = "test",
     size = "small",
-    srcs = glob(["test/*.cc"]),
+    srcs = glob([
+        "test/*.cc",
+        "test/*.h",
+    ]),
     copts = ["-std=c++20"],
     deps = [
         ":livestatus_base",

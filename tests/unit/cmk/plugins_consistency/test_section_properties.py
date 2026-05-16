@@ -7,13 +7,8 @@ import itertools
 from collections import defaultdict
 from collections.abc import Hashable, Mapping
 
-from cmk.utils.sectionname import SectionName
-
 from cmk.checkengine.plugin_backend import filter_relevant_raw_sections
-from cmk.checkengine.plugins import (
-    AgentBasedPlugins,
-    SectionPlugin,
-)
+from cmk.checkengine.plugins import AgentBasedPlugins, SectionName, SectionPlugin
 
 
 def test_detect_spec_dedup(
@@ -202,6 +197,7 @@ def test_section_detection_uses_sysdescr_or_sysobjid(
             "dell_compellent_folder",
             "dell_hw_info",
         },
+        ".1.3.6.1.4.1.47196.4.1.1.3.11.3.1.1.*": {"aruba_sw_temp"},
     }
 
     current_offenders: dict[str, set[str]] = defaultdict(set)

@@ -4,11 +4,13 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from logging import Logger
 
 from pydantic import BaseModel
+
+from livestatus import SiteConfigurations
 
 from cmk.gui.background_job import (
     BackgroundJob,
@@ -16,26 +18,32 @@ from cmk.gui.background_job import (
     InitialStatusArgs,
     JobTarget,
 )
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.http import request, response
 from cmk.gui.i18n import _
 from cmk.gui.log import logger as gui_logger
-from cmk.gui.site_config import is_wato_slave_site
-from cmk.gui.type_defs import Users
+from cmk.gui.logged_in import user
+from cmk.gui.site_config import is_distributed_setup_remote_site
+from cmk.gui.type_defs import (
+    CustomUserAttrSpec,
+    Users,
+    UserSpec,
+)
+from cmk.gui.user_connection_config_types import UserConnectionConfig
 from cmk.gui.utils.urls import makeuri_contextless
 
-from ..logged_in import user
 from ._connections import active_connections
+from ._user_attribute import get_user_attributes, UserAttribute
 from ._user_sync_config import user_sync_config
 from .store import general_userdb_job, load_users, save_users
 
 
-def execute_userdb_job() -> None:
+def execute_userdb_job(config: Config) -> None:
     """This function is called by the GUI cron job once a minute.
 
     Errors are logged to var/log/web.log."""
-    if not _userdb_sync_job_enabled():
+    if not _userdb_sync_job_enabled(config.sites):
         return
 
     job = UserSyncBackgroundJob()
@@ -48,7 +56,12 @@ def execute_userdb_job() -> None:
         result := job.start(
             JobTarget(
                 callable=sync_entry_point,
-                args=UserSyncArgs(add_to_changelog=False, enforce_sync=False),
+                args=UserSyncArgs(
+                    add_to_changelog=False,
+                    enforce_sync=False,
+                    custom_user_attributes=config.wato_user_attrs,
+                    default_user_profile=config.default_user_profile,
+                ),
             ),
             InitialStatusArgs(
                 title=job.gui_title(),
@@ -63,34 +76,44 @@ def execute_userdb_job() -> None:
 class UserSyncArgs(BaseModel, frozen=True):
     add_to_changelog: bool
     enforce_sync: bool
+    custom_user_attributes: Sequence[CustomUserAttrSpec]
+    default_user_profile: UserSpec
 
 
 def sync_entry_point(job_interface: BackgroundProcessInterface, args: UserSyncArgs) -> None:
     UserSyncBackgroundJob().do_sync(
-        job_interface, args, load_users_func=load_users, save_users_func=save_users
+        job_interface,
+        args,
+        load_users_func=load_users,
+        save_users_func=save_users,
     )
 
 
-def _userdb_sync_job_enabled() -> bool:
+def _userdb_sync_job_enabled(site_configs: SiteConfigurations) -> bool:
     cfg = user_sync_config()
 
     if cfg is None:
         return False  # not enabled at all
 
-    if cfg == "master" and is_wato_slave_site():
+    if cfg == "master" and is_distributed_setup_remote_site(site_configs):
         return False
 
     return True
 
 
-def ajax_sync() -> None:
+def ajax_sync(config: Config) -> None:
     try:
         job = UserSyncBackgroundJob()
         if (
             result := job.start(
                 JobTarget(
                     callable=sync_entry_point,
-                    args=UserSyncArgs(add_to_changelog=False, enforce_sync=True),
+                    args=UserSyncArgs(
+                        add_to_changelog=False,
+                        enforce_sync=True,
+                        custom_user_attributes=config.wato_user_attrs,
+                        default_user_profile=config.default_user_profile,
+                    ),
                 ),
                 InitialStatusArgs(
                     title=job.gui_title(),
@@ -103,7 +126,7 @@ def ajax_sync() -> None:
         response.set_data("OK Started synchronization\n")
     except Exception as e:
         gui_logger.exception("error synchronizing user DB")
-        if active_config.debug:
+        if config.debug:
             raise
         response.set_data("ERROR %s\n" % e)
 
@@ -124,7 +147,8 @@ class UserSyncBackgroundJob(BackgroundJob):
     def shall_start(self) -> bool:
         """Some basic preliminary check to decide quickly whether to start the job"""
         return any(
-            connection.sync_is_needed() for _connection_id, connection in active_connections()
+            connection.sync_is_needed()
+            for _connection_id, connection in active_connections(active_config.user_connections)
         )
 
     def do_sync(
@@ -132,7 +156,17 @@ class UserSyncBackgroundJob(BackgroundJob):
         job_interface: BackgroundProcessInterface,
         args: UserSyncArgs,
         load_users_func: Callable[[bool], Users],
-        save_users_func: Callable[[Users, datetime], None],
+        save_users_func: Callable[
+            [
+                Users,
+                Sequence[tuple[str, UserAttribute]],
+                Sequence[UserConnectionConfig],
+                datetime,
+                bool,
+                bool,
+            ],
+            None,
+        ],
     ) -> None:
         logger = job_interface.get_logger()
         with job_interface.gui_context():
@@ -141,8 +175,10 @@ class UserSyncBackgroundJob(BackgroundJob):
                 logger,
                 args.add_to_changelog,
                 args.enforce_sync,
+                get_user_attributes(args.custom_user_attributes),
                 load_users_func,
                 save_users_func,
+                args.default_user_profile,
                 datetime.now(),
             ):
                 job_interface.send_result_message(
@@ -156,11 +192,23 @@ class UserSyncBackgroundJob(BackgroundJob):
         logger: Logger,
         add_to_changelog: bool,
         enforce_sync: bool,
+        user_attributes: Sequence[tuple[str, UserAttribute]],
         load_users_func: Callable[[bool], Users],
-        save_users_func: Callable[[Users, datetime], None],
+        save_users_func: Callable[
+            [
+                Users,
+                Sequence[tuple[str, UserAttribute]],
+                Sequence[UserConnectionConfig],
+                datetime,
+                bool,
+                bool,
+            ],
+            None,
+        ],
+        default_user_profile: UserSpec,
         now: datetime,
     ) -> bool:
-        for connection_id, connection in active_connections():
+        for connection_id, connection in active_connections(active_config.user_connections):
             try:
                 if not enforce_sync and not connection.sync_is_needed():
                     continue
@@ -169,8 +217,10 @@ class UserSyncBackgroundJob(BackgroundJob):
                 connection.do_sync(
                     add_to_changelog=add_to_changelog,
                     only_username=None,
-                    load_users_func=load_users,
-                    save_users_func=save_users,
+                    user_attributes=user_attributes,
+                    load_users_func=load_users_func,
+                    save_users_func=save_users_func,
+                    default_user_profile=default_user_profile,
                 )
                 logger.info(_("[%s] Finished sync for connection") % connection_id)
             except Exception as e:
@@ -180,5 +230,5 @@ class UserSyncBackgroundJob(BackgroundJob):
                 )
 
         logger.info(_("Finalizing synchronization"))
-        general_userdb_job(now)
+        general_userdb_job(user_attributes, now)
         return True

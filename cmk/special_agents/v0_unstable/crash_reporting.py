@@ -7,16 +7,11 @@ import traceback
 from typing import Literal
 
 import cmk.ccc.version as cmk_version
-from cmk.ccc import crash_reporting
-from cmk.ccc.crash_reporting import VersionInfo
-
 import cmk.utils.paths
+from cmk.ccc.crash_reporting import ABCCrashReport, CrashReportStore, make_crash_report_base_path
 
-CrashReportStore = crash_reporting.CrashReportStore
 
-
-@crash_reporting.crash_report_registry.register
-class AgentCrashReport(crash_reporting.ABCCrashReport[VersionInfo]):
+class AgentCrashReport(ABCCrashReport[None]):
     @classmethod
     def type(cls) -> Literal["agent"]:
         return "agent"
@@ -25,9 +20,9 @@ class AgentCrashReport(crash_reporting.ABCCrashReport[VersionInfo]):
 def create_agent_crash_dump() -> str:
     try:
         crash = AgentCrashReport(
-            cmk.utils.paths.crash_dir,
-            AgentCrashReport.make_crash_info(
-                cmk_version.get_general_version_infos(cmk.utils.paths.omd_root)
+            crash_report_base_path=make_crash_report_base_path(cmk.utils.paths.omd_root),
+            crash_info=AgentCrashReport.make_crash_info(
+                cmk_version.get_general_version_infos(cmk.utils.paths.omd_root), None
             ),
         )
         CrashReportStore().save(crash)

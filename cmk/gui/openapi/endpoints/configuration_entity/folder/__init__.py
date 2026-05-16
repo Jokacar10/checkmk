@@ -10,6 +10,7 @@ for more information see "Configuration entities" endpoints."""
 from collections.abc import Mapping
 from typing import Any
 
+from cmk import fields
 from cmk.gui.http import Response
 from cmk.gui.openapi.endpoints.configuration_entity._common import (
     list_endpoint_decorator,
@@ -17,8 +18,6 @@ from cmk.gui.openapi.endpoints.configuration_entity._common import (
 )
 from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.restful_objects.response_schemas import DomainObject, DomainObjectCollection
-
-from cmk import fields
 from cmk.shared_typing.configuration_entity import ConfigEntityType
 
 
@@ -46,5 +45,5 @@ def _list_folder(params: Mapping[str, Any]) -> Response:
     return serve_configuration_entity_list(ConfigEntityType.folder, params)
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(_list_folder)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(_list_folder, ignore_duplicates=ignore_duplicates)

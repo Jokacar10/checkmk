@@ -120,7 +120,7 @@ public:
     [[nodiscard]] virtual std::unique_ptr<const IGlobalFlags> globalFlags()
         const = 0;
     [[nodiscard]] virtual std::unique_ptr<const IPaths> paths() const = 0;
-    virtual void dumpPaths(Logger *logger) const;
+    virtual void dumpPaths() const;
     [[nodiscard]] virtual std::chrono::system_clock::time_point
     programStartTime() const = 0;
     [[nodiscard]] virtual std::chrono::system_clock::time_point
@@ -172,7 +172,8 @@ public:
     [[nodiscard]] virtual Logger *loggerLivestatus() const = 0;
     [[nodiscard]] virtual Logger *loggerRRD() const = 0;
 
-    virtual Triggers &triggers() = 0;
+    [[nodiscard]] virtual Triggers &triggers() = 0;
+    [[nodiscard]] virtual const Triggers &triggers() const = 0;
 
     [[nodiscard]] virtual size_t numQueuedNotifications() const = 0;
     [[nodiscard]] virtual size_t numQueuedAlerts() const = 0;
@@ -186,15 +187,7 @@ public:
         const std::string &host_name, const std::string &service_description,
         const Metric::Name &var) const = 0;
     [[nodiscard]] virtual bool pnp4nagiosEnabled() const = 0;
-
-    // Our escape hatch, this should die in the long run...
-    template <typename T>
-    [[nodiscard]] T *impl() const {
-        return static_cast<T *>(implInternal());
-    }
-
-private:
-    [[nodiscard]] virtual void *implInternal() const = 0;
+    [[nodiscard]] virtual bool isShuttingDown() const = 0;
 };
 
 #endif  // ICore_h

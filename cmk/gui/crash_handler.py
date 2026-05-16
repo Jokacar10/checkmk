@@ -7,16 +7,14 @@ from pathlib import Path
 from typing import Any, NotRequired, override, Self, TypedDict
 
 import cmk.ccc.version as cmk_version
+import cmk.utils.paths
 from cmk.ccc.crash_reporting import (
     ABCCrashReport,
-    CrashReportRegistry,
     CrashReportStore,
+    make_crash_report_base_path,
     VersionInfo,
 )
 from cmk.ccc.site import omd_site
-
-import cmk.utils.paths
-
 from cmk.gui.breadcrumb import Breadcrumb
 from cmk.gui.htmllib.header import make_header
 from cmk.gui.htmllib.html import html
@@ -27,10 +25,6 @@ from cmk.gui.logged_in import user
 from cmk.gui.utils import escaping
 from cmk.gui.utils.mobile import is_mobile
 from cmk.gui.utils.urls import makeuri, requested_file_name
-
-
-def register(crash_report_registry: CrashReportRegistry) -> None:
-    crash_report_registry.register(GUICrashReport)
 
 
 class DashletDetails(TypedDict):
@@ -64,19 +58,17 @@ class GUICrashReport(ABCCrashReport[GUIDetails]):
     @classmethod
     def from_exception(
         cls,
-        crashdir: Path,
+        *,
         version_info: VersionInfo,
         details: GUIDetails | None = None,
+        crash_report_base_path: Path,
     ) -> Self:
         try:
             # Access any attribute to trigger proxy object lookup
             _x = request.meta
             request_details = RequestDetails(
                 page=requested_file_name(request) + ".py",
-                vars={
-                    key: "***" if value in ["password", "_password"] else value
-                    for key, value in request.itervars()
-                },
+                vars=dict(request.itervars()),
                 username=user.id,
                 user_agent=request.user_agent.string,
                 referer=request.referer,
@@ -100,9 +92,30 @@ class GUICrashReport(ABCCrashReport[GUIDetails]):
                 request_method="unknown",
             )
 
+        if details is None:
+            return cls(
+                crash_report_base_path=crash_report_base_path,
+                crash_info=cls.make_crash_info(
+                    version_info,
+                    GUIDetails(
+                        page=request_details["page"],
+                        vars=request_details["vars"],
+                        username=request_details["username"],
+                        user_agent=request_details["user_agent"],
+                        referer=request_details["referer"],
+                        is_mobile=request_details["is_mobile"],
+                        is_ssl_request=request_details["is_ssl_request"],
+                        language=request_details["language"],
+                        request_method=request_details["request_method"],
+                    ),
+                ),
+            )
         return cls(
-            crashdir,
-            cls.make_crash_info(version_info, GUIDetails(**{**(details or {}), **request_details})),  # type: ignore[typeddict-item]
+            crash_report_base_path=crash_report_base_path,
+            crash_info=cls.make_crash_info(
+                version_info,
+                GUIDetails(**{**details, **request_details}),
+            ),
         )
 
     def url(self) -> str:
@@ -132,9 +145,9 @@ def create_gui_crash_report(
     details: GUIDetails | None = None,
 ) -> GUICrashReport:
     crash = GUICrashReport.from_exception(
-        cmk.utils.paths.crash_dir,
-        cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
+        version_info=cmk_version.get_general_version_infos(cmk.utils.paths.omd_root),
         details=details,
+        crash_report_base_path=make_crash_report_base_path(cmk.utils.paths.omd_root),
     )
     CrashReportStore().save(crash)
     return crash

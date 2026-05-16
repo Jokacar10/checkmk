@@ -7,7 +7,6 @@ import warnings
 from collections.abc import Callable
 
 from cmk.ccc.exceptions import MKGeneralException
-
 from cmk.rulesets.v1 import Help, Message
 from cmk.rulesets.v1.form_specs import FormSpec, MatchingScope, RegularExpression, String
 from cmk.rulesets.v1.form_specs.validators import ValidationError
@@ -19,7 +18,7 @@ class RegexFutureWarning(FutureWarning): ...
 def recompose(form_spec: FormSpec[str]) -> String:
     if not isinstance(form_spec, RegularExpression):
         raise MKGeneralException(
-            f"Cannot recompose form spec. Expected a Percentage form spec, got {type(form_spec)}"
+            f"Cannot recompose form spec. Expected a RegularExpression form spec, got {type(form_spec)}"
         )
 
     matching_help_text = Help("")
@@ -43,8 +42,6 @@ def recompose(form_spec: FormSpec[str]) -> String:
             )
 
     help_text = form_spec.help_text if form_spec.help_text is not None else Help("")
-    # Note: RegularExpression currently does not support case insensitivity
-    case_sensitive_help = Help("The match is case sensitive.")
 
     combined_help = (
         help_text
@@ -52,8 +49,6 @@ def recompose(form_spec: FormSpec[str]) -> String:
         + Help("The text entered here is handled as a regular expression pattern.")
         + Help(" ")
         + matching_help_text
-        + Help(" ")
-        + case_sensitive_help
         + Help(" ")
         + Help(
             "Read more about [regexes|regular expression matching in Checkmk] in our user guide."

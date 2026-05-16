@@ -21,23 +21,26 @@ from typing import Any, assert_never, Literal, Self, TypedDict
 
 from livestatus import LocalConnection, SiteConfigurations
 
+import cmk.gui.sites
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.site import omd_site, SiteId
-
-from cmk.utils.statename import short_service_state_name
-
-import cmk.gui.sites
 from cmk.gui import log
 from cmk.gui.config import Config
-from cmk.gui.http import Request, request
+from cmk.gui.http import Request
 from cmk.gui.i18n import _
 from cmk.gui.log import logger as gui_logger
-from cmk.gui.site_config import is_wato_slave_site, site_is_local
+from cmk.gui.site_config import is_distributed_setup_remote_site
 from cmk.gui.utils import escaping
 from cmk.gui.utils.request_context import copy_request_context
 from cmk.gui.watolib.automation_commands import AutomationCommand
-from cmk.gui.watolib.automations import do_remote_automation, RemoteAutomationConfig
+from cmk.gui.watolib.automations import (
+    do_remote_automation,
+    LocalAutomationConfig,
+    make_automation_config,
+    RemoteAutomationConfig,
+)
 from cmk.gui.watolib.sites import get_effective_global_setting
+from cmk.utils.statename import short_service_state_name
 
 
 class ACResultState(enum.IntEnum):
@@ -161,7 +164,7 @@ class ACTest:
         be shown to the user."""
         raise NotImplementedError()
 
-    def execute(self) -> Iterator[ACSingleResult]:
+    def execute(self, site_id: SiteId, config: Config) -> Iterator[ACSingleResult]:
         """Implement the test logic here. The method needs to add one or more test
         results like this:
 
@@ -169,9 +172,9 @@ class ACTest:
         """
         raise NotImplementedError()
 
-    def run(self) -> Iterator[ACTestResult]:
+    def run(self, site_id: SiteId, config: Config) -> Iterator[ACTestResult]:
         try:
-            for result in self.execute():
+            for result in self.execute(site_id, config):
                 yield ACTestResult(
                     state=result.state,
                     text=result.text,
@@ -203,11 +206,9 @@ class ACTest:
         version = local_connection.query_value("GET status\nColumns: program_version\n", deflt="")
         return version.startswith("Check_MK")
 
-    def _get_effective_global_setting(self, varname: str) -> Any:
+    def _get_effective_global_setting(self, site_id: SiteId, config: Config, varname: str) -> Any:
         return get_effective_global_setting(
-            omd_site(),
-            is_wato_slave_site(),
-            varname,
+            site_id, is_distributed_setup_remote_site(config.sites), varname
         )
 
 
@@ -220,6 +221,8 @@ ac_test_registry = ACTestRegistry()
 
 
 class _TCheckAnalyzeConfig(TypedDict):
+    site_id: SiteId
+    config: Config
     categories: Sequence[str] | None
 
 
@@ -227,10 +230,12 @@ class AutomationCheckAnalyzeConfig(AutomationCommand[_TCheckAnalyzeConfig]):
     def command_name(self) -> str:
         return "check-analyze-config"
 
-    def get_request(self) -> _TCheckAnalyzeConfig:
+    def get_request(self, config: Config, request: Request) -> _TCheckAnalyzeConfig:
         raw_categories = request.get_request().get("categories")
         return _TCheckAnalyzeConfig(
-            categories=json.loads(raw_categories) if raw_categories else None
+            site_id=omd_site(),
+            config=config,
+            categories=json.loads(raw_categories) if raw_categories else None,
         )
 
     def execute(self, api_request: _TCheckAnalyzeConfig) -> list[ACTestResult]:
@@ -245,7 +250,7 @@ class AutomationCheckAnalyzeConfig(AutomationCommand[_TCheckAnalyzeConfig]):
             if not test.is_relevant():
                 continue
 
-            for result in test.run():
+            for result in test.run(api_request["site_id"], api_request["config"]):
                 results.append(result)
 
         return results
@@ -253,13 +258,14 @@ class AutomationCheckAnalyzeConfig(AutomationCommand[_TCheckAnalyzeConfig]):
 
 class _TestResult(TypedDict):
     state: Literal[0, 1]
-    ac_test_results: Sequence[ACTestResult]
+    ac_test_results: list[ACTestResult]
     error: str
 
 
 def _perform_tests_for_site(
     logger: logging.Logger,
-    active_config: Config,
+    config: Config,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
     request_: Request,
     site_id: SiteId,
     categories: Sequence[str] | None,
@@ -269,12 +275,18 @@ def _perform_tests_for_site(
     # thread (One per site)
     logger.debug("[%s] Starting" % site_id)
     try:
-        if site_is_local(site_config := active_config.sites[site_id], site_id):
+        if isinstance(automation_config, LocalAutomationConfig):
             automation = AutomationCheckAnalyzeConfig()
-            ac_test_results = automation.execute(_TCheckAnalyzeConfig(categories=categories))
+            ac_test_results = automation.execute(
+                _TCheckAnalyzeConfig(
+                    site_id=site_id,
+                    config=config,
+                    categories=categories,
+                )
+            )
         else:
             raw_ac_test_results = do_remote_automation(
-                RemoteAutomationConfig.from_site_config(site_config),
+                automation_config,
                 "check-analyze-config",
                 [("categories", json.dumps(categories))],
                 timeout=request_.request_timeout - 10,
@@ -320,7 +332,7 @@ def _error_callback(error: BaseException) -> None:
 
 def perform_tests(
     logger: logging.Logger,
-    active_config: Config,
+    config: Config,
     request_: Request,
     test_sites: SiteConfigurations,
     *,
@@ -334,7 +346,15 @@ def perform_tests(
     pool = ThreadPool(processes=len(test_sites))
 
     def run(site_id: SiteId) -> _TestResult:
-        return _perform_tests_for_site(logger, active_config, request_, site_id, categories, debug)
+        return _perform_tests_for_site(
+            logger,
+            config,
+            make_automation_config(test_sites[site_id]),
+            request_,
+            site_id,
+            categories,
+            debug,
+        )
 
     active_tasks = {
         site_id: pool.apply_async(

@@ -1,4 +1,5 @@
 # docker build \
+# --build-arg IMAGE_BASE=$(buildscripts/docker_image_aliases/resolve.py IMAGE_PYTHON_3_12) \
 # --tag minimal-alpine-checkmk-ci-master \
 # -f buildscripts/scripts/Dockerfile .
 #
@@ -9,7 +10,8 @@
 # minimal-alpine-checkmk-ci-master:latest bash
 #
 
-FROM artifacts.lan.tribe29.com:4000/python@sha256:723368287c1c3bc77152bf56bd7fe72c44ab55efebc60b1bc148cc19ecd49b71
+ARG IMAGE_BASE
+FROM ${IMAGE_BASE}
 # above image is python:3.12-alpine3.21
 
 # bash is required to be used in Jenkins with image.inside(), requires +3MB
@@ -25,8 +27,8 @@ RUN apk update && \
 # install checkmk-dev-tools to run ci-artifacts
 # install pyyaml to parse editions.yml and stages.yml
 RUN pip3 install --break-system-packages \
- "checkmk-dev-tools>=0.8.0" \
- pyyaml
+ "checkmk-dev-tools==0.12.2" \
+ "pyyaml==6.0.2"
 
 # verify installation
 RUN cmk-dev info

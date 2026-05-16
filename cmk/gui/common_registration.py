@@ -7,17 +7,12 @@
 
 from collections.abc import Callable
 
-from cmk.ccc.crash_reporting import CrashReportRegistry
-from cmk.ccc.version import edition
-
-from cmk.utils import paths
-from cmk.utils.licensing.registry import register_cre_licensing_handler
-
 import cmk.gui.help
+from cmk.ccc.version import edition
 from cmk.gui import (
+    activate_menu,
     agent_registration,
     autocompleters,
-    crash_handler,
     crash_reporting,
     default_permissions,
     deprecations,
@@ -36,6 +31,7 @@ from cmk.gui import (
     painter_options,
     prediction,
     rulespec,
+    search_menu,
     user_message,
     valuespec,
     weblib,
@@ -49,7 +45,8 @@ from cmk.gui.cron import CronJobRegistry
 from cmk.gui.dashboard import DashletRegistry
 from cmk.gui.dashboard import registration as dashboard_registration
 from cmk.gui.data_source import DataSourceRegistry
-from cmk.gui.main_menu import MegaMenuRegistry
+from cmk.gui.form_specs.vue import registration as vue_registration
+from cmk.gui.main_menu import MainMenuRegistry
 from cmk.gui.nodevis import nodevis
 from cmk.gui.openapi import registration as openapi_registration
 from cmk.gui.openapi.framework.registry import VersionedEndpointRegistry
@@ -61,8 +58,10 @@ from cmk.gui.painter_options import PainterOptionRegistry
 from cmk.gui.permissions import PermissionRegistry, PermissionSectionRegistry
 from cmk.gui.quick_setup import registration as quick_setup_registration
 from cmk.gui.quick_setup.v0_unstable._registry import QuickSetupRegistry
+from cmk.gui.search import MatchItemGeneratorRegistry
+from cmk.gui.search import registration as search_registration
 from cmk.gui.sidebar import SnapinRegistry
-from cmk.gui.type_defs import TopicMenuTopicEntries
+from cmk.gui.type_defs import MainMenuTopicEntries
 from cmk.gui.userdb import register_config_file as user_connections_config
 from cmk.gui.userdb import register_userroles_config_file as register_userroles
 from cmk.gui.userdb import registration as userdb_registration
@@ -95,22 +94,25 @@ from cmk.gui.watolib.config_domain_name import (
 )
 from cmk.gui.watolib.config_sync import ReplicationPathRegistry
 from cmk.gui.watolib.groups import ContactGroupUsageFinderRegistry
-from cmk.gui.watolib.host_attributes import HostAttributeRegistry, HostAttributeTopicRegistry
+from cmk.gui.watolib.host_attributes import (
+    HostAttributeRegistry,
+    HostAttributeTopicRegistry,
+)
 from cmk.gui.watolib.host_rename import RenameHostHookRegistry
 from cmk.gui.watolib.hosts_and_folders import FolderValidatorsRegistry
 from cmk.gui.watolib.main_menu import MainModuleRegistry, MainModuleTopicRegistry
 from cmk.gui.watolib.mode import ModeRegistry
 from cmk.gui.watolib.notification_parameter import notification_parameter_registry
 from cmk.gui.watolib.rulespecs import RulespecGroupRegistry, RulespecRegistry
-from cmk.gui.watolib.search import MatchItemGeneratorRegistry
 from cmk.gui.watolib.simple_config_file import ConfigFileRegistry
 from cmk.gui.watolib.timeperiods import TimeperiodUsageFinderRegistry
+from cmk.utils import paths
+from cmk.utils.licensing.registry import register_cre_licensing_handler
 
 
 def register(
-    mega_menu_registry: MegaMenuRegistry,
+    main_menu_registry: MainMenuRegistry,
     job_registry: BackgroundJobRegistry,
-    crash_report_registry: CrashReportRegistry,
     permission_section_registry: PermissionSectionRegistry,
     permission_registry: PermissionRegistry,
     sorter_registry: SorterRegistry,
@@ -156,20 +158,23 @@ def register(
     user_attribute_registry: UserAttributeRegistry,
     quick_setup_registry: QuickSetupRegistry,
     help_info_line: Callable[[], str],
-    help_learning_entries: Callable[[], TopicMenuTopicEntries],
-    help_developer_entries: Callable[[], TopicMenuTopicEntries],
-    help_about_checkmk_entries: Callable[[], TopicMenuTopicEntries],
+    help_learning_entries: Callable[[], MainMenuTopicEntries],
+    help_developer_entries: Callable[[], MainMenuTopicEntries],
+    help_about_checkmk_entries: Callable[[], MainMenuTopicEntries],
+    *,
+    ignore_duplicate_endpoints: bool = False,
 ) -> None:
     hooks.register_thread_cache_cleanup()
-    pagetypes.register(mega_menu_registry)
+    pagetypes.register(main_menu_registry)
+    search_menu.register(main_menu_registry)
     help_menu.register(
-        mega_menu_registry,
+        main_menu_registry,
         help_info_line,
         help_learning_entries,
         help_developer_entries,
         help_about_checkmk_entries,
     )
-    crash_handler.register(crash_report_registry)
+    activate_menu.register(main_menu_registry)
     default_permissions.register(permission_section_registry, permission_registry)
     register_cre_licensing_handler()
     painter_options.register(painter_option_registry)
@@ -180,8 +185,19 @@ def register(
         visual_type_registry,
         multisite_builtin_views,
         row_post_processor_registry,
+        command_registry,
+        command_group_registry,
+        painter_registry,
+        painter_option_registry,
+        layout_registry,
+        sorter_registry,
+        data_source_registry,
+        endpoint_family_registry,
+        versioned_endpoint_registry,
+        ignore_duplicates=ignore_duplicate_endpoints,
     )
     inventory.register(
+        config_variable_registry,
         page_registry,
         visual_info_registry,
         filter_registry,
@@ -191,6 +207,7 @@ def register(
         cron_job_registry,
         endpoint_family_registry,
         versioned_endpoint_registry,
+        ignore_duplicate_endpoints=ignore_duplicate_endpoints,
     )
     dashboard_registration.register(
         permission_section_registry,
@@ -199,6 +216,9 @@ def register(
         dashlet_registry,
         contact_group_usage_finder_registry,
         autocompleter_registry,
+        endpoint_family_registry,
+        versioned_endpoint_registry,
+        ignore_duplicate_endpoints=ignore_duplicate_endpoints,
     )
     crash_reporting.register(
         page_registry,
@@ -256,6 +276,7 @@ def register(
         endpoint_registry,
         command_registry,
         command_group_registry,
+        ignore_duplicate_endpoints=ignore_duplicate_endpoints,
     )
     nodevis.register(page_registry, filter_registry, icon_and_action_registry, cron_job_registry)
     notifications.register(page_registry, permission_section_registry)
@@ -264,7 +285,7 @@ def register(
     autocompleters.register(page_registry, autocompleter_registry)
     werks.register(page_registry)
     login.register(page_registry)
-    message.register(page_registry)
+    message.register(page_registry, cron_job_registry)
     cmk.gui.help.register(page_registry)
     main.register(page_registry)
     logwatch.register(page_registry)
@@ -283,6 +304,7 @@ def register(
         main_module_registry,
         cron_job_registry,
     )
+    vue_registration.register()
     gui_background_job.register(permission_section_registry, permission_registry)
     graphing.register(page_registry, config_variable_registry, autocompleter_registry)
     agent_registration.register(permission_section_registry)
@@ -292,6 +314,7 @@ def register(
         versioned_endpoint_registry,
         endpoint_family_registry,
         job_registry,
+        ignore_duplicate_endpoints=ignore_duplicate_endpoints,
     )
 
     register_userroles(config_file_registry)
@@ -306,4 +329,5 @@ def register(
     configuration_bundle_store.register(config_file_registry)
     deprecations.register(cron_job_registry)
     rulespec.register(rulespec_registry, notification_parameter_registry)
-    welcome.register(page_registry)
+    welcome.register(page_registry, snapin_registry)
+    search_registration.register(page_registry)

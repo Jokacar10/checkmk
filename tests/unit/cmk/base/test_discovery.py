@@ -5,6 +5,7 @@
 
 
 import logging
+import socket
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import NamedTuple
@@ -12,21 +13,20 @@ from typing import NamedTuple
 import pytest
 from pytest import MonkeyPatch
 
-from tests.testlib.unit.base_configuration_scenario import Scenario
-
+from cmk.agent_based.v2 import AgentSection, SimpleSNMPSection
+from cmk.base import config
+from cmk.base.checkers import (
+    CMKFetcher,
+    CMKParser,
+    DiscoveryPluginMapper,
+    HostLabelPluginMapper,
+    SectionPluginMapper,
+)
+from cmk.base.config import ConfigCache
+from cmk.base.configlib.checkengine import DiscoveryConfig
+from cmk.base.configlib.servicename import make_final_service_name_config
 from cmk.ccc.exceptions import OnError
 from cmk.ccc.hostaddress import HostAddress, HostName
-
-from cmk.utils.everythingtype import EVERYTHING
-from cmk.utils.labels import DiscoveredHostLabelsStore, HostLabel
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.sectionname import SectionName
-
-from cmk.snmplib import SNMPRawData
-
-from cmk.fetchers import Mode
-from cmk.fetchers.filecache import FileCacheOptions
-
 from cmk.checkengine.checkresults import ActiveCheckResult
 from cmk.checkengine.discovery import (
     ABCDiscoveryConfig,
@@ -57,34 +57,37 @@ from cmk.checkengine.discovery._autodiscovery import (
 )
 from cmk.checkengine.discovery._filters import RediscoveryParameters, ServiceFilters
 from cmk.checkengine.discovery._utils import DiscoveredItem
-from cmk.checkengine.fetcher import HostKey, SourceType
+from cmk.checkengine.fetcher import HostKey
 from cmk.checkengine.parser import AgentRawDataSection, HostSections, NO_SELECTION
-from cmk.checkengine.plugins import AgentBasedPlugins, AutocheckEntry, CheckPluginName, ServiceID
-from cmk.checkengine.sectionparser import (
+from cmk.checkengine.plugins import (
+    AgentBasedPlugins,
+    AutocheckEntry,
+    CheckPluginName,
     ParsedSectionName,
+    SectionName,
+    ServiceID,
+)
+from cmk.checkengine.sectionparser import (
     ParsedSectionsResolver,
     Provider,
     SectionPlugin,
     SectionsParser,
 )
-
-from cmk.base import config
-from cmk.base.checkers import (
-    CMKFetcher,
-    CMKParser,
-    DiscoveryPluginMapper,
-    HostLabelPluginMapper,
-    SectionPluginMapper,
-)
-from cmk.base.config import ConfigCache
-from cmk.base.configlib.checkengine import DiscoveryConfig
-
-from cmk.agent_based.v2 import AgentSection, SimpleSNMPSection
+from cmk.fetchers import Mode, NoSelectedSNMPSections, PlainFetcherTrigger, SNMPFetcherConfig
+from cmk.fetchers.filecache import FileCacheOptions
+from cmk.helper_interface import SourceType
 from cmk.plugins.collection.agent_based.df_section import agent_section_df
 from cmk.plugins.collection.agent_based.kernel import agent_section_kernel
 from cmk.plugins.collection.agent_based.labels import agent_section_labels
 from cmk.plugins.collection.agent_based.uptime import agent_section_uptime
 from cmk.plugins.liebert.agent_based.liebert_fans import snmp_section_liebert_fans
+from cmk.snmplib import SNMPRawDataElem
+from cmk.utils.everythingtype import EVERYTHING
+from cmk.utils.ip_lookup import IPStackConfig
+from cmk.utils.labels import DiscoveredHostLabelsStore, HostLabel
+from cmk.utils.rulesets import RuleSetName
+from tests.testlib.common.repo import is_enterprise_repo
+from tests.testlib.unit.base_configuration_scenario import Scenario
 
 
 def _as_plugin(plugin: AgentSection | SimpleSNMPSection) -> SectionPlugin:
@@ -1352,7 +1355,7 @@ def test__find_candidates(
         HostKey(HostName("test_node"), SourceType.MANAGEMENT): (
             ParsedSectionsResolver(
                 SectionsParser(
-                    host_sections=HostSections[SNMPRawData](
+                    host_sections=HostSections[Mapping[SectionName, SNMPRawDataElem]](
                         {
                             # host & mgmt:
                             SectionName("uptime"): [["123"]],
@@ -1377,11 +1380,7 @@ def test__find_candidates(
             )
         ),
     }
-
-    assert find_plugins(
-        providers,
-        [(p.name, p.sections) for p in agent_based_plugins.check_plugins.values()],
-    ) == {
+    expected_plugins = {
         CheckPluginName("docker_container_status_uptime"),
         CheckPluginName("kernel"),
         CheckPluginName("kernel_performance"),
@@ -1391,6 +1390,22 @@ def test__find_candidates(
         CheckPluginName("mgmt_uptime"),
         CheckPluginName("uptime"),
     }
+
+    if is_enterprise_repo():
+        expected_plugins.update(
+            {
+                CheckPluginName("mgmt_podman_container_uptime"),
+                CheckPluginName("podman_container_uptime"),
+            }
+        )
+
+    assert (
+        find_plugins(
+            providers,
+            [(p.name, p.sections) for p in agent_based_plugins.check_plugins.values()],
+        )
+        == expected_plugins
+    )
 
 
 _expected_services: dict = {
@@ -1491,29 +1506,46 @@ def test_commandline_discovery(
 
     file_cache_options = FileCacheOptions()
     parser = CMKParser(
-        config_cache.parser_factory(),
+        config.make_parser_config(
+            config_cache._loaded_config, config_cache.ruleset_matcher, config_cache.label_manager
+        ),
         selected_sections=NO_SELECTION,
         keep_outdated=file_cache_options.keep_outdated,
         logger=logging.getLogger("tests"),
     )
+    service_name_config = config_cache.make_passive_service_name_config(
+        make_final_service_name_config(config_cache._loaded_config, config_cache.ruleset_matcher)
+    )
     fetcher = CMKFetcher(
         config_cache,
+        lambda hn: PlainFetcherTrigger(),
         config_cache.fetcher_factory(
-            config_cache.make_service_configurer(
-                {}, config_cache.make_passive_service_name_config()
-            )
+            config_cache.make_service_configurer({}, service_name_config),
+            ip_lookup=lambda *a: HostAddress(""),
+            service_name_config=service_name_config,
+            enforced_services_table=lambda hn: {},
+            snmp_fetcher_config=SNMPFetcherConfig(
+                on_error=OnError.RAISE,
+                missing_sys_description=lambda host_name: False,
+                oid_cache_dir=Path("/dev/null"),
+                selected_sections=NoSelectedSNMPSections(),
+                backend_override=None,
+                stored_walk_path=Path("/dev/null"),
+                walk_cache_path=Path("/dev/null"),
+                section_cache_path=lambda host_name: Path("/dev/null"),
+                caching_config=lambda host_name: {},
+            ),
         ),
         agent_based_plugins,
+        default_address_family=lambda *a: socket.AddressFamily.AF_INET,
         file_cache_options=file_cache_options,
         force_snmp_cache_refresh=False,
-        ip_address_of=config.ConfiguredIPLookup(
-            config_cache, error_handler=config.handle_ip_lookup_failure
-        ),
+        get_ip_stack_config=lambda *a: IPStackConfig.IPv4,
+        ip_address_of=lambda *a: HostAddress(""),
+        ip_address_of_mandatory=lambda *a: HostAddress(""),
+        ip_address_of_mgmt=lambda *a: HostAddress(""),
         mode=Mode.DISCOVERY,
-        on_error=OnError.RAISE,
-        selected_sections=NO_SELECTION,
         simulation_mode=True,
-        snmp_backend_override=None,
         password_store_file=Path("/pw/store"),
     )
 

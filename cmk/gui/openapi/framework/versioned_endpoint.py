@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from cmk.ccc.version import Edition
-
 from cmk.gui.http import HTTPMethod
 from cmk.gui.openapi.framework._types import DataclassInstance
 from cmk.gui.openapi.framework.api_config import APIVersion
@@ -71,7 +70,7 @@ class EndpointMetadata:
     lowercase in the OpenAPI YAML-file, though both upper and lower-cased method-names
     are supported here."""
 
-    content_type: str = "application/json"
+    content_type: str | None = "application/json"
     """The content-type under which this endpoint shall be executed. Multiple endpoints may
     be defined for any one URL, but only one endpoint per url-content-type combination."""
 

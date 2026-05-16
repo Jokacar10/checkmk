@@ -9,8 +9,40 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4, uuid5
 
-from cmk.ccc import store
+from livestatus import SiteConfiguration, SiteConfigurations
 
+from cmk.ccc import store
+from cmk.ccc.site import omd_site, url_prefix
+from cmk.ccc.user import UserId
+from cmk.gui.groups import GroupSpec
+from cmk.gui.log import logger
+from cmk.gui.userdb import (
+    create_cmk_automation_user,
+    get_user_attributes,
+    load_users,
+    save_users,
+    UserSpec,
+)
+from cmk.gui.utils.htpasswd import Htpasswd
+from cmk.gui.watolib.config_domain_name import (
+    sample_config_generator_registry,
+    SampleConfigGenerator,
+)
+from cmk.gui.watolib.config_domains import ConfigDomainCACertificates
+from cmk.gui.watolib.global_settings import save_global_settings
+from cmk.gui.watolib.hosts_and_folders import folder_tree
+from cmk.gui.watolib.notifications import (
+    NotificationParameterConfigFile,
+    NotificationRuleConfigFile,
+)
+from cmk.gui.watolib.rulesets import FolderRulesets
+from cmk.gui.watolib.sites import site_management_registry
+from cmk.gui.watolib.tags import TagConfigFile
+from cmk.gui.watolib.utils import multisite_dir, wato_root_dir
+from cmk.inventory.config import (
+    InvCleanupParams,
+    InvCleanupParamsDefaultCombined,
+)
 from cmk.utils.encryption import raw_certificates_from_file
 from cmk.utils.log import VERBOSE
 from cmk.utils.notify_types import (
@@ -24,26 +56,8 @@ from cmk.utils.notify_types import (
     NotificationRuleID,
     NotifyPlugin,
 )
-from cmk.utils.paths import configuration_lockfile, site_cert_file
+from cmk.utils.paths import configuration_lockfile, htpasswd_file, site_cert_file
 from cmk.utils.tags import sample_tag_config, TagConfig
-
-from cmk.gui.groups import GroupSpec
-from cmk.gui.log import logger
-from cmk.gui.userdb import create_cmk_automation_user
-from cmk.gui.watolib.config_domain_name import (
-    sample_config_generator_registry,
-    SampleConfigGenerator,
-)
-from cmk.gui.watolib.config_domains import ConfigDomainCACertificates
-from cmk.gui.watolib.global_settings import save_global_settings
-from cmk.gui.watolib.hosts_and_folders import folder_tree
-from cmk.gui.watolib.notifications import (
-    NotificationParameterConfigFile,
-    NotificationRuleConfigFile,
-)
-from cmk.gui.watolib.rulesets import FolderRulesets
-from cmk.gui.watolib.tags import TagConfigFile
-from cmk.gui.watolib.utils import multisite_dir, wato_root_dir
 
 from ._abc import SampleConfigGeneratorABCGroups
 from ._constants import SHIPPED_RULES, USE_NEW_DESCRIPTIONS_FOR_SETTING
@@ -197,6 +211,15 @@ class ConfigGeneratorBasicWATOConfig(SampleConfigGenerator):
                     or []
                 ),
             },
+            "inventory_cleanup": InvCleanupParams(
+                for_hosts=[],
+                default=InvCleanupParamsDefaultCombined(
+                    strategy="and",
+                    file_age=400 * 86400,
+                    number_of_history_entries=100,
+                ),
+                abandoned_file_age=30 * 86400,
+            ),
         }
 
         return settings
@@ -204,6 +227,52 @@ class ConfigGeneratorBasicWATOConfig(SampleConfigGenerator):
     def _initialize_tag_config(self) -> None:
         tag_config = TagConfig.from_config(sample_tag_config())
         TagConfigFile().save(tag_config.get_dict_format(), pprint_value=True)
+
+
+class ConfigGeneratorLocalSiteConnection(SampleConfigGenerator):
+    @classmethod
+    def ident(cls) -> str:
+        return "create_local_site_connection"
+
+    @classmethod
+    def sort_index(cls) -> int:
+        return 20
+
+    def generate(self) -> None:
+        site_mgmt = site_management_registry["site_management"]
+        site_mgmt.save_sites(
+            self._default_single_site_configuration(),
+            activate=True,
+            pprint_value=True,
+        )
+
+    def _default_single_site_configuration(self) -> SiteConfigurations:
+        return SiteConfigurations(
+            {
+                omd_site(): SiteConfiguration(
+                    {
+                        "id": omd_site(),
+                        "alias": f"Local site {omd_site()}",
+                        "socket": ("local", None),
+                        "disable_wato": True,
+                        "disabled": False,
+                        "insecure": False,
+                        "url_prefix": url_prefix(),
+                        "multisiteurl": "",
+                        "persist": False,
+                        "replicate_ec": False,
+                        "replicate_mkps": False,
+                        "replication": None,
+                        "timeout": 5,
+                        "user_login": True,
+                        "proxy": None,
+                        "user_sync": "all",
+                        "status_host": None,
+                        "message_broker_port": 5672,
+                    }
+                )
+            }
+        )
 
 
 class ConfigGeneratorAcknowledgeInitialWerks(SampleConfigGenerator):
@@ -225,6 +294,52 @@ class ConfigGeneratorAcknowledgeInitialWerks(SampleConfigGenerator):
         werks.acknowledge_all_werks(check_permission=False)
 
 
+class ConfigGeneratorInitialAdminUser(SampleConfigGenerator):
+    """Create the configuration for the "cmkadmin" user
+
+    'omd create' already creates this user in the htpasswd file, but not in
+    the user database. So we create it here to have a complete user setup.
+    """
+
+    @classmethod
+    def ident(cls) -> str:
+        return "create_initial_admin_user"
+
+    @classmethod
+    def sort_index(cls) -> int:
+        return 55
+
+    def generate(self) -> None:
+        pw_hash = Htpasswd(htpasswd_file).get_hash(UserId("cmkadmin"))
+        if pw_hash is None:
+            raise ValueError("No password found for user 'cmkadmin'")
+
+        save_users(
+            {
+                **load_users(lock=True),
+                UserId("cmkadmin"): UserSpec(
+                    {
+                        "alias": "cmkadmin",
+                        "connector": "htpasswd",
+                        # The password was set through 'omd create'. Get it so that it is not
+                        # removed by Htpasswd.save_users().
+                        "password": pw_hash,
+                        "locked": False,
+                        "roles": ["admin"],
+                        "language": "en",
+                        "start_url": "welcome.py",
+                        "user_scheme_serial": 1,
+                    }
+                ),
+            },
+            get_user_attributes([]),
+            user_connections=[],
+            now=datetime.now(),
+            pprint_value=True,
+            call_users_saved_hook=False,
+        )
+
+
 class ConfigGeneratorRegistrationUser(SampleConfigGenerator):
     """Create the default Checkmk "agent registation" user"""
 
@@ -242,5 +357,12 @@ class ConfigGeneratorRegistrationUser(SampleConfigGenerator):
 
     def generate(self) -> None:
         create_cmk_automation_user(
-            datetime.now(), name=self.name, role=self.role, alias=self.alias, store_secret=True
+            name=self.name,
+            role=self.role,
+            alias=self.alias,
+            store_secret=True,
+            user_attributes=get_user_attributes([]),
+            user_connections=[],
+            now=datetime.now(),
+            pprint_value=True,
         )

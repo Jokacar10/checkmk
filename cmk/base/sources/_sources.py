@@ -6,24 +6,19 @@
 # TODO This module should be freed from base deps.
 
 import os.path
-from dataclasses import dataclass
+import socket
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
 
 from cmk.ccc.hostaddress import HostAddress, HostName
-
-from cmk.utils.agentdatatype import AgentRawData
-
-from cmk.snmplib import SNMPBackendEnum, SNMPRawData
-
+from cmk.checkengine.plugins import AgentBasedPlugins
 from cmk.fetchers import (
+    Fetcher,
     IPMIFetcher,
     NoFetcher,
     NoFetcherError,
     PiggybackFetcher,
     ProgramFetcher,
-    SNMPFetcher,
-    SNMPScanConfig,
     TCPFetcher,
     TLSConfig,
 )
@@ -36,10 +31,8 @@ from cmk.fetchers.filecache import (
     NoCache,
     SNMPFileCache,
 )
-
-from cmk.checkengine.fetcher import FetcherType, SourceInfo, SourceType
-from cmk.checkengine.parser import SectionNameCollection
-from cmk.checkengine.plugins import AgentBasedPlugins
+from cmk.helper_interface import AgentRawData, FetcherType, SourceInfo, SourceType
+from cmk.snmplib import SNMPRawData
 
 from ._api import Source
 
@@ -60,25 +53,16 @@ __all__ = [
 _NO_CACHE: Final[FileCache] = NoCache()
 
 
-@dataclass(frozen=True)
-class SNMPFetcherConfig:
-    scan_config: SNMPScanConfig
-    selected_sections: SectionNameCollection
-    backend_override: SNMPBackendEnum | None
-    stored_walk_path: Path
-    walk_cache_path: Path
-
-
 class FetcherFactory(Protocol):
     def make_snmp_fetcher(
         self,
         plugins: AgentBasedPlugins,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress,
         *,
         source_type: SourceType,
-        fetcher_config: SNMPFetcherConfig,
-    ) -> SNMPFetcher: ...
+    ) -> Fetcher: ...
 
     def make_ipmi_fetcher(
         self,
@@ -89,6 +73,7 @@ class FetcherFactory(Protocol):
     def make_program_fetcher(
         self,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress | None,
         *,
         program: str,
@@ -98,6 +83,7 @@ class FetcherFactory(Protocol):
     def make_tcp_fetcher(
         self,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress,
         *,
         tls_config: TLSConfig,
@@ -112,8 +98,6 @@ class FetcherFactory(Protocol):
 
     def make_piggyback_fetcher(
         self,
-        host_name: HostName,
-        ipaddress: HostAddress | None,
     ) -> PiggybackFetcher: ...
 
 
@@ -126,9 +110,9 @@ class SNMPSource(Source[SNMPRawData]):
         factory: FetcherFactory,
         plugins: AgentBasedPlugins,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress,
         *,
-        fetcher_config: SNMPFetcherConfig,
         max_age: MaxAge,
         file_cache_path: Path,
     ) -> None:
@@ -136,8 +120,8 @@ class SNMPSource(Source[SNMPRawData]):
         self.factory: Final = factory
         self.plugins: Final = plugins
         self.host_name: Final = host_name
+        self.host_ip_family: Final = host_ip_family
         self.ipaddress: Final = ipaddress
-        self._fetcher_config: Final = fetcher_config
         self._max_age: Final = max_age
         self._file_cache_path: Final = file_cache_path
 
@@ -150,13 +134,13 @@ class SNMPSource(Source[SNMPRawData]):
             self.source_type,
         )
 
-    def fetcher(self) -> SNMPFetcher:
+    def fetcher(self) -> Fetcher:
         return self.factory.make_snmp_fetcher(
             self.plugins,
             self.host_name,
+            self.host_ip_family,
             self.ipaddress,
             source_type=self.source_type,
-            fetcher_config=self._fetcher_config,
         )
 
     def file_cache(
@@ -182,9 +166,9 @@ class MgmtSNMPSource(Source[SNMPRawData]):
         factory: FetcherFactory,
         plugins: AgentBasedPlugins,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress,
         *,
-        fetcher_config: SNMPFetcherConfig,
         max_age: MaxAge,
         file_cache_path: Path,
     ) -> None:
@@ -192,9 +176,9 @@ class MgmtSNMPSource(Source[SNMPRawData]):
         self.factory: Final = factory
         self.plugins: Final = plugins
         self.host_name: Final = host_name
+        self.host_ip_family: Final = host_ip_family
         self.ipaddress: Final = ipaddress
         self._max_age: Final = max_age
-        self._fetcher_config: Final = fetcher_config
         self._file_cache_path: Final = file_cache_path
 
     def source_info(self) -> SourceInfo:
@@ -206,13 +190,13 @@ class MgmtSNMPSource(Source[SNMPRawData]):
             self.source_type,
         )
 
-    def fetcher(self) -> SNMPFetcher:
+    def fetcher(self) -> Fetcher:
         return self.factory.make_snmp_fetcher(
             self.plugins,
             self.host_name,
+            self.host_ip_family,
             self.ipaddress,
             source_type=self.source_type,
-            fetcher_config=self._fetcher_config,
         )
 
     def file_cache(
@@ -283,6 +267,7 @@ class ProgramSource(Source[AgentRawData]):
         self,
         factory: FetcherFactory,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress | None,
         *,
         program: str,
@@ -292,6 +277,7 @@ class ProgramSource(Source[AgentRawData]):
         super().__init__()
         self.factory: Final = factory
         self.host_name: Final = host_name
+        self.host_ip_family: Final = host_ip_family
         self.ipaddress: Final = ipaddress
         self.program: Final = program
         self._max_age: Final = max_age
@@ -301,14 +287,14 @@ class ProgramSource(Source[AgentRawData]):
         return SourceInfo(
             self.host_name,
             self.ipaddress,
-            "agent",
+            "agent",  # collides with TCPSource, not sure if intentional.
             self.fetcher_type,
             self.source_type,
         )
 
     def fetcher(self) -> ProgramFetcher:
         return self.factory.make_program_fetcher(
-            self.host_name, self.ipaddress, program=self.program, stdin=None
+            self.host_name, self.host_ip_family, self.ipaddress, program=self.program, stdin=None
         )
 
     def file_cache(
@@ -382,6 +368,7 @@ class TCPSource(Source[AgentRawData]):
         self,
         factory: FetcherFactory,
         host_name: HostName,
+        host_ip_family: Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6],
         ipaddress: HostAddress,
         *,
         max_age: MaxAge,
@@ -391,6 +378,7 @@ class TCPSource(Source[AgentRawData]):
         super().__init__()
         self.factory: Final = factory
         self.host_name: Final = host_name
+        self.host_ip_family: Final = host_ip_family
         self.ipaddress: Final = ipaddress
         self._max_age: Final = max_age
         self._file_cache_path: Final = file_cache_path
@@ -408,6 +396,7 @@ class TCPSource(Source[AgentRawData]):
     def fetcher(self) -> TCPFetcher:
         return self.factory.make_tcp_fetcher(
             self.host_name,
+            self.host_ip_family,
             self.ipaddress,
             tls_config=self._tls_config,
         )
@@ -470,21 +459,30 @@ class SpecialAgentSource(Source[AgentRawData]):
     def file_cache(
         self, *, simulation: bool, file_cache_options: FileCacheOptions
     ) -> FileCache[AgentRawData]:
+        if self._agent_name != "otel":
+            return AgentFileCache(
+                path_template=os.path.join(
+                    self._file_cache_path, self.source_info().ident, str(self.host_name)
+                ),
+                max_age=self._max_age,
+                simulation=simulation,
+                use_only_cache=file_cache_options.use_only_cache,
+                file_cache_mode=file_cache_options.file_cache_mode(),
+            )
+
+        # Overriding the cache mode like this is extremely hackish. The alternative would have
+        # been to modify the agent API to pass down this via configuration.
+        # We want to disable caching to prevent data duplication in tmpfs. Because this is a
+        # temp fix until a metrics backend becomes available, we didn't go for a cleaner
+        # approach.
         return AgentFileCache(
             path_template=os.path.join(
                 self._file_cache_path, self.source_info().ident, str(self.host_name)
             ),
             max_age=self._max_age,
             simulation=simulation,
-            use_only_cache=file_cache_options.use_only_cache,
-            # Overriding the cache mode like this is extremely hackish. The alternative would have
-            # been to modify the agent API to pass down this via configuration.
-            # We want to disable caching to prevent data duplication in tmpfs. Because this is a
-            # temp fix until a metrics backend becomes available, we didn't go for a cleaner
-            # approach.
-            file_cache_mode=FileCacheMode.DISABLED
-            if self._agent_name == "otel"
-            else file_cache_options.file_cache_mode(),
+            use_only_cache=False,
+            file_cache_mode=FileCacheMode.DISABLED,
         )
 
 
@@ -513,7 +511,7 @@ class PiggybackSource(Source[AgentRawData]):
         )
 
     def fetcher(self) -> PiggybackFetcher:
-        return self.factory.make_piggyback_fetcher(self.host_name, self.ipaddress)
+        return PiggybackFetcher()
 
     def file_cache(
         self, *, simulation: bool, file_cache_options: FileCacheOptions

@@ -6,14 +6,13 @@ import logging
 
 import pytest
 
-from tests.testlib.site import Site, SiteFactory
-from tests.testlib.utils import get_services_with_status
-
 from tests.plugins_integration.checks import (
     config,
-    get_host_names,
     setup_host,
 )
+from tests.testlib.agent_dumps import get_dump_and_walk_names
+from tests.testlib.site import Site, SiteFactory
+from tests.testlib.utils import get_services_with_status
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +44,15 @@ def _skip_checks():
     #   See Werk #16377 or commit daf9d3ab9a5e9d698733f0af345d88120de863f0
     # * The 'Power x' (x=1,2,...) services have been renamed into 'Power supply'
     #   See Werk 16905.
-    config.skipped_checks = ["Postfix status", "Postfix Queue", "Power 1"]
+    # * The 'Proxmox VE Node Info' service state now depends on the 'subscription' state.
+    #   See CMK-24198.
+    config.skipped_checks = ["Postfix status", "Postfix Queue", "Power 1", "Proxmox VE Node Info"]
     try:
         yield
     finally:
         config.skipped_checks = []
 
 
-@pytest.mark.skip(reason="Minimal supported version not available yet. See CMK-23635")
 @pytest.mark.usefixtures("skip_checks", "skip_dumps")
 def test_plugin_update(
     test_site_update: Site,
@@ -71,10 +71,10 @@ def test_plugin_update(
     psd_rules_base = test_site_update.openapi.rules.get_all("periodic_discovery")
     base_data = {}
     base_data_status_0 = {}
-    hostnames = get_host_names(dump_dir=config.dump_dir_integration) + get_host_names(
-        dump_dir=config.dump_dir_siteless
-    )
-    for host_name in (_ for _ in hostnames if _ not in config.skipped_dumps):
+    hostnames = get_dump_and_walk_names(
+        config.dump_dir_integration, config.skipped_dumps
+    ) + get_dump_and_walk_names(config.dump_dir_siteless, config.skipped_dumps)
+    for host_name in hostnames:
         with setup_host(test_site_update, host_name, skip_cleanup=True):
             base_data[host_name] = test_site_update.get_host_services(host_name)
 
@@ -88,7 +88,7 @@ def test_plugin_update(
 
     target_data = {}
     target_data_status_0 = {}
-    for host_name in get_host_names(test_site_update):
+    for host_name in test_site_update.openapi.hosts.get_all_names():
         target_data[host_name] = test_site_update.get_host_services(host_name)
 
         for skipped_check in config.skipped_checks:
@@ -115,13 +115,13 @@ def test_plugin_update(
         )
 
     test_site_update.openapi.service_discovery.run_bulk_discovery_and_wait_for_completion(
-        get_host_names(test_site_update)
+        test_site_update.openapi.hosts.get_all_names()
     )
     test_site_update.openapi.changes.activate_and_wait_for_completion()
 
     target_data_sd = {}
     target_data_sd_status_0 = {}
-    for host_name in get_host_names(test_site_update):
+    for host_name in test_site_update.openapi.hosts.get_all_names():
         target_data_sd[host_name] = test_site_update.get_host_services(host_name)
         target_data_sd_status_0[host_name] = get_services_with_status(target_data_sd[host_name], 0)
 

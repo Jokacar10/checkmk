@@ -11,14 +11,12 @@ import sys
 
 import cmk.ccc.version as cmk_version
 from cmk.ccc.site import omd_site
-
-from cmk.utils import paths
-
 from cmk.gui.http import request
 from cmk.gui.openapi.endpoints.version.response_schemas import InstalledVersions
 from cmk.gui.openapi.restful_objects import Endpoint
 from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.utils import serve_json
+from cmk.utils import paths
 
 
 @Endpoint(
@@ -52,5 +50,5 @@ def search(param):
     )
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(search)
+def register(endpoint_registry: EndpointRegistry, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(search, ignore_duplicates=ignore_duplicates)

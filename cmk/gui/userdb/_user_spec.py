@@ -3,7 +3,7 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-from cmk.gui.config import active_config
+
 from cmk.gui.type_defs import UserSpec
 
 # count this up, if new user attributes are used or old are marked as
@@ -12,7 +12,7 @@ from cmk.gui.type_defs import UserSpec
 USER_SCHEME_SERIAL = 1
 
 
-def new_user_template(connection_id: str) -> UserSpec:
+def new_user_template(connection_id: str, default_user_profile: UserSpec) -> UserSpec:
     new_user = UserSpec(
         serial=0,
         connector=connection_id,
@@ -20,10 +20,10 @@ def new_user_template(connection_id: str) -> UserSpec:
         roles=[],
     )
 
-    # Apply the default user profile
-    new_user.update(active_config.default_user_profile)
+    new_user.update(default_user_profile)
     return new_user
 
 
 def add_internal_attributes(usr: UserSpec) -> int:
+    usr.setdefault("start_url", "welcome.py")
     return usr.setdefault("user_scheme_serial", USER_SCHEME_SERIAL)

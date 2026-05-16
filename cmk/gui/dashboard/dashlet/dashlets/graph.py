@@ -14,13 +14,12 @@ from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
-from cmk.utils.macros import MacroMapping
-
+from cmk.graphing.v1 import graphs as graphs_api
 from cmk.gui import sites
+from cmk.gui.config import active_config, Config
 from cmk.gui.dashboard.type_defs import DashletId, DashletSize
 from cmk.gui.exceptions import MKMissingDataError, MKUserError
-from cmk.gui.graphing._from_api import graphs_from_api, metrics_from_api
+from cmk.gui.graphing._from_api import graphs_from_api, metrics_from_api, RegisteredMetric
 from cmk.gui.graphing._graph_render_config import (
     GraphRenderConfig,
     GraphRenderOptions,
@@ -29,20 +28,23 @@ from cmk.gui.graphing._graph_specification import GraphSpecification
 from cmk.gui.graphing._graph_templates import (
     get_graph_template_choices,
     get_template_graph_specification,
-    graph_and_single_metric_templates_choices_for_context,
+    graph_and_single_metric_template_choices_for_metrics,
     GraphTemplateChoice,
     TemplateGraphSpecification,
 )
 from cmk.gui.graphing._html_render import GraphDestinations
 from cmk.gui.graphing._metrics import get_metric_spec
+from cmk.gui.graphing._translated_metrics import translated_metrics_from_row
 from cmk.gui.graphing._utils import MKCombinedGraphLimitExceededError
 from cmk.gui.graphing._valuespecs import vs_graph_render_options
 from cmk.gui.htmllib.html import html
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
+from cmk.gui.permissions import permission_registry
 from cmk.gui.theme.current_theme import theme
 from cmk.gui.type_defs import Choices, GraphRenderOptionsVS, SingleInfos, SizePT, VisualContext
 from cmk.gui.utils.autocompleter_config import ContextAutocompleterConfig
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.valuespec import (
     Dictionary,
     DictionaryElements,
@@ -54,7 +56,9 @@ from cmk.gui.valuespec import (
 from cmk.gui.visuals import (
     get_only_sites_from_context,
     get_singlecontext_vars,
+    livestatus_query_bare,
 )
+from cmk.utils.macros import MacroMapping
 
 from ...title_macros import macro_mapping_from_context
 from ...type_defs import ABCGraphDashletConfig, DashboardConfig, DashboardName
@@ -270,6 +274,7 @@ function handle_dashboard_render_graph_response(handler_data, response_body)
             graph_recipes = graph_specification.recipes(
                 metrics_from_api,
                 graphs_from_api,
+                UserPermissions.from_config(active_config, permission_registry),
             )
         except MKMissingDataError:
             raise
@@ -341,7 +346,7 @@ function handle_dashboard_render_graph_response(handler_data, response_body)
 
 
 class TemplateGraphDashletConfig(ABCGraphDashletConfig):
-    source: str
+    source: str | int  # graph id or index (1-based) of the graph in the template
 
 
 class TemplateGraphDashlet(ABCGraphDashlet[TemplateGraphDashletConfig, TemplateGraphSpecification]):
@@ -438,21 +443,40 @@ def default_dashlet_graph_render_options() -> GraphRenderOptionsVS:
     )
 
 
-def graph_templates_autocompleter(value_entered_by_user: str, params: dict) -> Choices:
+def graph_templates_autocompleter(
+    config: Config, value_entered_by_user: str, params: dict
+) -> Choices:
     """Return the matching list of dropdown choices
     Called by the webservice with the current input field value and the
     completions_params to get the list of choices"""
+    return _graph_templates_autocompleter_testable(
+        config=config,
+        value_entered_by_user=value_entered_by_user,
+        params=params,
+        registered_metrics=metrics_from_api,
+        registered_graphs=graphs_from_api,
+    )
+
+
+def _graph_templates_autocompleter_testable(
+    *,
+    config: object,
+    value_entered_by_user: str,
+    params: Mapping[str, Any],
+    registered_metrics: Mapping[str, RegisteredMetric],
+    registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+) -> Choices:
     if not params.get("context") and params.get("show_independent_of_context") is True:
-        _sorted_matching_graph_template_choices(
+        return _sorted_matching_graph_template_choices(
             value_entered_by_user,
-            get_graph_template_choices(graphs_from_api),
+            get_graph_template_choices(registered_graphs),
         )
 
     graph_template_choices, single_metric_template_choices = (
-        graph_and_single_metric_templates_choices_for_context(
+        _graph_and_single_metric_templates_choices_for_context(
             params["context"],
-            metrics_from_api,
-            graphs_from_api,
+            registered_metrics,
+            registered_graphs,
         )
     )
 
@@ -463,6 +487,35 @@ def graph_templates_autocompleter(value_entered_by_user: str, params: dict) -> C
         value_entered_by_user,
         single_metric_template_choices,
     )
+
+
+def _graph_and_single_metric_templates_choices_for_context(
+    context: VisualContext,
+    registered_metrics: Mapping[str, RegisteredMetric],
+    registered_graphs: Mapping[str, graphs_api.Graph | graphs_api.Bidirectional],
+) -> tuple[list[GraphTemplateChoice], list[GraphTemplateChoice]]:
+    graph_template_choices: list[GraphTemplateChoice] = []
+    single_metric_template_choices: list[GraphTemplateChoice] = []
+
+    for row in livestatus_query_bare(
+        "service",
+        context,
+        ["service_check_command", "service_perf_data", "service_metrics"],
+    ):
+        graph_template_choices_for_row, single_metric_template_choices_for_row = (
+            graph_and_single_metric_template_choices_for_metrics(
+                translated_metrics_from_row(
+                    row,
+                    registered_metrics,
+                ),
+                registered_metrics,
+                registered_graphs,
+            )
+        )
+        graph_template_choices.extend(graph_template_choices_for_row)
+        single_metric_template_choices.extend(single_metric_template_choices_for_row)
+
+    return graph_template_choices, single_metric_template_choices
 
 
 def _sorted_matching_graph_template_choices(

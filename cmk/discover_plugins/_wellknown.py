@@ -10,13 +10,16 @@ CMK_PLUGINS = "cmk.plugins"
 CMK_ADDONS_PLUGINS = "cmk_addons.plugins"
 
 LIBEXEC_FOLDER = "libexec"
+AGENT_PLUGINS_FOLDER = "agents"
 
 
 class PluginGroup(enum.Enum):
     """Definitive list of discoverable plug-in groups"""
 
     AGENT_BASED = "agent_based"
+    BAKERY = "bakery"
     CHECKMAN = "checkman"
     GRAPHING = "graphing"
     RULESETS = "rulesets"
     SERVER_SIDE_CALLS = "server_side_calls"
+    INVENTORY_UI = "inventory_ui"

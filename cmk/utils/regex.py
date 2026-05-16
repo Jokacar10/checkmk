@@ -15,7 +15,7 @@ g_compiled_regexes: dict[tuple[str, int], re.Pattern[str]] = {}
 
 REGEX_HOST_NAME_CHARS: Final = r"-0-9a-zA-Z_."
 
-REGEX_GENERIC_IDENTIFIER_CHARS: Final = r"-0-9a-zA-Z_."
+REGEX_GENERIC_IDENTIFIER_CHARS: Final = r"-0-9a-zA-Z_.:"
 REGEX_GENERIC_IDENTIFIER: Final = f"^[{REGEX_GENERIC_IDENTIFIER_CHARS}]+$"
 
 # Start with a char, and no dots
@@ -86,12 +86,6 @@ def regex(pattern: str, flags: int = 0) -> re.Pattern[str]:
 
     g_compiled_regexes[(pattern, flags)] = reg
     return reg
-
-
-def is_regex(pattern: str) -> bool:
-    """Checks if a string contains characters that make it necessary
-    to use regular expression logic to handle it correctly"""
-    return any(c in ".?*+^$|[](){}\\" for c in pattern)
 
 
 def escape_regex_chars(match: str) -> str:

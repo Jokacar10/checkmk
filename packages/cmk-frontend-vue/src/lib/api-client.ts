@@ -36,26 +36,31 @@ export class Api {
 
   public async post(
     url: string,
-    body: BodyInit | null = null,
+    body: unknown | null = null,
     options: ApiOptions = {}
   ): Promise<ApiResponseBody<unknown>> {
-    const params = this.prepareOptions(options, {
-      method: 'POST',
-      body
-    })
-
+    const opts: RequestInit = {
+      method: 'POST'
+    }
+    if (body !== null) {
+      opts.body = JSON.stringify(body)
+    }
+    const params = this.prepareOptions(options, opts)
     return this.fetch(url, params)
   }
 
   public async put(
     url: string,
-    body: BodyInit | null = null,
+    body: unknown | null = null,
     options: ApiOptions = {}
   ): Promise<ApiResponseBody<unknown>> {
-    const params = this.prepareOptions(options, {
-      method: 'PUT',
-      body
-    })
+    const opts: RequestInit = {
+      method: 'POST'
+    }
+    if (body !== null) {
+      opts.body = JSON.stringify(body)
+    }
+    const params = this.prepareOptions(options, opts)
     return this.fetch(url, params)
   }
 
@@ -67,7 +72,7 @@ export class Api {
     return this.fetch(url, params)
   }
 
-  private async fetch(url: string, params: RequestInit): Promise<ApiResponseBody<unknown>> {
+  private async fetch(url: string, params: RequestInit): Promise<ApiResponseBody<unknown> | null> {
     if (this.baseUrl) {
       url = this.baseUrl + url
     }
@@ -75,7 +80,16 @@ export class Api {
     const res = await cmkFetch(url, params)
     await res.raiseForStatus()
 
-    return (await res.json()).result
+    if (res.status === 204) {
+      return null
+    }
+
+    const json = await res.json()
+    if (!('result' in json)) {
+      return json
+    } else {
+      return json.result // only ajax call have this result field
+    }
   }
 
   private prepareOptions(options: ApiOptions, defaults: RequestInit = {}): RequestInit {

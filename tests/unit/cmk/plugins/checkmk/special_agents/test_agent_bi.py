@@ -3,7 +3,6 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-# pylint: disable=protected-access
 
 import json
 from pathlib import Path
@@ -12,9 +11,6 @@ import pytest
 from pytest_mock import MockerFixture
 
 from cmk.ccc.user import UserId
-
-from cmk.utils.local_secrets import AutomationUserSecret
-
 from cmk.plugins.checkmk.special_agents.agent_bi import (
     AgentBiAutomationUserAuthentication,
     AgentBiConfig,
@@ -22,6 +18,7 @@ from cmk.plugins.checkmk.special_agents.agent_bi import (
     AggregationRawdataGenerator,
     merge_config,
 )
+from cmk.utils.local_secrets import AutomationUserSecret
 
 
 class TestAggregationRawdataGeneratorLocal:

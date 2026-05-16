@@ -9,19 +9,18 @@
 #include <string>
 
 #include "livestatus/Table.h"
-class ICore;
 class LogCache;
 
 class TableLog : public Table {
 public:
-    TableLog(ICore *mc, LogCache *log_cache);
+    explicit TableLog(LogCache *log_cache);
 
     [[nodiscard]] std::string name() const override;
     [[nodiscard]] std::string namePrefix() const override;
     void answerQuery(Query &query, const User &user,
                      const ICore &core) override;
     [[nodiscard]] std::shared_ptr<Column> column(
-        std::string colname) const override;
+        std::string colname, const ICore &core) const override;
 
 private:
     LogCache *log_cache_;

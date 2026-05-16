@@ -5,17 +5,13 @@
 
 from cmk.agent_based.v2 import (
     CheckPlugin,
-    CheckResult,
-    DiscoveryResult,
-    Result,
-    Service,
     SimpleSNMPSection,
     SNMPTree,
-    State,
 )
 from cmk.plugins.lib.enviromux import (
+    check_enviromux_sems_digital,
     DETECT_ENVIROMUX_SEMS,
-    EnviromuxDigitalSection,
+    discover_enviromux_sems_digital,
     parse_enviromux_digital,
 )
 
@@ -33,38 +29,6 @@ snmp_section_enviromux_sems_digital = SimpleSNMPSection(
     ),
     detect=DETECT_ENVIROMUX_SEMS,
 )
-
-
-def discover_enviromux_sems_digital(section: EnviromuxDigitalSection) -> DiscoveryResult:
-    for item in section:
-        yield Service(item=item)
-
-
-def check_enviromux_sems_digital(
-    item: str,
-    section: EnviromuxDigitalSection,
-) -> CheckResult:
-    if (sensor := section.get(item)) is None:
-        return
-
-    if sensor.value == "unknown":
-        yield Result(
-            state=State.UNKNOWN,
-            summary="Sensor value is unknown",
-        )
-        return
-
-    if sensor.value == sensor.normal_value:
-        yield Result(
-            state=State.OK,
-            summary=f"Sensor Value is normal: {sensor.value}",
-        )
-        return
-
-    yield Result(
-        state=State.CRIT,
-        summary=f"Sensor Value is not normal: {sensor.value} . It should be: {sensor.normal_value}",
-    )
 
 
 check_plugin_enviromux_sems_digital = CheckPlugin(

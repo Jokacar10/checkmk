@@ -5,8 +5,10 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import FormCascadingSingleChoice from '@/form/components/forms/FormCascadingSingleChoice.vue'
+
 import FormEdit from '@/form/components/FormEdit.vue'
+import FormCascadingSingleChoice from '@/form/components/forms/FormCascadingSingleChoice.vue'
+
 import { renderFormWithData } from '../cmk-form-helper'
 
 const stringValidators: FormSpec.Validator[] = [
@@ -23,7 +25,6 @@ const stringFormSpec: FormSpec.String = {
   title: 'nestedStringTitle',
   label: 'nestedStringLabel',
   help: 'nestedStringHelp',
-  i18n_base: { required: 'required' },
   validators: stringValidators,
   input_hint: 'nestedStringInputHint',
   field_size: 'SMALL',
@@ -34,7 +35,6 @@ const integerFormSpec: FormSpec.Integer = {
   type: 'integer',
   title: 'nestedIntegerTitle',
   label: 'nestedIntegerLabel',
-  i18n_base: { required: 'required' },
   help: 'nestedIntegerHelp',
   validators: [],
   input_hint: null,
@@ -45,7 +45,6 @@ const spec: FormSpec.CascadingSingleChoice = {
   type: 'cascading_single_choice',
   title: 'fooTitle',
   label: 'fooLabel',
-  i18n_base: { required: 'required' },
   layout: 'horizontal',
   help: 'fooHelp',
   validators: [],
@@ -190,8 +189,6 @@ test('FormCascadingSingleChoice does not poisen the template value', async () =>
     type: 'dictionary',
     title: 'fooTitle',
     help: 'fooHelp',
-    i18n_base: { required: 'required' },
-    layout: 'one_column',
     validators: [],
     groups: [],
     additional_static_elements: null,
@@ -214,7 +211,6 @@ test('FormCascadingSingleChoice does not poisen the template value', async () =>
     type: 'cascading_single_choice',
     title: 'fooTitle',
     label: 'fooLabel',
-    i18n_base: { required: 'required' },
     layout: 'horizontal',
     help: 'fooHelp',
     validators: [],

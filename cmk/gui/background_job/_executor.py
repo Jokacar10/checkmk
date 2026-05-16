@@ -14,10 +14,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import override, Protocol
 
-import cmk.utils.resulttype as result
-
+import cmk.ccc.resulttype as result
 from cmk.gui.job_scheduler_client import StartupError
-
 from cmk.trace import get_current_span, get_tracer
 
 from ._interface import JobParameters, JobTarget, SpanContextModel

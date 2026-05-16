@@ -10,61 +10,15 @@ import shutil
 import socket
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final, Literal, NoReturn
+from typing import Any, Literal, NoReturn
 
 import pytest
 from pytest import MonkeyPatch
 
-from tests.testlib.unit.base_configuration_scenario import Scenario
-
+import cmk.base.configlib.fetchers
 import cmk.ccc.debug
-from cmk.ccc.exceptions import MKGeneralException
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.site import SiteId
-from cmk.ccc.version import Edition, edition
-
-import cmk.utils.paths
-from cmk.utils.config_path import VersionedConfigPath
-from cmk.utils.ip_lookup import IPStackConfig
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.rulesets.ruleset_matcher import RulesetMatcher, RuleSpec
-from cmk.utils.sectionname import SectionName
-from cmk.utils.tags import TagGroupID, TagID
-
-from cmk.snmplib import SNMPBackendEnum
-
-from cmk.fetchers import Mode, TCPEncryptionHandling
-
 import cmk.checkengine.plugin_backend as agent_based_register
-from cmk.checkengine.discovery import (
-    DiscoveryCheckParameters,
-    RediscoveryParameters,
-)
-from cmk.checkengine.parameters import TimespecificParameters, TimespecificParameterSet
-from cmk.checkengine.plugin_backend.check_plugins_legacy import convert_legacy_check_plugins
-from cmk.checkengine.plugin_backend.section_plugins_legacy import convert_legacy_sections
-from cmk.checkengine.plugins import (
-    AutocheckEntry,
-    CheckPluginName,
-    ConfiguredService,
-    InventoryPlugin,
-    InventoryPluginName,
-    LegacyPluginLocation,
-    ServiceID,
-)
-from cmk.checkengine.plugins import CheckPlugin as CheckPluginAPI
-
-from cmk.base import config
-from cmk.base.config import (
-    ConfigCache,
-    ConfiguredIPLookup,
-    handle_ip_lookup_failure,
-)
-from cmk.base.configlib.checkengine import CheckingConfig
-from cmk.base.configlib.labels import LabelConfig
-from cmk.base.configlib.servicename import FinalServiceNameConfig
-from cmk.base.default_config.base import _PeriodicDiscovery
-
+import cmk.utils.paths
 from cmk.agent_based.legacy.v0_unstable import LegacyCheckDefinition
 from cmk.agent_based.v2 import (
     CheckPlugin,
@@ -75,8 +29,49 @@ from cmk.agent_based.v2 import (
     SNMPTree,
     StringTable,
 )
+from cmk.base import config
+from cmk.base.config import ConfigCache, EnforcedServicesTable
+from cmk.base.configlib.checkengine import CheckingConfig
+from cmk.base.configlib.labels import LabelConfig
+from cmk.base.configlib.loaded_config import LoadedConfigFragment
+from cmk.base.configlib.servicename import (
+    FinalServiceNameConfig,
+    make_final_service_name_config,
+    PassiveServiceNameConfig,
+)
+from cmk.base.default_config.base import _PeriodicDiscovery
+from cmk.ccc.config_path import VersionedConfigPath
+from cmk.ccc.exceptions import MKGeneralException
+from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.ccc.site import SiteId
+from cmk.ccc.version import Edition, edition
+from cmk.checkengine.checkerplugin import ConfiguredService
+from cmk.checkengine.discovery import (
+    DiscoveryCheckParameters,
+    RediscoveryParameters,
+)
+from cmk.checkengine.parameters import TimespecificParameters, TimespecificParameterSet
+from cmk.checkengine.plugin_backend.check_plugins_legacy import convert_legacy_check_plugins
+from cmk.checkengine.plugin_backend.section_plugins_legacy import convert_legacy_sections
+from cmk.checkengine.plugins import (
+    AutocheckEntry,
+    CheckPluginName,
+    InventoryPlugin,
+    InventoryPluginName,
+    LegacyPluginLocation,
+    SectionName,
+    ServiceID,
+)
+from cmk.checkengine.plugins import CheckPlugin as CheckPluginAPI
 from cmk.discover_plugins import DiscoveredPlugins, PluginLocation
+from cmk.fetchers import Mode, TCPEncryptionHandling
 from cmk.server_side_calls.v1 import ActiveCheckConfig
+from cmk.snmplib import SNMPBackendEnum
+from cmk.utils.ip_lookup import IPStackConfig
+from cmk.utils.rulesets import RuleSetName
+from cmk.utils.rulesets.ruleset_matcher import BundledHostRulesetMatcher, RulesetMatcher, RuleSpec
+from cmk.utils.tags import TagGroupID, TagID
+from tests.testlib.unit.base_configuration_scenario import Scenario
 
 
 def test_all_offline_hosts(monkeypatch: MonkeyPatch) -> None:
@@ -212,49 +207,6 @@ def test_all_active_hosts(monkeypatch: MonkeyPatch) -> None:
     } == {HostName("cluster1"), HostName("cluster3"), HostName("real1"), HostName("real3")}
 
 
-def test_config_cache_tag_to_group_map(monkeypatch: MonkeyPatch) -> None:
-    ts = Scenario()
-    ts.set_option(
-        "tag_config",
-        {
-            "aux_tags": [],
-            "tag_groups": [
-                {
-                    "id": "dingeling",
-                    "title": "Dung",
-                    "tags": [
-                        {"aux_tags": [], "id": TagID("dong"), "title": "ABC"},
-                    ],
-                }
-            ],
-        },
-    )
-    ts.apply(monkeypatch)
-    assert ConfigCache.get_tag_to_group_map() == {
-        TagID("all-agents"): TagGroupID("agent"),
-        TagID("auto-piggyback"): TagGroupID("piggyback"),
-        TagID("cmk-agent"): TagGroupID("agent"),
-        TagID("checkmk-agent"): TagGroupID("checkmk-agent"),
-        TagID("dong"): TagGroupID("dingeling"),
-        TagID("ip-v4"): TagGroupID("ip-v4"),
-        TagID("ip-v4-only"): TagGroupID("address_family"),
-        TagID("ip-v4v6"): TagGroupID("address_family"),
-        TagID("ip-v6"): TagGroupID("ip-v6"),
-        TagID("ip-v6-only"): TagGroupID("address_family"),
-        TagID("no-agent"): TagGroupID("agent"),
-        TagID("no-ip"): TagGroupID("address_family"),
-        TagID("no-piggyback"): TagGroupID("piggyback"),
-        TagID("no-snmp"): TagGroupID("snmp_ds"),
-        TagID("piggyback"): TagGroupID("piggyback"),
-        TagID("ping"): TagGroupID("ping"),
-        TagID("snmp"): TagGroupID("snmp"),
-        TagID("snmp-v1"): TagGroupID("snmp_ds"),
-        TagID("snmp-v2"): TagGroupID("snmp_ds"),
-        TagID("special-agents"): TagGroupID("agent"),
-        TagID("tcp"): TagGroupID("tcp"),
-    }
-
-
 @pytest.mark.parametrize(
     "hostname,host_path,result",
     [
@@ -267,7 +219,7 @@ def test_config_cache_tag_to_group_map(monkeypatch: MonkeyPatch) -> None:
         (HostName("sub22"), "/wato/level11/level22/hosts.mk", 22),
     ],
 )
-def test_host_folder_matching(
+def test_tcp_fetcher_config_agent_ports_matching(
     monkeypatch: MonkeyPatch, hostname: HostName, host_path: str, result: int
 ) -> None:
     ts = Scenario()
@@ -285,12 +237,13 @@ def test_host_folder_matching(
     )
 
     config_cache = ts.apply(monkeypatch)
+
     assert (
-        config_cache.fetcher_factory(
-            config_cache.make_service_configurer(
-                {}, config_cache.make_passive_service_name_config()
-            )
-        )._agent_port(hostname)
+        cmk.base.configlib.fetchers.make_tcp_fetcher_config(
+            config_cache._loaded_config,
+            config_cache.ruleset_matcher,
+            config_cache.label_manager.labels_of_host,
+        ).agent_port(hostname)
         == result
     )
 
@@ -310,8 +263,8 @@ def test_is_ipv4_host(
 ) -> None:
     ts = Scenario()
     ts.add_host(hostname, tags)
-    config_cache = ts.apply(monkeypatch)
-    assert (IPStackConfig.IPv4 in config_cache.ip_stack_config(hostname)) is result
+    ip_lookup_config = ts.apply(monkeypatch).ip_lookup_config()
+    assert (IPStackConfig.IPv4 in ip_lookup_config.ip_stack_config(hostname)) is result
 
 
 @pytest.mark.parametrize(
@@ -329,8 +282,8 @@ def test_is_ipv6_host(
 ) -> None:
     ts = Scenario()
     ts.add_host(hostname, tags)
-    config_cache = ts.apply(monkeypatch)
-    assert (IPStackConfig.IPv6 in config_cache.ip_stack_config(hostname)) is result
+    ip_lookup_config = ts.apply(monkeypatch).ip_lookup_config()
+    assert (IPStackConfig.IPv6 in ip_lookup_config.ip_stack_config(hostname)) is result
 
 
 @pytest.mark.parametrize(
@@ -348,130 +301,12 @@ def test_is_ipv4v6_host(
 ) -> None:
     ts = Scenario()
     ts.add_host(hostname, tags)
-    config_cache = ts.apply(monkeypatch)
-    assert (config_cache.ip_stack_config(hostname) is IPStackConfig.DUAL_STACK) is result
+    ip_lookup_config = ts.apply(monkeypatch).ip_lookup_config()
+    assert (ip_lookup_config.ip_stack_config(hostname) is IPStackConfig.DUAL_STACK) is result
 
 
 def _assert_not_called(*args: object) -> NoReturn:
     raise AssertionError(f"Unexpected call with {args}")
-
-
-def test_ip_address_of(monkeypatch: MonkeyPatch) -> None:
-    _FALLBACK_ADDRESS_IPV4: Final = "0.0.0.0"
-    _FALLBACK_ADDRESS_IPV6: Final = "::"
-    localhost = HostName("localhost")
-    no_ip = HostName("no_ip")
-    dual_stack = HostName("dual_stack")
-    cluster = HostName("cluster")
-    bad_host = HostName("bad_host")
-    undiscoverable = HostName("undiscoverable")
-
-    ts = Scenario()
-    ts.add_host(localhost)
-    ts.add_host(HostName(undiscoverable))
-    ts.add_host(HostName(no_ip), {TagGroupID("address_family"): TagID("no-ip")})
-    ts.add_host(HostName(dual_stack), {TagGroupID("address_family"): TagID("ip-v4v6")})
-    ts.add_cluster(HostName(cluster))
-    config_cache = ts.apply(monkeypatch)
-    monkeypatch.setattr(
-        socket,
-        "getaddrinfo",
-        lambda host, port, family=None, *args, **kwargs: {
-            (localhost, socket.AF_INET): [(family, None, None, None, ("127.0.0.1", 0))],
-            (localhost, socket.AF_INET6): [(family, None, None, None, ("::1", 0))],
-        }[(host, family)],
-    )
-
-    assert config_cache.default_address_family(localhost) is socket.AddressFamily.AF_INET
-    assert config_cache.ip_stack_config(localhost) is IPStackConfig.IPv4
-
-    ip_address_of = ConfiguredIPLookup(config_cache, error_handler=handle_ip_lookup_failure)
-
-    assert (
-        ip_address_of(
-            localhost,
-            socket.AddressFamily.AF_INET,
-        )
-        == "127.0.0.1"
-    )
-    assert (
-        ip_address_of(
-            localhost,
-            socket.AddressFamily.AF_INET6,
-        )
-        == "::1"
-    )
-
-    assert config_cache.default_address_family(no_ip) is socket.AddressFamily.AF_INET
-    assert config_cache.ip_stack_config(no_ip) is IPStackConfig.NO_IP
-
-    assert config_cache.default_address_family(dual_stack) is socket.AddressFamily.AF_INET
-    assert config_cache.ip_stack_config(dual_stack) is IPStackConfig.DUAL_STACK
-    assert (
-        ip_address_of(
-            dual_stack,
-            socket.AddressFamily.AF_INET,
-        )
-        == _FALLBACK_ADDRESS_IPV4
-    )
-    assert (
-        ip_address_of(
-            dual_stack,
-            socket.AddressFamily.AF_INET6,
-        )
-        == _FALLBACK_ADDRESS_IPV6
-    )
-
-    assert config_cache.default_address_family(cluster) is socket.AddressFamily.AF_INET
-    assert config_cache.ip_stack_config(cluster) is IPStackConfig.IPv4  # That's strange
-    assert (
-        ip_address_of(
-            cluster,
-            socket.AddressFamily.AF_INET,
-        )
-        == ""
-    )
-    assert (
-        ip_address_of(
-            cluster,
-            socket.AddressFamily.AF_INET6,
-        )
-        == ""
-    )
-
-    assert config_cache.default_address_family(bad_host) is socket.AddressFamily.AF_INET
-    assert config_cache.ip_stack_config(bad_host) is IPStackConfig.IPv4  # That's strange
-    assert (
-        ip_address_of(
-            bad_host,
-            socket.AddressFamily.AF_INET,
-        )
-        == _FALLBACK_ADDRESS_IPV4
-    )
-    assert (
-        ip_address_of(
-            bad_host,
-            socket.AddressFamily.AF_INET6,
-        )
-        == _FALLBACK_ADDRESS_IPV6
-    )
-
-    assert config_cache.default_address_family(undiscoverable) is socket.AddressFamily.AF_INET
-    assert config_cache.ip_stack_config(undiscoverable) is IPStackConfig.IPv4  # That's strange
-    assert (
-        ip_address_of(
-            undiscoverable,
-            socket.AddressFamily.AF_INET,
-        )
-        == _FALLBACK_ADDRESS_IPV4
-    )
-    assert (
-        ip_address_of(
-            undiscoverable,
-            socket.AddressFamily.AF_INET6,
-        )
-        == _FALLBACK_ADDRESS_IPV6
-    )
 
 
 @pytest.mark.parametrize(
@@ -514,7 +349,7 @@ def test_is_piggyback_host_auto(
     ts.add_host(hostname, tags)
     config_cache = ts.apply(monkeypatch)
 
-    config_cache._host_has_piggyback_data_right_now = lambda host_name: with_data  # type: ignore[method-assign]
+    config_cache._host_has_piggyback_data_right_now = lambda piggybacked_host_name: with_data  # type: ignore[method-assign]
     assert config_cache.is_piggyback_host(hostname) == result
 
 
@@ -533,8 +368,8 @@ def test_is_no_ip_host(
 ) -> None:
     ts = Scenario()
     ts.add_host(hostname, tags)
-    config_cache = ts.apply(monkeypatch)
-    assert (config_cache.ip_stack_config(hostname) is IPStackConfig.NO_IP) is result
+    ip_lookup_config = ts.apply(monkeypatch).ip_lookup_config()
+    assert (ip_lookup_config.ip_stack_config(hostname) is IPStackConfig.NO_IP) is result
 
 
 @pytest.mark.parametrize(
@@ -580,8 +415,8 @@ def test_is_ipv6_primary_host(
     ts = Scenario()
     ts.add_host(hostname, tags)
     ts.set_ruleset("primary_address_family", ruleset)
-    config_cache = ts.apply(monkeypatch)
-    assert (config_cache.default_address_family(hostname) is socket.AF_INET6) is result
+    ip_lookup_config = ts.apply(monkeypatch).ip_lookup_config()
+    assert (ip_lookup_config.default_address_family(hostname) is socket.AF_INET6) is result
 
 
 @pytest.mark.parametrize(
@@ -603,7 +438,7 @@ def test_host_config_management_address(
     ts.set_option("host_attributes", {hostname: attrs})
 
     config_cache = ts.apply(monkeypatch)
-    assert config_cache.management_address(hostname) == result
+    assert config_cache.management_address(hostname, socket.AddressFamily.AF_INET) == result
 
 
 @pytest.mark.parametrize(
@@ -867,43 +702,13 @@ def test_is_all_special_agents_host(
 @pytest.mark.parametrize(
     "hostname, result",
     [
-        (HostName("testhost1"), 6556),
-        (HostName("testhost2"), 1337),
-    ],
-)
-def test_agent_port(monkeypatch: MonkeyPatch, hostname: HostName, result: int) -> None:
-    ts = Scenario()
-    ts.add_host(hostname)
-    ts.set_ruleset(
-        "agent_ports",
-        [
-            {
-                "id": "01",
-                "condition": {"host_name": [HostName("testhost2")]},
-                "value": 1337,
-                "options": {},
-            }
-        ],
-    )
-    config_cache = ts.apply(monkeypatch)
-    assert (
-        config_cache.fetcher_factory(
-            config_cache.make_service_configurer(
-                {}, config_cache.make_passive_service_name_config()
-            )
-        )._agent_port(hostname)
-        == result
-    )
-
-
-@pytest.mark.parametrize(
-    "hostname, result",
-    [
         (HostName("testhost1"), 5.0),
         (HostName("testhost2"), 12.0),
     ],
 )
-def test_tcp_connect_timeout(monkeypatch: MonkeyPatch, hostname: HostName, result: float) -> None:
+def test_make_tcp_fetcher_config_tcp_connect_timeout(
+    monkeypatch: MonkeyPatch, hostname: HostName, result: float
+) -> None:
     ts = Scenario()
     ts.add_host(hostname)
     ts.set_ruleset(
@@ -919,11 +724,11 @@ def test_tcp_connect_timeout(monkeypatch: MonkeyPatch, hostname: HostName, resul
     )
     config_cache = ts.apply(monkeypatch)
     assert (
-        config_cache.fetcher_factory(
-            config_cache.make_service_configurer(
-                {}, config_cache.make_passive_service_name_config()
-            )
-        )._tcp_connect_timeout(hostname)
+        cmk.base.configlib.fetchers.make_tcp_fetcher_config(
+            config_cache._loaded_config,
+            config_cache.ruleset_matcher,
+            config_cache.label_manager.labels_of_host,
+        ).connect_timeout(hostname)
         == result
     )
 
@@ -935,7 +740,7 @@ def test_tcp_connect_timeout(monkeypatch: MonkeyPatch, hostname: HostName, resul
         (HostName("testhost2"), TCPEncryptionHandling.TLS_ENCRYPTED_ONLY),
     ],
 )
-def test_encryption_handling(
+def test_make_tcp_fetcher_config_encryption_handling(
     monkeypatch: MonkeyPatch, hostname: HostName, result: TCPEncryptionHandling
 ) -> None:
     ts = Scenario()
@@ -952,12 +757,12 @@ def test_encryption_handling(
     )
     config_cache = ts.apply(monkeypatch)
     assert (
-        config_cache.fetcher_factory(
-            config_cache.make_service_configurer(
-                {}, config_cache.make_passive_service_name_config()
-            )
-        )._encryption_handling(hostname)
-        is result
+        cmk.base.configlib.fetchers.make_tcp_fetcher_config(
+            config_cache._loaded_config,
+            config_cache.ruleset_matcher,
+            config_cache.label_manager.labels_of_host,
+        ).parsed_encryption_handling(hostname)
+        == result
     )
 
 
@@ -968,7 +773,7 @@ def test_encryption_handling(
         (HostName("testhost2"), "my-super-secret-psk"),
     ],
 )
-def test_symmetric_agent_encryption(
+def test_make_tcp_fetcher_config_symmetric_agent_encryption(
     monkeypatch: MonkeyPatch, hostname: HostName, result: str | None
 ) -> None:
     ts = Scenario()
@@ -985,12 +790,12 @@ def test_symmetric_agent_encryption(
     )
     config_cache = ts.apply(monkeypatch)
     assert (
-        config_cache.fetcher_factory(
-            config_cache.make_service_configurer(
-                {}, config_cache.make_passive_service_name_config()
-            )
-        )._symmetric_agent_encryption(hostname)
-        is result
+        cmk.base.configlib.fetchers.make_tcp_fetcher_config(
+            config_cache._loaded_config,
+            config_cache.ruleset_matcher,
+            config_cache.label_manager.labels_of_host,
+        ).symmetric_agent_encryption(hostname)
+        == result
     )
 
 
@@ -1516,9 +1321,7 @@ def test_host_config_static_checks(
     hostname: HostName,
     result: Mapping[ServiceID, tuple[str, ConfiguredService]],
 ) -> None:
-    def make_plugin(
-        name: CheckPluginName, _plugins: Mapping[CheckPluginName, CheckPluginAPI]
-    ) -> CheckPluginAPI:
+    def make_plugin(name: CheckPluginName) -> CheckPluginAPI:
         return CheckPluginAPI(
             name=name,
             sections=[],
@@ -1533,12 +1336,6 @@ def test_host_config_static_checks(
             cluster_check_function=None,
             location=LegacyPluginLocation(""),
         )
-
-    monkeypatch.setattr(
-        agent_based_register,
-        agent_based_register.get_check_plugin.__name__,
-        make_plugin,
-    )
 
     ts = Scenario()
     ts.add_host(hostname)
@@ -1559,10 +1356,25 @@ def test_host_config_static_checks(
             ],
         },
     )
+    config_cache = ts.apply(monkeypatch)
+
+    service_name_config = PassiveServiceNameConfig(
+        FinalServiceNameConfig(config_cache.ruleset_matcher, "", ()), {}, (), lambda hn: {}
+    )
+
     assert (
-        ts.apply(monkeypatch).enforced_services_table(
-            hostname, {}, ts.config_cache.make_passive_service_name_config()
-        )
+        EnforcedServicesTable(
+            BundledHostRulesetMatcher(
+                config_cache._loaded_config.static_checks,
+                config_cache.ruleset_matcher,
+                config_cache.label_manager.labels_of_host,
+            ),
+            service_name_config,
+            {
+                pn: make_plugin(pn)
+                for pn in (CheckPluginName("checktype1"), CheckPluginName("checktype2"))
+            },
+        )(hostname)
         == result
     )
 
@@ -1849,14 +1661,13 @@ def test_get_sorted_check_table_no_cmc(
     ts.add_host(host_name)
     config_cache = ts.apply(monkeypatch)
 
-    monkeypatch.setattr(config, "is_cmc", lambda: False)
     monkeypatch.setattr(config_cache, "_sorted_services", lambda *args: service_list)
-    service_name_config = config_cache.make_passive_service_name_config()
     services = config_cache.configured_services(
         host_name,
         {},
-        config_cache.make_service_configurer({}, service_name_config),
-        service_name_config,
+        config_cache.make_service_configurer({}, lambda *a: ""),
+        lambda *a: "",
+        enforced_services_table=lambda hn: {},
         service_depends_on=lambda hn, descr: {
             "description A": ["description C"],
             "description B": ["description D"],
@@ -1881,10 +1692,8 @@ def test_resolve_service_dependencies_cyclic(
     ts.add_host(host_name)
     config_cache = ts.apply(monkeypatch)
 
-    monkeypatch.setattr(config, "is_cmc", lambda: False)
     monkeypatch.setattr(config_cache, "_sorted_services", lambda *args: service_list)
 
-    service_name_config = config_cache.make_passive_service_name_config()
     with pytest.raises(
         MKGeneralException,
         match=re.escape(
@@ -1897,8 +1706,9 @@ def test_resolve_service_dependencies_cyclic(
         config_cache.configured_services(
             HostName("MyHost"),
             {},
-            config_cache.make_service_configurer({}, service_name_config),
-            service_name_config,
+            config_cache.make_service_configurer({}, lambda *a: ""),
+            lambda *a: "",
+            enforced_services_table=lambda hn: {},
             service_depends_on=lambda _hn, descr: {
                 "description A": ["description B"],
                 "description B": ["description D"],
@@ -1910,7 +1720,7 @@ def test_resolve_service_dependencies_cyclic(
 def test_service_depends_on_unknown_host(monkeypatch: MonkeyPatch) -> None:
     config_cache = Scenario().apply(monkeypatch)
     service_depends_on = config.ServiceDependsOn(
-        tag_list=config_cache.tag_list, service_dependencies=()
+        tag_list=config_cache.host_tags.tag_list, service_dependencies=()
     )
     assert not service_depends_on(HostName("test-host"), "svc")
 
@@ -1922,7 +1732,7 @@ def test_service_depends_on(monkeypatch: MonkeyPatch) -> None:
     config_cache = ts.apply(monkeypatch)
 
     service_depends_on = config.ServiceDependsOn(
-        tag_list=config_cache.tag_list,
+        tag_list=config_cache.host_tags.tag_list,
         service_dependencies=[
             ("dep1", [], config.ALL_HOSTS, ["svc1"], {}),
             ("dep2-%s", [], config.ALL_HOSTS, ["svc1-(.*)"], {}),
@@ -1978,7 +1788,7 @@ def test_config_cache_tag_list_of_host(monkeypatch: MonkeyPatch) -> None:
     ts.add_host(xyz_host)
 
     config_cache = ts.apply(monkeypatch)
-    assert set(config_cache.tag_list(xyz_host)) == {
+    assert set(config_cache.host_tags.tag_list(xyz_host)) == {
         TagID("/wato/"),
         TagID("lan"),
         TagID("ip-v4"),
@@ -1995,7 +1805,7 @@ def test_config_cache_tag_list_of_host(monkeypatch: MonkeyPatch) -> None:
 
 def test_config_cache_tag_list_of_host_not_existing(monkeypatch: MonkeyPatch) -> None:
     config_cache = Scenario().apply(monkeypatch)
-    assert set(config_cache.tag_list(HostName("not-existing"))) == {
+    assert set(config_cache.host_tags.tag_list(HostName("not-existing"))) == {
         TagID("/"),
         TagID("lan"),
         TagID("cmk-agent"),
@@ -2019,7 +1829,7 @@ def test_host_tags_of_host(monkeypatch: MonkeyPatch) -> None:
     ts.add_host(xyz_host)
 
     config_cache = ts.apply(monkeypatch)
-    assert config_cache.tags(xyz_host) == {
+    assert config_cache.host_tags.tags(xyz_host) == {
         "address_family": "ip-v4-only",
         "agent": "cmk-agent",
         "criticality": "prod",
@@ -2031,7 +1841,7 @@ def test_host_tags_of_host(monkeypatch: MonkeyPatch) -> None:
         "tcp": "tcp",
         "checkmk-agent": "checkmk-agent",
     }
-    assert config_cache.tags(test_host) == {
+    assert config_cache.host_tags.tags(test_host) == {
         "address_family": "ip-v4-only",
         "agent": "no-agent",
         "criticality": "prod",
@@ -2070,7 +1880,7 @@ def test_tags_of_service(monkeypatch: MonkeyPatch) -> None:
 
     config_cache = ts.apply(monkeypatch)
 
-    assert config_cache.tags(xyz_host) == {
+    assert config_cache.host_tags.tags(xyz_host) == {
         "address_family": "ip-v4-only",
         "agent": "cmk-agent",
         "criticality": "prod",
@@ -2084,7 +1894,7 @@ def test_tags_of_service(monkeypatch: MonkeyPatch) -> None:
     }
     assert config_cache.tags_of_service(xyz_host, "CPU load", {}) == {}
 
-    assert config_cache.tags(test_host) == {
+    assert config_cache.host_tags.tags(test_host) == {
         "address_family": "ip-v4-only",
         "agent": "no-agent",
         "criticality": "prod",
@@ -2317,7 +2127,6 @@ def test_config_cache_icons_and_actions(
             hostname,
             "CPU load",
             {},
-            None,
         )
     ) == sorted(result)
 
@@ -2758,7 +2567,7 @@ def test_host_config_add_discovery_check(
 
 
 def test_get_config_file_paths_with_confd(
-    folder_path_test_config: config.LoadedConfigFragment,
+    folder_path_test_config: LoadedConfigFragment,
 ) -> None:
     # NOTE: there are still some globals at play here, otherwise we would have to use
     # the folder_path_test_config somewhere.
@@ -2779,7 +2588,7 @@ def test_get_config_file_paths_with_confd(
     ]
 
 
-def test_load_config_folder_paths(folder_path_test_config: config.LoadedConfigFragment) -> None:
+def test_load_config_folder_paths(folder_path_test_config: LoadedConfigFragment) -> None:
     config_cache = config.ConfigCache(folder_path_test_config)
 
     assert config_cache.host_path(HostName("main-host")) == "/"
@@ -2795,33 +2604,33 @@ def test_load_config_folder_paths(folder_path_test_config: config.LoadedConfigFr
     assert "host_folder" not in config.cmc_host_rrd_config[4]["condition"]
 
     ruleset_matcher = config_cache.ruleset_matcher
-    assert ruleset_matcher.get_host_values(
+    assert ruleset_matcher.get_host_values_all(
         HostName("main-host"), config.cmc_host_rrd_config, lambda hn: {}
     ) == [
         "LVL0",
         "MAIN",
     ]
-    assert ruleset_matcher.get_host_values(
+    assert ruleset_matcher.get_host_values_all(
         HostName("lvl0-host"), config.cmc_host_rrd_config, lambda hn: {}
     ) == [
         "LVL0",
         "MAIN",
     ]
-    assert ruleset_matcher.get_host_values(
+    assert ruleset_matcher.get_host_values_all(
         HostName("lvl1-host"), config.cmc_host_rrd_config, lambda hn: {}
     ) == [
         "LVL1",
         "LVL0",
         "MAIN",
     ]
-    assert ruleset_matcher.get_host_values(
+    assert ruleset_matcher.get_host_values_all(
         HostName("lvl1aaa-host"), config.cmc_host_rrd_config, lambda hn: {}
     ) == [
         "LVL1aaa",
         "LVL0",
         "MAIN",
     ]
-    assert ruleset_matcher.get_host_values(
+    assert ruleset_matcher.get_host_values_all(
         HostName("lvl2-host"), config.cmc_host_rrd_config, lambda hn: {}
     ) == [
         "LVL2",
@@ -2834,7 +2643,7 @@ def test_load_config_folder_paths(folder_path_test_config: config.LoadedConfigFr
 @pytest.fixture(name="folder_path_test_config")
 def folder_path_test_config_fixture(
     monkeypatch: MonkeyPatch,
-) -> Iterator[config.LoadedConfigFragment]:
+) -> Iterator[LoadedConfigFragment]:
     config_dir = cmk.utils.paths.check_mk_config_dir
     config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2994,7 +2803,7 @@ def test_explicit_setting_loading(patch_omd_site: None) -> None:
 
 @pytest.fixture(name="config_path")
 def fixture_config_path() -> Path:
-    return Path(VersionedConfigPath(13))
+    return Path(VersionedConfigPath(cmk.utils.paths.omd_root, 13))
 
 
 def test_save_packed_config(monkeypatch: MonkeyPatch, config_path: Path) -> None:
@@ -3195,7 +3004,9 @@ def test_check_table_cluster_merging_enforced_and_discovered(
         [AutocheckEntry(CheckPluginName("check1"), "item", {}, {})],
     )
     config_cache = ts.apply(monkeypatch)
-    service_name_config = config_cache.make_passive_service_name_config()
+    service_name_config = config_cache.make_passive_service_name_config(
+        make_final_service_name_config(config_cache._loaded_config, config_cache.ruleset_matcher)
+    )
 
     assert (
         config_cache.check_table(
@@ -3203,6 +3014,15 @@ def test_check_table_cluster_merging_enforced_and_discovered(
             {},
             config_cache.make_service_configurer({}, service_name_config),
             service_name_config,
+            EnforcedServicesTable(
+                BundledHostRulesetMatcher(
+                    config_cache._loaded_config.static_checks,
+                    config_cache.ruleset_matcher,
+                    config_cache.label_manager.labels_of_host,
+                ),
+                service_name_config,
+                {},
+            ),
         )
         == expected
     )
@@ -3271,9 +3091,13 @@ def test_get_active_service_data_crash(
     list(
         config_cache.active_check_services(
             host_name,
-            config_cache.get_host_attributes(host_name, lambda *a, **kw: None),
+            IPStackConfig.IPv4,
+            socket.AddressFamily.AF_INET,
+            config_cache.get_host_attributes(
+                host_name, socket.AddressFamily.AF_INET, lambda *a, **kw: HostAddress("")
+            ),
             FinalServiceNameConfig(config_cache.ruleset_matcher, "", ()),
-            lambda *a, **kw: None,
+            lambda *a, **kw: HostAddress(""),
             {},
             Path(),
         )

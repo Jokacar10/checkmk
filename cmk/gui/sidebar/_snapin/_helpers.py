@@ -9,18 +9,17 @@ import traceback
 from collections.abc import Sequence
 
 from cmk.ccc.site import SiteId, url_prefix
-
 from cmk.gui import pagetypes
-from cmk.gui.exceptions import MKUserError
 from cmk.gui.htmllib.foldable_container import foldable_container
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
 from cmk.gui.main_menu import get_main_menu_items_prefixed_by_segment
-from cmk.gui.sites import filter_available_site_choices
-from cmk.gui.type_defs import Choices, Icon, TopicMenuItem, TopicMenuTopic, Visual
+from cmk.gui.sites import SiteStatus, states
+from cmk.gui.type_defs import Choices, Icon, MainMenuItem, MainMenuTopic, Visual
 from cmk.gui.utils.html import HTML
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.visuals import visual_title
 
 # Constants to be used in snap-ins
@@ -95,7 +94,7 @@ def footnotelinks(links: list[tuple[str, str]]) -> None:
 
 def snapin_site_choice(ident: str, choices: list[tuple[SiteId, str]]) -> list[SiteId] | None:
     sites = user.load_file("sidebar_sites", {})
-    available_site_choices = filter_available_site_choices(choices)
+    available_site_choices = _filter_available_site_choices(choices)
     site = sites.get(ident, "")
     if site == "":
         only_sites = None
@@ -116,12 +115,30 @@ def snapin_site_choice(ident: str, choices: list[tuple[SiteId, str]]) -> list[Si
     return only_sites
 
 
-def make_topic_menu(
-    visuals: Sequence[tuple[str, tuple[str, Visual]]],
-) -> list[TopicMenuTopic]:
-    topics = {p.name(): p for p in pagetypes.PagetypeTopics.load().permitted_instances_sorted()}
+def _filter_available_site_choices(choices: list[tuple[SiteId, str]]) -> list[tuple[SiteId, str]]:
+    """Filter sites by site status"""
+    all_site_states = states()
+    sites_enabled = []
+    for entry in choices:
+        site_id, _desc = entry
+        site_state = all_site_states.get(site_id, SiteStatus({})).get("state")
+        if site_state is None:
+            continue
+        sites_enabled.append(entry)
+    return sites_enabled
 
-    by_topic: dict[pagetypes.PagetypeTopics, TopicMenuTopic] = {}
+
+def make_main_menu(
+    visuals: Sequence[tuple[str, tuple[str, Visual]]], user_permissions: UserPermissions
+) -> list[MainMenuTopic]:
+    topics = {
+        p.name(): p
+        for p in pagetypes.PagetypeTopics.load(user_permissions).permitted_instances_sorted(
+            user_permissions
+        )
+    }
+
+    by_topic: dict[pagetypes.PagetypeTopics, MainMenuTopic] = {}
 
     for visual_type_name, (name, visual) in visuals:
         if visual["hidden"] or visual.get("mobile"):
@@ -131,20 +148,13 @@ def make_topic_menu(
         try:
             topic = topics[topic_id]
         except KeyError:
-            if "other" not in topics:
-                raise MKUserError(
-                    None,
-                    _(
-                        "No permission for fallback topic 'Other'. Please contact your administrator."
-                    ),
-                )
             topic = topics["other"]
 
         url = _visual_url(visual_type_name, name)
 
-        topic_menu_topic = by_topic.setdefault(
+        main_menu_topic = by_topic.setdefault(
             topic,
-            TopicMenuTopic(
+            MainMenuTopic(
                 name=topic.name(),
                 title=topic.title(),
                 max_entries=topic.max_entries(),
@@ -153,8 +163,8 @@ def make_topic_menu(
                 hide=topic.hide(),
             ),
         )
-        topic_menu_topic.entries.append(
-            TopicMenuItem(
+        main_menu_topic.entries.append(
+            MainMenuItem(
                 name=name,
                 title=visual_title(
                     visual_type_name, visual, visual["context"], skip_title_context=True
@@ -163,13 +173,13 @@ def make_topic_menu(
                 sort_index=visual["sort_index"],
                 is_show_more=visual["is_show_more"],
                 icon=visual["icon"],
-                megamenu_search_terms=visual["megamenu_search_terms"],
+                main_menu_search_terms=visual["main_menu_search_terms"],
             )
         )
 
     # Sort the entries of all topics
-    for topic_menu in by_topic.values():
-        topic_menu.entries.sort(key=lambda i: (i.sort_index, i.title))
+    for main_menu in by_topic.values():
+        main_menu.entries.sort(key=lambda i: (i.sort_index, i.title))
 
     # Return the sorted topics
     return [
@@ -201,14 +211,12 @@ def _visual_url(visual_type_name: str, name: str) -> str:
     raise NotImplementedError("Unknown visual type: %s" % visual_type_name)
 
 
-def show_topic_menu(
-    treename: str, menu: list[TopicMenuTopic], show_item_icons: bool = False
-) -> None:
+def show_main_menu(treename: str, menu: list[MainMenuTopic], show_item_icons: bool = False) -> None:
     for topic in menu:
         _show_topic(treename, topic, show_item_icons)
 
 
-def _show_topic(treename: str, topic: TopicMenuTopic, show_item_icons: bool) -> None:
+def _show_topic(treename: str, topic: MainMenuTopic, show_item_icons: bool) -> None:
     if not topic.entries:
         return
 

@@ -8,17 +8,11 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+import cmk.utils.paths
 from cmk.ccc import tty
 from cmk.ccc.exceptions import OnError
 from cmk.ccc.hostaddress import HostAddress, HostName
-
-import cmk.utils.paths
-from cmk.utils.labels import DiscoveredHostLabelsStore, HostLabel
-from cmk.utils.log import console
-from cmk.utils.sectionname import SectionMap, SectionName
-from cmk.utils.servicename import Item
-from cmk.utils.timeperiod import timeperiod_active
-
+from cmk.checkengine.checkerplugin import CheckerPlugin, ConfiguredService
 from cmk.checkengine.checkresults import (
     ActiveCheckResult,
     MetricTuple,
@@ -29,10 +23,9 @@ from cmk.checkengine.parameters import TimespecificParameters, TimespecificParam
 from cmk.checkengine.parser import group_by_host, ParserFunction
 from cmk.checkengine.plugins import (
     AutocheckEntry,
-    CheckerPlugin,
     CheckPluginName,
-    ConfiguredService,
     DiscoveryPlugin,
+    SectionName,
     ServiceID,
 )
 from cmk.checkengine.sectionparser import (
@@ -43,6 +36,10 @@ from cmk.checkengine.sectionparser import (
 )
 from cmk.checkengine.sectionparserutils import check_parsing_errors
 from cmk.checkengine.summarize import SummarizerFunction
+from cmk.utils.labels import DiscoveredHostLabelsStore, HostLabel
+from cmk.utils.log import console
+from cmk.utils.servicename import Item
+from cmk.utils.timeperiod import timeperiod_active
 
 from ._autochecks import AutochecksConfig, AutochecksStore
 from ._autodiscovery import _Transition, discovery_by_host, get_host_services_by_host_name
@@ -92,9 +89,9 @@ def get_check_preview(
     parser: ParserFunction,
     fetcher: FetcherFunction,
     summarizer: SummarizerFunction,
-    section_plugins: SectionMap[SectionPlugin],
+    section_plugins: Mapping[SectionName, SectionPlugin],
     section_error_handling: Callable[[SectionName, Sequence[object]], str],
-    host_label_plugins: SectionMap[HostLabelPlugin],
+    host_label_plugins: Mapping[SectionName, HostLabelPlugin],
     discovery_plugins: Mapping[CheckPluginName, DiscoveryPlugin],
     check_plugins: Mapping[CheckPluginName, CheckerPlugin],
     autochecks_config: AutochecksConfig,

@@ -10,10 +10,9 @@ from wsgiref.types import StartResponse, WSGIEnvironment
 import docstring_parser
 from werkzeug.exceptions import HTTPException
 
-from cmk.utils.encoding import json_encode
-
 from cmk.gui.http import Response
 from cmk.gui.openapi.restful_objects.type_defs import Serializable
+from cmk.utils.encoding import json_encode
 
 FIELDS = NewType("FIELDS", dict[str, Any])
 EXT = NewType("EXT", dict[str, Any])
@@ -81,7 +80,7 @@ class GeneralRestAPIException(HTTPException):
 class RestAPIRequestGeneralException(GeneralRestAPIException):
     def __init__(
         self,
-        status: Literal[400, 401, 403, 404, 406, 415],
+        status: Literal[400, 401, 403, 404, 406, 409, 415],
         title: str,
         detail: str,
         fields: FIELDS | None = None,

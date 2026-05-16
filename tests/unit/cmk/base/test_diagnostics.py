@@ -16,25 +16,23 @@ from unittest.mock import mock_open, patch
 import pytest
 import requests
 
-from tests.unit.cmk.base.emptyconfig import EMPTYCONFIG
-
 import livestatus
 
-from cmk.ccc.hostaddress import HostName
-
 import cmk.utils.paths
-from cmk.utils.structured_data import (
+from cmk.base import diagnostics
+from cmk.ccc.crash_reporting import make_crash_report_base_path
+from cmk.ccc.hostaddress import HostName
+from cmk.inventory.structured_data import (
     deserialize_tree,
     InventoryStore,
     make_meta,
     SDRawTree,
 )
-
-from cmk.base import diagnostics
+from tests.unit.cmk.base.empty_config import EMPTY_CONFIG
 
 
 def _make_diagnostics_dump() -> diagnostics.DiagnosticsDump:
-    return diagnostics.DiagnosticsDump(EMPTYCONFIG)
+    return diagnostics.DiagnosticsDump(EMPTY_CONFIG)
 
 
 @pytest.fixture(autouse=True)
@@ -116,6 +114,20 @@ def test_diagnostics_cleanup_dump_folder() -> None:
 #   '----------------------------------------------------------------------'
 
 
+def test_diagnostics_element_wrapper() -> None:
+    wrapper = diagnostics._DiagnosticsElementWrapper(
+        diagnostics._DiagnosticsElement(
+            ident="ident",
+            title="Title",
+            description="Bla",
+            content="hallo",
+        )
+    )
+    assert wrapper.ident == "ident"
+    assert wrapper.title == "Title"
+    assert wrapper.description == "Bla"
+
+
 def test_diagnostics_element_general() -> None:
     diagnostics_element = diagnostics.GeneralDiagnosticsElement()
     assert diagnostics_element.ident == "general"
@@ -154,7 +166,7 @@ def test_diagnostics_element_general_content(
 
 
 def test_diagnostics_element_perfdata() -> None:
-    diagnostics_element = diagnostics.PerfDataDiagnosticsElement(EMPTYCONFIG)
+    diagnostics_element = diagnostics.PerfDataDiagnosticsElement(EMPTY_CONFIG)
     assert diagnostics_element.ident == "perfdata"
     assert diagnostics_element.title == "Performance data"
     assert diagnostics_element.description == (
@@ -552,21 +564,6 @@ CONFIG_TMPFS='on'"""
     shutil.rmtree(str(etc_omd_dir))
 
 
-def test_diagnostics_element_checkmk_overview(tmp_path: Path) -> None:
-    diagnostics_element = diagnostics.CheckmkOverviewDiagnosticsElement(
-        InventoryStore(tmp_path), ""
-    )
-    assert diagnostics_element.ident == "checkmk_overview"
-    assert diagnostics_element.title == "Checkmk Overview of Checkmk Server"
-    assert diagnostics_element.description == (
-        "Checkmk Agent, Number, version and edition of sites, cluster host; "
-        "number of hosts, services, CMK Helper, Live Helper, "
-        "Helper usage; state of daemons: Apache, Core, Crontab, "
-        "DCD, Liveproxyd, MKEventd, MKNotifyd, RRDCached "
-        "(Agent plug-in mk_inventory needs to be installed)"
-    )
-
-
 @pytest.mark.parametrize(
     "host_list, raw_tree, error",
     [
@@ -594,7 +591,6 @@ def test_diagnostics_element_checkmk_overview_error(
     error: str,
 ) -> None:
     inv_store = InventoryStore(tmp_path)
-    diagnostics_element = diagnostics.CheckmkOverviewDiagnosticsElement(inv_store, "")
 
     monkeypatch.setattr(livestatus, "LocalConnection", _fake_local_connection(host_list))
 
@@ -606,18 +602,18 @@ def test_diagnostics_element_checkmk_overview_error(
             meta=make_meta(do_archive=False),
         )
 
-    tmppath = Path(tmp_path).joinpath("tmp")
-
     with pytest.raises(diagnostics.DiagnosticsElementError) as e:
-        next(diagnostics_element.add_or_get_files(tmppath))
+        diagnostics._get_checkmk_overview_content(inv_store, "")
         assert error == str(e)
 
 
-@pytest.mark.parametrize(
-    "host_list, raw_tree",
-    [
-        (
-            [["checkmk-server-name"]],
+def test_diagnostics_element_checkmk_overview_content(tmp_path: Path) -> None:
+    inv_store = InventoryStore(tmp_path)
+
+    # Fake HW/SW Inventory tree
+    inv_store.save_inventory_tree(
+        host_name=HostName("checkmk-server-name"),
+        tree=deserialize_tree(
             {
                 "hardware": {},
                 "networking": {},
@@ -654,36 +650,14 @@ def test_diagnostics_element_checkmk_overview_error(
                         }
                     }
                 },
-            },
+            }
         ),
-    ],
-)
-def test_diagnostics_element_checkmk_overview_content(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-    _fake_local_connection: Callable,
-    host_list: Sequence[Sequence[str]],
-    raw_tree: SDRawTree,
-) -> None:
-    inv_store = InventoryStore(tmp_path)
-    diagnostics_element = diagnostics.CheckmkOverviewDiagnosticsElement(inv_store, "")
-
-    monkeypatch.setattr(livestatus, "LocalConnection", _fake_local_connection(host_list))
-
-    # Fake HW/SW Inventory tree
-    inv_store.save_inventory_tree(
-        host_name=HostName("checkmk-server-name"),
-        tree=deserialize_tree(raw_tree),
         meta=make_meta(do_archive=False),
     )
 
-    tmppath = Path(tmp_path).joinpath("tmp")
-    filepath = next(diagnostics_element.add_or_get_files(tmppath))
-
-    assert isinstance(filepath, Path)
-    assert filepath == tmppath.joinpath("checkmk_overview.json")
-
-    content = json.loads(filepath.open().read())
+    content = json.loads(
+        diagnostics._get_checkmk_overview_content(inv_store, "checkmk-server-name")
+    )
 
     assert content["Nodes"]["cluster"]["Attributes"]["Pairs"] == {
         "is_cluster": False,
@@ -1031,7 +1005,9 @@ def test_diagnostics_element_crash_dumps():
 def test_diagnostics_element_crash_dumps_content(tmp_path):
     test_uuid = str(uuid.uuid4())
     category = "checks"
-    test_crash_dir = cmk.utils.paths.crash_dir.joinpath(category).joinpath(test_uuid)
+    test_crash_dir = (
+        make_crash_report_base_path(cmk.utils.paths.omd_root).joinpath(category).joinpath(test_uuid)
+    )
     test_crash_dir.mkdir(parents=True, exist_ok=True)
     test_crash_filepath = test_crash_dir.joinpath("info.json")
     with test_crash_filepath.open("w", encoding="utf-8") as f:
@@ -1042,7 +1018,9 @@ def test_diagnostics_element_crash_dumps_content(tmp_path):
     tmppath.mkdir(parents=True, exist_ok=True)
     filepath = next(diagnostics_element.add_or_get_files(tmppath))
 
-    relative_path = cmk.utils.paths.crash_dir.relative_to(cmk.utils.paths.omd_root)
+    relative_path = make_crash_report_base_path(cmk.utils.paths.omd_root).relative_to(
+        cmk.utils.paths.omd_root
+    )
     test_filename = f"{test_uuid}.tar.gz"
     assert filepath == tmppath.joinpath(relative_path).joinpath(f"{category}/{test_filename}")
 

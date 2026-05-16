@@ -10,24 +10,24 @@ import pytest
 from bs4 import BeautifulSoup as bs
 from pytest import MonkeyPatch
 
-from tests.unit.cmk.gui.compare_html import compare_html
-
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request, response
 from cmk.gui.logged_in import LoggedInNobody
 from cmk.gui.table import table_element
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.output_funnel import output_funnel
+from tests.unit.cmk.gui.compare_html import compare_html
 
 
 def read_out_simple_table(text):
     assert isinstance(text, str)
     # Get the contents of the table as a list of lists
     data = []
+    # TODO: Typing chaos ahead! Clarify PageElement/Tag/NavigableString
     for row in bs(text, "lxml").find_all("tr"):
-        columns = row.find_all("th")
+        columns = row.find_all("th")  # type: ignore[union-attr]
         if not columns:
-            columns = row.find_all("td")
+            columns = row.find_all("td")  # type: ignore[union-attr]
         row_data = []
         for cell in columns:
             cell = re.sub(r"\s", "", re.sub(r"<[^<]*>", "", cell.text))

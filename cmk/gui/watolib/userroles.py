@@ -4,24 +4,25 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import re
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from datetime import datetime
 from typing import NewType
 
-from marshmallow import ValidationError
-
+from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.i18n import _
 from cmk.gui.permissions import permission_registry
-from cmk.gui.type_defs import Users
+from cmk.gui.role_types import BuiltInUserRole, CustomUserRole
 from cmk.gui.userdb import (
     is_two_factor_login_enabled,
     load_roles,
     load_users,
     save_users,
+    UserAttribute,
     UserRole,
     UserRolesConfigFile,
 )
+from cmk.gui.utils.roles import builtin_role_id_from_str
 
 RoleID = NewType("RoleID", str)
 
@@ -50,7 +51,11 @@ def clone_role(
 
     cloned_user_role = UserRole(
         name=new_role_id,
-        basedon=role_to_clone.basedon or role_to_clone.name,
+        basedon=(
+            role_to_clone.basedon
+            if role_to_clone.basedon is not None
+            else builtin_role_id_from_str(role_to_clone.name)
+        ),
         two_factor=role_to_clone.two_factor if two_factor is None else two_factor,
         alias=new_alias,
         permissions=role_to_clone.permissions,
@@ -64,7 +69,7 @@ def clone_role(
 
 
 def get_all_roles() -> dict[RoleID, UserRole]:
-    stored_roles: dict[str, dict] = load_roles()
+    stored_roles: dict[str, BuiltInUserRole | CustomUserRole] = load_roles()
     return {
         RoleID(roleid): UserRole(name=roleid, **params) for roleid, params in stored_roles.items()
     }
@@ -83,7 +88,9 @@ def role_exists(role_id: RoleID) -> bool:
     return False
 
 
-def delete_role(role_id: RoleID, pprint_value: bool) -> None:
+def delete_role(
+    role_id: RoleID, user_attributes: Sequence[tuple[str, UserAttribute]], pprint_value: bool
+) -> None:
     all_roles: dict[RoleID, UserRole] = get_all_roles()
     role_to_delete: UserRole = get_role(role_id)
 
@@ -91,7 +98,7 @@ def delete_role(role_id: RoleID, pprint_value: bool) -> None:
         raise MKUserError(None, _("You cannot delete the built-in roles!"))
 
     # Check if currently being used by a user
-    users: Users = load_users()
+    users = load_users()
     for user in users.values():
         if role_id in user["roles"]:
             raise MKUserError(
@@ -100,7 +107,9 @@ def delete_role(role_id: RoleID, pprint_value: bool) -> None:
             )
 
     # TODO: Not sure this call is required. Error is already raised above if an existing user has this role.
-    rename_user_role(role_id, None)  # Remove from existing users
+    _rename_user_role(
+        role_id, new_role_id=None, user_attributes=user_attributes
+    )  # Remove from existing users
 
     del all_roles[role_id]
     UserRolesConfigFile().save(
@@ -108,37 +117,48 @@ def delete_role(role_id: RoleID, pprint_value: bool) -> None:
     )
 
 
-def rename_user_role(role_id: RoleID, new_role_id: RoleID | None) -> None:
+def _rename_user_role(
+    role_id: RoleID,
+    new_role_id: RoleID | None,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+) -> None:
     users = load_users(lock=True)
     for user in users.values():
         if role_id in user["roles"]:
             user["roles"].remove(role_id)
             if new_role_id:
                 user["roles"].append(new_role_id)
-    save_users(users, datetime.now())
+    save_users(
+        users,
+        user_attributes,
+        active_config.user_connections,
+        now=datetime.now(),
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )
 
 
 def validate_new_alias(old_alias: str, new_alias: str) -> None:
     if old_alias != new_alias:
         existing_aliases = {role.alias: role_id for role_id, role in get_all_roles().items()}
         if role_id := existing_aliases.get(new_alias):
-            raise ValidationError(_("This alias is already used in the role %s.") % role_id)
+            raise ValueError(_("This alias is already used in the role %s.") % role_id)
 
 
 def validate_new_roleid(old_roleid: str, new_roleid: str) -> None:
     existing_role: UserRole = get_role(RoleID(old_roleid))
     if not new_roleid:
-        raise ValidationError(_("You have to provide a role ID."))
+        raise ValueError(_("You have to provide a role ID."))
 
     if old_roleid != new_roleid:
         if existing_role.builtin:
-            raise ValidationError(_("The ID of a built-in user role cannot be changed"))
+            raise ValueError(_("The ID of a built-in user role cannot be changed"))
 
         if new_roleid in get_all_roles():
-            raise ValidationError(_("The ID is already used by another role"))
+            raise ValueError(_("The ID is already used by another role"))
 
         if not re.match("^[-a-z0-9A-Z_]*$", new_roleid):
-            raise ValidationError(
+            raise ValueError(
                 _("Invalid role ID. Only the characters a-z, A-Z, 0-9, _ and - are allowed.")
             )
 
@@ -174,9 +194,18 @@ def update_role(role: UserRole, old_roleid: RoleID, new_roleid: RoleID, pprint_v
     )
 
 
-def logout_users_with_role(role_id: RoleID) -> None:
+def logout_users_with_role(
+    role_id: RoleID, user_attributes: Sequence[tuple[str, UserAttribute]]
+) -> None:
     users = load_users(lock=True)
     for user_id, user in users.items():
         if role_id in user["roles"] and not is_two_factor_login_enabled(user_id):
             user["serial"] = user.get("serial", 0) + 1
-    save_users(users, datetime.now())
+    save_users(
+        users,
+        user_attributes,
+        active_config.user_connections,
+        now=datetime.now(),
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )

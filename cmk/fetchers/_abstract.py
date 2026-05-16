@@ -7,9 +7,9 @@ import abc
 import enum
 from typing import final, Generic, Literal, TypeVar
 
-from cmk.ccc.exceptions import MKFetcherError, MKTimeout
-
-import cmk.utils.resulttype as result
+import cmk.ccc.resulttype as result
+from cmk.ccc.exceptions import MKTimeout
+from cmk.helper_interface import FetcherError
 
 __all__ = ["Fetcher", "Mode"]
 
@@ -59,10 +59,10 @@ class Fetcher(Generic[_TRawData], abc.ABC):
             return result.OK(self._fetch_from_io(mode))
         except MKTimeout:
             raise
-        except MKFetcherError:
+        except FetcherError:
             raise
         except Exception as exc:
-            return result.Error(MKFetcherError(repr(exc) if any(exc.args) else type(exc).__name__))
+            return result.Error(FetcherError(repr(exc) if any(exc.args) else type(exc).__name__))
 
     @abc.abstractmethod
     def _fetch_from_io(self, mode: Mode) -> _TRawData:

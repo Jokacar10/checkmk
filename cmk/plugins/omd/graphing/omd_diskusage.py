@@ -70,11 +70,25 @@ metric_omd_inventory_size = metrics.Metric(
     color=metrics.Color.LIGHT_BROWN,
 )
 
+metric_omd_crashes_size = metrics.Metric(
+    name="omd_crashes_size",
+    title=Title("Size of crashes"),
+    unit=UNIT_BYTES,
+    color=metrics.Color.DARK_ORANGE,
+)
+
 metric_omd_size = metrics.Metric(
     name="omd_size",
     title=Title("Total size of site"),
     unit=UNIT_BYTES,
     color=metrics.Color.DARK_BROWN,
+)
+
+metric_omd_otel_collector_size = metrics.Metric(
+    name="omd_otel_collector_size",
+    title=Title("Size of OTel Collector"),
+    unit=UNIT_BYTES,
+    color=metrics.Color.LIGHT_BLUE,
 )
 
 graph_omd_fileusage = graphs.Graph(
@@ -90,6 +104,8 @@ graph_omd_fileusage = graphs.Graph(
         "omd_history_size",
         "omd_core_size",
         "omd_inventory_size",
+        "omd_crashes_size",
+        "omd_otel_collector_size",
     ],
     simple_lines=["omd_size"],
     optional=[
@@ -102,5 +118,7 @@ graph_omd_fileusage = graphs.Graph(
         "omd_history_size",
         "omd_core_size",
         "omd_inventory_size",
+        "omd_crashes_size",
+        "omd_otel_collector_size",
     ],
 )

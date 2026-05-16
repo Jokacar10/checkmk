@@ -6,6 +6,7 @@
 
 import contextlib
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from re import Pattern
 from typing import (
     Any,
@@ -18,8 +19,8 @@ from typing import (
     TypeVar,
 )
 
+import cmk.trace
 from cmk.ccc.hostaddress import HostAddress, HostName
-
 from cmk.utils.global_ident_type import GlobalIdent
 from cmk.utils.labels import (
     AndOrNotLiteral,
@@ -29,16 +30,16 @@ from cmk.utils.labels import (
 from cmk.utils.parameters import merge_parameters
 from cmk.utils.regex import combine_patterns, regex
 from cmk.utils.servicename import Item, ServiceName
-from cmk.utils.tags import TagConfig, TagGroupID, TagID
-
-from cmk import trace
+from cmk.utils.tags import TagGroupID, TagID
 
 from .conditions import HostOrServiceConditions, HostOrServiceConditionsSimple
 
-tracer = trace.get_tracer()
+tracer = cmk.trace.get_tracer()
 
 RulesetName = str  # Could move to a less cluttered module as it is often used on its own.
 TRuleValue = TypeVar("TRuleValue")
+TDefaultValue = TypeVar("TDefaultValue")
+TRuleValueMapping = TypeVar("TRuleValueMapping", bound=Mapping[str, object])
 
 # The Tag* types below are *not* used in `cmk.utils.tags`
 # but they are used here.  Therefore, they do *not* belong
@@ -83,7 +84,7 @@ def is_tag_condition_tag_id(condition: TagCondition) -> TypeGuard[TagID]:
 
 # Here, we have data structures such as
 # {'ip-v4': {'$ne': 'ip-v4'}, 'snmp_ds': {'$nor': ['no-snmp', 'snmp-v1']}, 'taggroup_02': None, 'aux_tag_01': 'aux_tag_01', 'address_family': 'ip-v4-only'}
-TagsOfHosts: TypeAlias = dict[HostName | HostAddress, Mapping[TagGroupID, TagID]]
+type TagsOfHosts = Mapping[HostName | HostAddress, Mapping[TagGroupID, TagID]]
 
 LabelGroupsCacheId = tuple[tuple[AndOrNotLiteral, tuple[tuple[AndOrNotLiteral, str], ...]], ...]
 
@@ -141,7 +142,17 @@ class RulesetMatcher:
 
     There is some duplicate logic for host / service rulesets. This has been
     kept for performance reasons. Especially the service rulset matching is
-    done very often in large setups. Be careful when working here.
+    done very often in large setups.
+
+    Be careful when working here.
+
+    Currently the caller decides on the "merge" behavior of the rulesets.
+    For host rulesets for example they choose to call `get_host_merged_dict()`
+    or `get_host_values()` (and, if it existed, `get_host_first_value()`).
+    That is not right. The ruleset as defined in WATO claims to be the source of truth
+    for the merge behavior. This information is shown to the user, and is highly relevant.
+    The matcher should derive that from the ruleset.
+    The consumer of the ruleset must not be able to change the merge behavior.
     """
 
     def __init__(
@@ -187,7 +198,7 @@ class RulesetMatcher:
         Depending on the value the outcome is negated or not.
 
         """
-        for value in self.get_host_values(hostname, ruleset, labels_of_host):
+        for value in self.get_host_values_all(hostname, ruleset, labels_of_host):
             # Next line may be controlled by `is_binary` in which case we
             # should overload the function instead of asserting to check
             # during typing instead of runtime.
@@ -195,7 +206,7 @@ class RulesetMatcher:
             return value
         return False  # no match. Do not ignore
 
-    def get_host_merged_dict(
+    def get_host_values_merged(
         self,
         hostname: HostName,
         ruleset: Sequence[RuleSpec[Mapping[str, TRuleValue]]],
@@ -205,9 +216,11 @@ class RulesetMatcher:
         The first dict setting a key defines the final value.
 
         """
-        return merge_parameters(self.get_host_values(hostname, ruleset, labels_of_host), default={})
+        return merge_parameters(
+            self.get_host_values_all(hostname, ruleset, labels_of_host), default={}
+        )
 
-    def get_host_values(
+    def get_host_values_all(
         self,
         hostname: HostName | HostAddress,
         ruleset: Sequence[RuleSpec[TRuleValue]],
@@ -239,7 +252,7 @@ class RulesetMatcher:
             return value
         return False
 
-    def get_service_merged_dict(
+    def get_service_values_merged(
         self,
         hostname: HostName,
         service_name: ServiceName,
@@ -260,7 +273,7 @@ class RulesetMatcher:
             default={},
         )
 
-    def service_extra_conf(
+    def get_service_values_all(
         self,
         hostname: HostName,
         service_name: ServiceName,
@@ -828,23 +841,6 @@ def parse_negated_condition_list(
     raise ValueError("unsupported conditions")
 
 
-def get_tag_to_group_map(tag_config: TagConfig) -> Mapping[TagID, TagGroupID]:
-    """The old rules only have a list of tags and don't know anything about the
-    tag groups they are coming from. Create a map based on the current tag config
-    """
-    tag_id_to_tag_group_id_map: dict[TagID, TagGroupID] = {}
-
-    for aux_tag in tag_config.aux_tag_list.get_tags():
-        tag_id_to_tag_group_id_map[aux_tag.id] = TagGroupID(aux_tag.id)
-
-    for tag_group in tag_config.tag_groups:
-        for grouped_tag in tag_group.tags:
-            # Do not care for the choices with a None value here. They are not relevant for this map
-            if grouped_tag.id is not None:
-                tag_id_to_tag_group_id_map[grouped_tag.id] = tag_group.id
-    return tag_id_to_tag_group_id_map
-
-
 def matches_host_tags(
     hosttags: set[tuple[TagGroupID, TagID]],
     required_tags: Mapping[TagGroupID, TagCondition],
@@ -976,3 +972,102 @@ def matches_tag_condition(
         taggroup_id,
         tag_condition,
     ) in hosttags
+
+
+@dataclass(frozen=True)
+class SingleHostRulesetMatcher[TRuleValue]:
+    host_ruleset: Sequence[RuleSpec[TRuleValue]]
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(self, host_name: HostName) -> Sequence[TRuleValue]:
+        return self.matcher.get_host_values_all(host_name, self.host_ruleset, self.labels_of_host)
+
+
+@dataclass(frozen=True)
+class SingleHostRulesetMatcherMerge[TRuleValue]:
+    host_ruleset: Sequence[RuleSpec[Mapping[str, TRuleValue]]]
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(self, host_name: HostName) -> Mapping[str, TRuleValue]:
+        return self.matcher.get_host_values_merged(
+            host_name, self.host_ruleset, self.labels_of_host
+        )
+
+
+@dataclass(frozen=True)
+class SingleHostRulesetMatcherFirst[TRuleValue, TDefaultValue]:
+    host_ruleset: Sequence[RuleSpec[TRuleValue]]
+    default: TDefaultValue
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(self, host_name: HostName) -> TRuleValue | TDefaultValue:
+        all_ = self.matcher.get_host_values_all(host_name, self.host_ruleset, self.labels_of_host)
+        return all_[0] if all_ else self.default
+
+
+@dataclass(frozen=True)
+class SingleServiceRulesetMatcher[TRuleValue]:
+    service_ruleset: Sequence[RuleSpec[TRuleValue]]
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(
+        self, host_name: HostName, service_name: ServiceName, service_labels: Labels
+    ) -> Sequence[TRuleValue]:
+        return self.matcher.get_service_values_all(
+            host_name,
+            service_name,
+            service_labels,
+            self.service_ruleset,
+            self.labels_of_host,
+        )
+
+
+@dataclass(frozen=True)
+class SingleServiceRulesetMatcherMerge[TRuleValue]:
+    service_ruleset: Sequence[RuleSpec[Mapping[str, TRuleValue]]]
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(
+        self, host_name: HostName, service_name: ServiceName, service_labels: Labels
+    ) -> Mapping[str, TRuleValue]:
+        return self.matcher.get_service_values_merged(
+            host_name,
+            service_name,
+            service_labels,
+            self.service_ruleset,
+            self.labels_of_host,
+        )
+
+
+@dataclass(frozen=True)
+class SingleServiceRulesetMatcherFirst[TRuleValue, TDefaultValue]:
+    host_ruleset: Sequence[RuleSpec[TRuleValue]]
+    default: TDefaultValue
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(
+        self, host_name: HostName, service_name: ServiceName, service_labels: Labels
+    ) -> TRuleValue | TDefaultValue:
+        all = self.matcher.get_service_values_all(
+            host_name, service_name, service_labels, self.host_ruleset, self.labels_of_host
+        )
+        return all[0] if all else self.default
+
+
+@dataclass(frozen=True)
+class BundledHostRulesetMatcher[TRuleValue]:
+    host_rulesets: Mapping[RulesetName, Sequence[RuleSpec[TRuleValue]]]
+    matcher: RulesetMatcher
+    labels_of_host: Callable[[HostName], Labels]
+
+    def __call__(self, host_name: HostName) -> Mapping[RulesetName, Sequence[TRuleValue]]:
+        return {
+            rn: self.matcher.get_host_values_all(host_name, host_ruleset, self.labels_of_host)
+            for rn, host_ruleset in self.host_rulesets.items()
+        }

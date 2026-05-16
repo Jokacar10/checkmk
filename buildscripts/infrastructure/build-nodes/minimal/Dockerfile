@@ -1,4 +1,5 @@
 # docker build \
+# --build-arg IMAGE_BASE=$(buildscripts/docker_image_aliases/resolve.py IMAGE_UBUNTU_24_04) \
 # --tag minimal-ubuntu-checkmk-master \
 # -f buildscripts/infrastructure/build-nodes/minimal/Dockerfile .
 #
@@ -11,19 +12,24 @@
 # minimal-ubuntu-checkmk-master:latest bash
 #
 
-FROM artifacts.lan.tribe29.com:4000/ubuntu@sha256:b431bf19907e9765825e80c7912ef6f5f52e4d45297a68a8e811e9ab096ae7b2
-# 1490MB
+ARG IMAGE_BASE
+FROM ${IMAGE_BASE}
+# above image is ubuntu-24.04:master-latest
+# docker inspect -f "{{ .Size }}" minimal-ubuntu-checkmk-master:latest
+# 1460MB (1460664040)
 # bash is required to be used in Jenkins with image.inside(), requires +0MB
 # curl is required to download artifacts, requires +15MB
 # git is required to use tests, requires +83MB
-# lsb-release is required to use installation scripts, requires +4MB
 # gpg is required to use installation scripts, requires +13MB
+# jq is required to parse bazel log files, requires +MB
+# lsb-release is required to use installation scripts, requires +4MB
 # make is required by tests, requires +47MB
+# rsync is required to upload artifacts, requires +1MB
 # python3 is required by tests, requires +19MB
 # vim-tiny is required for convenience, requires +20MB
 # wget is required to download artifacts, requires +1MB
 RUN apt-get update && \
-    apt-get install -y bash curl git gpg lsb-release make python3 vim-tiny wget && \
+    apt-get install -y bash curl git gpg jq lsb-release make python3 rsync vim-tiny wget && \
     rm -rf /var/cache/apt/*
 
 # bazelisk and bazel are basic tools for running tests, requires +77MB
@@ -54,21 +60,42 @@ RUN DISTRO="ubuntu-24.04" /opt/install-docker.sh
 
 RUN rm /opt/*.sh /opt/defines.make /opt/.bazelversion
 
+# Install the compiler.  We need both gcc 13 and 14 for the transition.
+RUN apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository -y ppa:ubuntu-toolchain-r/ppa && \
+    apt-get update && \
+    apt-get install -y gcc-13 g\+\+-13 && \
+    apt-get install -y gcc-14 g\+\+-14 && \
+    update-alternatives --install "/usr/bin/gcc" gcc "/usr/bin/gcc-13" 100 && \
+    update-alternatives --install "/usr/bin/g++" g++ "/usr/bin/g++-13" 100 && \
+    rm -rf /var/cache/apt/*
+
 # required to run tests with bazel, requires +577MB
 # libkrb5-dev, libldap2-dev, libsasl2-dev is required to build python-ldap
 # libpq-dev is required to build psycopg2-binary
-# libpcap-dev is required to build packages/cmc
+# libpcap-dev is required to build non-free/packages/cmc
 # gawk is required to run test-agent-plugin, sw-documentation
 # python3-enchant is required to run sw-documentation
 # apache2 is required to run test-unit-omdlib
 RUN apt-get update && \
-    apt-get install -y apache2 gawk g++-13 libglib2.0-dev libkrb5-dev libldap2-dev libpango1.0-dev libpng-dev libpq-dev libsasl2-dev libpcap-dev libxml2-dev python3-enchant && \
+    apt-get install -y apache2 gawk libglib2.0-dev libkrb5-dev libldap2-dev libpango1.0-dev libpng-dev libpq-dev libsasl2-dev libpcap-dev libxml2-dev python3-enchant && \
     rm -rf /var/cache/apt/*
-
-# gcc is not found within bazel actions otherwise
-RUN update-alternatives --install "/usr/bin/gcc" gcc "/usr/bin/gcc-13" 100
 
 # bazel can only be used as user, not as root https://github.com/bazelbuild/rules_python/pull/713
 # USER ubuntu
 
 # verify installation?
+
+# this relies on the whole repo being part of the buld context, see CMK-25392
+COPY buildscripts/infrastructure/build-nodes/scripts/ci.bazelrc /etc/
+RUN <<EOF cat >> /etc/ci.bazelrc
+common:ci --//bazel/toolchains/cc/gcc/local:gcc_path=usr_bin
+common:ci --@cmk//distro="ubuntu-24.04"
+common:ci --action_env=DISTRO="ubuntu-24.04-minimal"
+# We encountered false cache hits with remote caching due to environment variables
+# not being propagated to external dependency builds
+# In that case "--host_action_env=..." (in addition to "--action_env") might help
+# Currently we don't use any external dependencies though.
+common:ci --host_action_env=DISTRO="ubuntu-24.04-minimal"
+EOF

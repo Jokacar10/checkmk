@@ -11,16 +11,17 @@ import copy
 import json
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import asdict
 from typing import Literal
 
+from livestatus import SiteConfigurations
+
 import cmk.ccc.version as cmk_version
-from cmk.ccc.exceptions import MKException
+from cmk.ccc.exceptions import MKException, MKGeneralException
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-
 from cmk.gui import crash_handler, visuals
 from cmk.gui.breadcrumb import Breadcrumb
+from cmk.gui.config import Config
 from cmk.gui.crash_handler import GUIDetails
 from cmk.gui.exceptions import MKAuthException, MKMissingDataError, MKUserError
 from cmk.gui.graphing._utils import MKCombinedGraphLimitExceededError
@@ -44,19 +45,23 @@ from cmk.gui.page_menu import (
     PageMenuSidePopup,
     PageMenuTopic,
 )
+from cmk.gui.permissions import permission_registry
 from cmk.gui.type_defs import InfoName, VisualContext
 from cmk.gui.utils.filter import check_if_non_default_filter_in_request
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.ntop import is_ntop_configured
 from cmk.gui.utils.output_funnel import output_funnel
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri, makeuri_contextless
 from cmk.gui.views.page_ajax_filters import ABCAjaxInitialFilters
+from cmk.gui.visuals import visual_page_breadcrumb
+from cmk.gui.visuals._filter_context import requested_context_from_request
 from cmk.gui.visuals.info import visual_info_registry
-from cmk.gui.watolib.activate_changes import get_pending_changes_tooltip, has_pending_changes
 from cmk.gui.watolib.users import get_enabled_remote_sites_for_logged_in_user
+from cmk.utils import paths
 
 from ._network_topology import get_topology_context_and_filters
-from .breadcrumb import dashboard_breadcrumb
+from .breadcrumb import dashboard_breadcrumb, EvaluatedBreadcrumbItem
 from .builtin_dashboards import GROW, MAX
 from .dashlet import (
     ABCFigureDashlet,
@@ -69,6 +74,7 @@ from .dashlet import (
     StaticTextDashlet,
     StaticTextDashletConfig,
 )
+from .metadata import DashboardMetadataObject
 from .store import (
     get_all_dashboards,
     get_permitted_dashboards,
@@ -91,13 +97,76 @@ DASHLET_PADDING = (
 RASTER = 10  # Raster the dashlet coords are measured in (px)
 
 
-def page_dashboard() -> None:
+def page_dashboard(config: Config) -> None:
     name = request.get_ascii_input_mandatory("name", "")
     if not name:
         name = _get_default_dashboard_name()
         request.set_var("name", name)  # make sure that URL context is always complete
 
-    draw_dashboard(name)
+    _draw_dashboard(name, config.sites, UserPermissions.from_config(config, permission_registry))
+
+
+def page_dashboard_app(config: Config) -> None:
+    mode: Literal["display", "create"] = "display"  # edit mode lives within the page
+    if request.var("create") == "1":
+        if not user.may("general.edit_dashboards"):
+            raise MKAuthException(_("You are not allowed to create dashboards."))
+        mode = "create"
+
+    name = request.get_ascii_input_mandatory("name", "")
+    if not name:
+        name = _get_default_dashboard_name()
+        request.set_var("name", name)  # TODO: this must be done on the frontend side
+
+    loaded_dashboard_properties = None
+    if mode == "display":
+        permitted_dashboards = get_permitted_dashboards()
+        board = load_dashboard(permitted_dashboards, name)
+        requested_context = requested_context_from_request(["host", "service"])
+
+        board_context = visuals.active_context_from_request(["host", "service"], board["context"])
+        board["context"] = board_context
+        title = visuals.visual_title("dashboard", board, board_context)
+        user_permissions = UserPermissions.from_config(config, permission_registry)
+        # some dashboards have more complicated context requirements when loaded, these are
+        # constructed when clicking on a linking dashboard which means that this will (for now
+        # with the current architecture) always go through a full page reload rather than a
+        # state changing action. Hence, we can rely on the breadcrumb building mechanism here
+        # Loading a dashboard on the frontend through other means will only necessitate the
+        # simple breadcrumb as it does not have any prior context
+        breadcrumb = dashboard_breadcrumb(name, board, title, board_context, user_permissions)
+
+        loaded_dashboard_properties = {
+            "name": name,
+            "metadata": asdict(
+                DashboardMetadataObject.from_dashboard_config(board, user_permissions)
+            ),
+            "filter_context": {
+                "context": requested_context,
+                # determines if the requested filters should overwrite the dashboard filters or
+                # merge them with dashboard filters
+                "application_mode": "overwrite" if request.has_var("active_") else "merge",
+            },
+        }
+    else:
+        visual_name = "dashboard"
+        title = _("Create %s") % visual_name
+        breadcrumb = visual_page_breadcrumb(visual_name, title, "create")
+
+    html.body_start()
+    html.begin_page_content(enable_scrollbar=True)
+
+    page_properties = {
+        "initial_breadcrumb": [
+            asdict(EvaluatedBreadcrumbItem.from_breadcrumb_item(item)) for item in breadcrumb
+        ],
+        # TODO: consider adding initial title as well due to context generation
+        "dashboard": loaded_dashboard_properties,
+        "mode": mode,
+        # required for edit, clone and new dashboard creation
+        "can_edit_dashboards": user.may("general.edit_dashboards"),
+    }
+    html.vue_component("cmk-dashboard", data=page_properties)
 
 
 def _get_default_dashboard_name() -> str:
@@ -121,8 +190,9 @@ def _get_default_dashboard_name() -> str:
     return "main" if user.may("general.see_all") and user.may("dashboard.main") else "problems"
 
 
-# Actual rendering function
-def draw_dashboard(name: DashboardName) -> None:
+def _draw_dashboard(
+    name: DashboardName, site_configs: SiteConfigurations, user_permissions: UserPermissions
+) -> None:
     mode = "display"
     if request.var("edit") == "1":
         mode = "edit"
@@ -176,7 +246,7 @@ def draw_dashboard(name: DashboardName) -> None:
         unconfigured_single_infos.update(dashlet.unconfigured_single_infos())
 
     html.add_body_css_class("dashboard")
-    breadcrumb = dashboard_breadcrumb(name, board, title, board_context)
+    breadcrumb = dashboard_breadcrumb(name, board, title, board_context, user_permissions)
     make_header(
         html,
         title,
@@ -187,7 +257,7 @@ def draw_dashboard(name: DashboardName) -> None:
     )
 
     # replication is only needed if we have remote sites
-    if need_replication and get_enabled_remote_sites_for_logged_in_user(user):
+    if need_replication and get_enabled_remote_sites_for_logged_in_user(user, site_configs):
         save_and_replicate_all_dashboards(
             makeuri(request, [("name", name), ("edit", "1" if mode == "edit" else "0")])
         )
@@ -383,7 +453,8 @@ def render_dashlet_exception_content(dashlet: Dashlet, e: Exception) -> HTML | s
             dashlet.type_name(),
         )
 
-    if isinstance(e, MKException):
+    # I added MKGeneralException during a refactoring, but I did not check if it is needed.
+    if isinstance(e, MKException | MKGeneralException):
         return html.render_error(
             _(
                 "Problem while rendering dashboard element %d of type %s: %s. Have a look at "
@@ -497,8 +568,6 @@ def _page_menu(
             ),
         ],
         breadcrumb=breadcrumb,
-        has_pending_changes=has_pending_changes(),
-        pending_changes_tooltip=get_pending_changes_tooltip(),
         # Disable suggestion rendering because it makes the page content shift downwards, which is
         # unwanted on unscrollable dashboards
         enable_suggestions=False,
@@ -595,7 +664,7 @@ def _dashboard_edit_entries(
         yield PageMenuEntry(
             title=_("Clone built-in dashboard"),
             icon_name="edit",
-            item=make_simple_link(makeuri(request, [("edit", 1)])),
+            item=make_simple_link(makeuri(request, [("edit", 1), ("owner", user.id)])),
         )
         return
 
@@ -1155,7 +1224,7 @@ def draw_dashlet(dashlet: Dashlet, content: HTML | str, title: HTML | str) -> No
     html.close_div()
 
 
-def ajax_dashlet() -> None:
+def ajax_dashlet(config: Config) -> None:
     """Render the inner HTML of a dashlet"""
     name = request.get_ascii_input_mandatory("name", "")
     if not name:

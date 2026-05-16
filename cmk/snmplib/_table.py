@@ -6,14 +6,9 @@
 
 import contextlib
 import hashlib
-from collections.abc import Callable, MutableMapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from functools import partial
 from typing import assert_never
-
-from cmk.ccc.exceptions import MKGeneralException, MKSNMPError
-
-from cmk.utils.sectionname import SectionMap as _HostSection
-from cmk.utils.sectionname import SectionName
 
 from ._typedefs import (
     BackendSNMPTree,
@@ -21,9 +16,11 @@ from ._typedefs import (
     OID,
     SNMPBackend,
     SNMPContext,
-    SNMPContextTimeout,
     SNMPRawValue,
     SNMPRowInfo,
+    SNMPSectionMarker,
+    SNMPSectionName,
+    SNMPTimeout,
     SNMPValueEncoding,
     SpecialColumn,
 )
@@ -33,11 +30,7 @@ SNMPDecodedBinary = Sequence[int]
 SNMPDecodedValues = SNMPDecodedString | SNMPDecodedBinary
 SNMPTable = Sequence[SNMPDecodedValues]
 SNMPRawDataElem = Sequence[SNMPTable | Sequence[SNMPTable]]
-SNMPRawData = _HostSection[SNMPRawDataElem]
-OIDFunction = Callable[
-    [OID, SNMPDecodedString | None, SectionName | None], SNMPDecodedString | None
-]
-SNMPScanFunction = Callable[[OIDFunction], bool]
+SNMPRawData = Mapping[SNMPSectionMarker, SNMPRawDataElem]
 
 _ResultColumnsUnsanitized = list[tuple[OID, SNMPRowInfo, SNMPValueEncoding]]
 _ResultColumnsSanitized = list[tuple[list[SNMPRawValue], SNMPValueEncoding]]
@@ -45,7 +38,7 @@ _ResultColumnsSanitized = list[tuple[list[SNMPRawValue], SNMPValueEncoding]]
 
 def get_snmp_table(
     *,
-    section_name: SectionName | None,
+    section_name: SNMPSectionName | None,
     tree: BackendSNMPTree,
     walk_cache: MutableMapping[tuple[str, str, bool], SNMPRowInfo],
     backend: SNMPBackend,
@@ -69,7 +62,7 @@ def get_snmp_table(
         # string or as binary UTF-8 encoded number string
         if isinstance(oid.column, SpecialColumn):
             if index_column >= 0 and index_column != len(columns):
-                raise MKGeneralException(
+                raise ValueError(
                     "Invalid SNMP OID specification in implementation of check. "
                     "You can only use one of OID_END, OID_STRING, OID_BIN, OID_END_BIN "
                     "and OID_END_OCTET_STRING."
@@ -177,7 +170,7 @@ def _key_oid_pairs(pair1: tuple[OID, SNMPRawValue]) -> list[int]:
 
 
 def get_snmpwalk(
-    section_name: SectionName | None,
+    section_name: SNMPSectionName | None,
     base_oid: str,
     fetchoid: OID,
     *,
@@ -186,8 +179,8 @@ def get_snmpwalk(
     backend: SNMPBackend,
     log: Callable[[str], None],
 ) -> SNMPRowInfo:
-    contexts = backend.config.snmpv3_contexts_of(section_name).contexts
-    context_string = "-".join(["no_context" if not c else c for c in contexts])
+    context_config = backend.config.snmpv3_contexts_of(section_name)
+    context_string = "-".join(["no_context" if not c else c for c in context_config.contexts])
 
     # contexts are hashed in order not to exceed max pathname length
     context_hash = hashlib.shake_256(context_string.encode("utf-8")).hexdigest(15)
@@ -201,7 +194,6 @@ def get_snmpwalk(
     rowinfo: SNMPRowInfo = []
 
     skip: set[SNMPContext] = set()
-    context_config = backend.config.snmpv3_contexts_of(section_name)
     for context in context_config.contexts:
         if context in skip:
             continue
@@ -213,7 +205,7 @@ def get_snmpwalk(
                 table_base_oid=base_oid,
                 context=context,
             )
-        except SNMPContextTimeout:
+        except SNMPTimeout:
             if context_config.timeout_policy == "stop":
                 raise
 
@@ -237,7 +229,7 @@ def get_snmpwalk(
                 added_oids.add(row_oid)
 
     if skip and not rowinfo:
-        raise MKSNMPError("SNMP Error on %s: SNMP query timed out" % backend.config.hostname)
+        raise SNMPTimeout("SNMP Error on %s: SNMP query timed out" % backend.config.hostname)
 
     walk_cache[(fetchoid, context_hash, save_walk_cache)] = rowinfo
     return rowinfo

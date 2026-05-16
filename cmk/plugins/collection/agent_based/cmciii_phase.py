@@ -12,7 +12,7 @@ from cmk.plugins.lib.cmciii import (
     get_sensor,
     Section,
 )
-from cmk.plugins.lib.elphase import check_elphase
+from cmk.plugins.lib.elphase import check_elphase, ElPhase
 
 
 def discover_cmciii_phase(params: DiscoveryParams, section: Section) -> DiscoveryResult:
@@ -20,10 +20,8 @@ def discover_cmciii_phase(params: DiscoveryParams, section: Section) -> Discover
 
 
 def check_cmciii_phase(item: str, params: CheckParams, section: Section) -> CheckResult:
-    sensor = get_sensor(item, params, section["phase"])
-    if not sensor:
-        return
-    yield from check_elphase(item, params, {item: sensor})
+    if sensor := get_sensor(item, params, section["phase"]):
+        yield from check_elphase(params, ElPhase.from_dict(sensor))
 
 
 check_plugin_cmciii_phase = CheckPlugin(

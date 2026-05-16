@@ -28,7 +28,7 @@
 
 using namespace std::chrono_literals;
 
-Query::Query(ParsedQuery parsed_query, Table &table, ICore &core,
+Query::Query(ParsedQuery parsed_query, Table &table, const ICore &core,
              OutputBuffer &output)
     : parsed_query_{std::move(parsed_query)}
     , table_{table}
@@ -146,7 +146,7 @@ bool Query::processDataset(Row row) {
     }
 
     if (!parsed_query_.filter->accepts(row, *user_,
-                                       parsed_query_.timezone_offset)) {
+                                       parsed_query_.timezone_offset, core_)) {
         return true;
     }
 
@@ -164,7 +164,8 @@ bool Query::processDataset(Row row) {
 
     if (doStats()) {
         for (const auto &aggregator : getAggregatorsFor(row)) {
-            aggregator->consume(row, *user_, parsed_query_.timezone_offset);
+            aggregator->consume(row, *user_, parsed_query_.timezone_offset,
+                                core_);
         }
     } else if (hasOrderBy()) {
         // Query::getAggregatorsFor(Row)
@@ -179,8 +180,9 @@ bool Query::processDataset(Row row) {
         const auto order_by = orderBy();
         try {
             const auto sorter = order_by.column->createSorter();
-            const auto key = sorter->getKey(row, order_by.key, *user_,
-                                            parsed_query_.timezone_offset);
+            const auto key =
+                sorter->getKey(row, order_by.key, *user_,
+                               parsed_query_.timezone_offset, core_);
 
             sorted_rows_.emplace_back(key, row_fragment);
         } catch (const std::runtime_error &e) {
@@ -308,7 +310,7 @@ const std::unordered_set<std::string> &Query::allColumnNames() const {
 void Query::renderColumns(Row row, QueryRenderer &q) const {
     RowRenderer r{q};
     for (const auto &column : parsed_query_.columns) {
-        column->output(row, r, *user_, parsed_query_.timezone_offset);
+        column->output(row, r, *user_, parsed_query_.timezone_offset, core_);
     }
 }
 
@@ -370,6 +372,6 @@ void Query::doWait() {
                               parsed_query_.wait_timeout, [this, &wait_object] {
                                   return parsed_query_.wait_condition->accepts(
                                       wait_object, *user_,
-                                      parsed_query_.timezone_offset);
+                                      parsed_query_.timezone_offset, core_);
                               });
 }

@@ -5,6 +5,7 @@ load("//bazel/rules:doctest.bzl", "py_doc_test")
 load("//bazel/rules:package_wheel.bzl", "package_wheel")
 
 exports_files([
+    "dev-requirements.in",
     "pyproject.toml",
     "requirements.in",
 ])
@@ -18,6 +19,30 @@ py_library(
 py_library(
     name = "cleanup",
     srcs = ["cmk/ccc/cleanup.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+)
+
+py_library(
+    name = "resulttype",
+    srcs = ["cmk/ccc/resulttype.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+)
+
+py_library(
+    name = "config-path",
+    srcs = ["cmk/ccc/config_path.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = [
+        "store",
+    ],
+)
+
+py_library(
+    name = "cpu-tracking",
+    srcs = ["cmk/ccc/cpu_tracking.py"],
     imports = ["."],
     visibility = ["//visibility:public"],
 )
@@ -73,6 +98,14 @@ py_library(
 py_library(
     name = "i18n",
     srcs = ["cmk/ccc/i18n.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = ["_init"],
+)
+
+py_library(
+    name = "observer",
+    srcs = ["cmk/ccc/observer.py"],
     imports = ["."],
     visibility = ["//visibility:public"],
     deps = ["_init"],
@@ -144,6 +177,17 @@ py_library(
 )
 
 py_library(
+    name = "timeout",
+    srcs = ["cmk/ccc/timeout.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = [
+        "_init",
+        "exceptions",
+    ],
+)
+
+py_library(
     name = "tty",
     srcs = ["cmk/ccc/tty.py"],
     imports = ["."],
@@ -153,16 +197,21 @@ py_library(
 
 _ALL = [
     "cleanup",
+    "config-path",
+    "cpu-tracking",
     "crash-reporting",
     "daemon",
     "debug",
     "exceptions",
     "hostaddress",
     "i18n",
+    "observer",
     "plugin-registry",
     "profile",
+    "resulttype",
     "site",
     "store",
+    "timeout",
     "tty",
     "user",
     "version",
@@ -230,6 +279,21 @@ py_test(
 )
 
 py_test(
+    name = "resulttype-tests",
+    size = "small",
+    srcs = [
+        "__test__.py",
+        "tests/test_resulttype.py",
+    ],
+    main = "__test__.py",
+    deps = [
+        "__test__",
+        "resulttype",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
     name = "tty-tests",
     size = "small",
     srcs = [
@@ -260,13 +324,80 @@ py_test(
     ],
 )
 
+py_test(
+    name = "config-path-tests",
+    size = "small",
+    srcs = [
+        "__test__.py",
+        "tests/test_config_path.py",
+    ],
+    main = "__test__.py",
+    deps = [
+        "__test__",
+        "config-path",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "cpu-tracking-tests",
+    size = "small",
+    srcs = [
+        "__test__.py",
+        "tests/test_cpu_tracking.py",
+    ],
+    main = "__test__.py",
+    deps = [
+        "__test__",
+        "cpu-tracking",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "user-tests",
+    size = "small",
+    srcs = [
+        "__test__.py",
+        "tests/test_user.py",
+    ],
+    main = "__test__.py",
+    deps = [
+        "__test__",
+        "user",
+        requirement("pytest"),
+    ],
+)
+
+py_test(
+    name = "observer-tests",
+    size = "small",
+    srcs = [
+        "__test__.py",
+        "tests/test_observer.py",
+    ],
+    main = "__test__.py",
+    deps = [
+        "__test__",
+        "observer",
+        requirement("pytest"),
+    ],
+)
+
 py_wheel(
     name = "wheel",
     distribution = "cmk-ccc",
     strip_path_prefixes = ["packages/cmk-ccc"],
     # TODO: Duplicated from pyproject.toml
     version = "1.0.0",
-    deps = _ALL,
+    deps = _ALL + [
+        ":py_typed",
+    ],
+)
+
+filegroup(
+    name = "py_typed",
+    srcs = ["cmk/ccc/py.typed"],
 )
 
 package_wheel(

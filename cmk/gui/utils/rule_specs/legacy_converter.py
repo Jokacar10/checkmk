@@ -9,15 +9,11 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, assert_never, Literal, Self, TypeVar
-
-from cmk.ccc.user import UserId
-from cmk.ccc.version import Edition
-
-from cmk.utils.password_store import ad_hoc_password_id
-from cmk.utils.rulesets.definition import RuleGroup
+from typing import Any, assert_never, cast, Literal, Self, TypeVar
 
 import cmk.gui.graphing._valuespecs as legacy_graphing_valuespecs
+from cmk.ccc.user import UserId
+from cmk.ccc.version import Edition
 from cmk.gui import inventory as legacy_inventory_groups
 from cmk.gui import valuespec as legacy_valuespecs
 from cmk.gui.exceptions import MKUserError
@@ -27,18 +23,17 @@ from cmk.gui.form_specs.private import (
     LegacyValueSpec,
     ListExtended,
     ListOfStrings,
-    MonitoredHostExtended,
     SingleChoiceExtended,
+    StringAutocompleter,
     UserSelection,
 )
-from cmk.gui.form_specs.vue.visitors import DefaultValue as VueDefaultValue
+from cmk.gui.i18n import translate_to_current_language
 from cmk.gui.userdb._user_selection import UserSelection as LegacyUserSelection
-from cmk.gui.utils.autocompleter_config import ContextAutocompleterConfig
+from cmk.gui.utils.autocompleter_config import AutocompleterConfig, ContextAutocompleterConfig
 from cmk.gui.utils.rule_specs.loader import RuleSpec as APIV1RuleSpec
 from cmk.gui.utils.urls import DocReference
-from cmk.gui.valuespec import Transform
-from cmk.gui.wato import _rulespec_groups as legacy_wato_groups
-from cmk.gui.wato._check_mk_configuration import RulespecGroupAgent
+from cmk.gui.valuespec import AjaxDropdownChoice, Transform
+from cmk.gui.valuespec import Dictionary as ValueSpecDictionary
 from cmk.gui.watolib import config_domains as legacy_config_domains
 from cmk.gui.watolib import rulespec_groups as legacy_rulespec_groups
 from cmk.gui.watolib import rulespecs as legacy_rulespecs
@@ -52,9 +47,10 @@ from cmk.gui.watolib.rulespecs import (
     rulespec_group_registry,
     RulespecSubGroup,
 )
-
 from cmk.rulesets import v1 as ruleset_api_v1
 from cmk.shared_typing.vue_formspec_components import ListOfStringsLayout
+from cmk.utils.password_store import ad_hoc_password_id
+from cmk.utils.rulesets.definition import RuleGroup
 
 RulespecGroupMonitoringAgentsAgentPlugins: type[RulespecSubGroup] | None
 RulespecGroupMonitoringAgentsLinuxUnixAgent: type[RulespecSubGroup] | None
@@ -143,14 +139,14 @@ def convert_to_legacy_rulespec(
         case ruleset_api_v1.rule_specs.ActiveCheck():
             return _convert_to_legacy_host_rule_spec_rulespec(
                 to_convert,
-                legacy_wato_groups.RulespecGroupActiveChecks,
+                legacy_rulespec_groups.RulespecGroupActiveChecks,
                 localizer,
                 config_scope_prefix=RuleGroup.ActiveChecks,
             )
         case ruleset_api_v1.rule_specs.AgentAccess():
             return _convert_to_legacy_host_rule_spec_rulespec(
                 to_convert,
-                RulespecGroupAgent,
+                legacy_rulespec_groups.RulespecGroupAgent,
                 localizer,
             )
         case ruleset_api_v1.rule_specs.AgentConfig():
@@ -186,7 +182,7 @@ def convert_to_legacy_rulespec(
         case ruleset_api_v1.rule_specs.DiscoveryParameters():
             return _convert_to_legacy_host_rule_spec_rulespec(
                 to_convert,
-                legacy_wato_groups.RulespecGroupDiscoveryCheckParameters,
+                legacy_rulespec_groups.RulespecGroupDiscoveryCheckParameters,
                 localizer,
             )
         case ruleset_api_v1.rule_specs.Service():
@@ -213,7 +209,7 @@ def convert_to_legacy_rulespec(
         case ruleset_api_v1.rule_specs.SpecialAgent():
             return _convert_to_legacy_host_rule_spec_rulespec(
                 to_convert,
-                legacy_wato_groups.RulespecGroupDatasourcePrograms,
+                legacy_rulespec_groups.RulespecGroupDatasourcePrograms,
                 localizer,
                 config_scope_prefix=RuleGroup.SpecialAgents,
             )
@@ -488,11 +484,11 @@ def _get_builtin_legacy_sub_group_with_main_group(
     match topic_to_convert:
         case ruleset_api_v1.rule_specs.Topic.APPLICATIONS:
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersApplications
+                return legacy_rulespec_groups.RulespecGroupCheckParametersApplications
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesApplications
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDatasourcePrograms:
-                return legacy_wato_groups.RulespecGroupDatasourceProgramsApps
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDatasourcePrograms:
+                return legacy_rulespec_groups.RulespecGroupDatasourceProgramsApps
             if (
                 legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringAgents
                 and RulespecGroupMonitoringAgentsAgentPlugins is not None
@@ -514,8 +510,8 @@ def _get_builtin_legacy_sub_group_with_main_group(
                 and RulespecGroupMonitoringAgentsAgentPlugins is not None
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDatasourcePrograms:
-                return legacy_wato_groups.RulespecGroupVMCloudContainer
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDatasourcePrograms:
+                return legacy_rulespec_groups.RulespecGroupVMCloudContainer
             return _to_generated_builtin_sub_group(legacy_main_group, "Cloud", localizer)
         case ruleset_api_v1.rule_specs.Topic.CONFIGURATION_DEPLOYMENT:
             if (
@@ -536,14 +532,14 @@ def _get_builtin_legacy_sub_group_with_main_group(
         case ruleset_api_v1.rule_specs.Topic.GENERAL:
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
                 return legacy_rulespec_groups.RulespecGroupMonitoringConfigurationVarious
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDatasourcePrograms:
-                return legacy_wato_groups.RulespecGroupDatasourceProgramsCustom
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDatasourcePrograms:
+                return legacy_rulespec_groups.RulespecGroupDatasourceProgramsCustom
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupHostsMonitoringRules:
                 return legacy_rulespec_groups.RulespecGroupHostsMonitoringRulesVarious
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringAgents:
                 return legacy_rulespec_groups.RulespecGroupMonitoringAgentsGenericOptions
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDiscoveryCheckParameters:
-                return legacy_wato_groups.RulespecGroupCheckParametersDiscovery
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDiscoveryCheckParameters:
+                return legacy_rulespec_groups.RulespecGroupCheckParametersDiscovery
             return _to_generated_builtin_sub_group(legacy_main_group, "General", localizer)
         case ruleset_api_v1.rule_specs.Topic.ENVIRONMENTAL:
             if (
@@ -552,7 +548,7 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersEnvironment
+                return legacy_rulespec_groups.RulespecGroupCheckParametersEnvironment
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesEnvironment
             return _to_generated_builtin_sub_group(legacy_main_group, "Environmental", localizer)
@@ -570,7 +566,7 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersNetworking
+                return legacy_rulespec_groups.RulespecGroupCheckParametersNetworking
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesNetworking
             return _to_generated_builtin_sub_group(legacy_main_group, "Networking", localizer)
@@ -599,11 +595,11 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersOperatingSystem
+                return legacy_rulespec_groups.RulespecGroupCheckParametersOperatingSystem
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesOperatingSystem
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDatasourcePrograms:
-                return legacy_wato_groups.RulespecGroupDatasourceProgramsOS
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDatasourcePrograms:
+                return legacy_rulespec_groups.RulespecGroupDatasourceProgramsOS
             return _to_generated_builtin_sub_group(legacy_main_group, "Operating System", localizer)
         case ruleset_api_v1.rule_specs.Topic.PERIPHERALS:
             if (
@@ -612,7 +608,7 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersPrinters
+                return legacy_rulespec_groups.RulespecGroupCheckParametersPrinters
             return _to_generated_builtin_sub_group(legacy_main_group, "Peripherals", localizer)
         case ruleset_api_v1.rule_specs.Topic.POWER:
             return _to_generated_builtin_sub_group(legacy_main_group, "Power", localizer)
@@ -623,11 +619,11 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersHardware
+                return legacy_rulespec_groups.RulespecGroupCheckParametersHardware
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesHardware
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDatasourcePrograms:
-                return legacy_wato_groups.RulespecGroupDatasourceProgramsHardware
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDatasourcePrograms:
+                return legacy_rulespec_groups.RulespecGroupDatasourceProgramsHardware
             return _to_generated_builtin_sub_group(legacy_main_group, "Server hardware", localizer)
         case ruleset_api_v1.rule_specs.Topic.STORAGE:
             if (
@@ -636,7 +632,7 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersStorage
+                return legacy_rulespec_groups.RulespecGroupCheckParametersStorage
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesStorage
             return _to_generated_builtin_sub_group(legacy_main_group, "Storage", localizer)
@@ -656,11 +652,11 @@ def _get_builtin_legacy_sub_group_with_main_group(
             ):
                 return RulespecGroupMonitoringAgentsAgentPlugins
             if legacy_main_group == legacy_rulespec_groups.RulespecGroupMonitoringConfiguration:
-                return legacy_wato_groups.RulespecGroupCheckParametersVirtualization
+                return legacy_rulespec_groups.RulespecGroupCheckParametersVirtualization
             if legacy_main_group == legacy_rulespecs.RulespecGroupEnforcedServices:
                 return legacy_rulespec_groups.RulespecGroupEnforcedServicesVirtualization
-            if legacy_main_group == legacy_wato_groups.RulespecGroupDatasourcePrograms:
-                return legacy_wato_groups.RulespecGroupDatasourceProgramsContainer
+            if legacy_main_group == legacy_rulespec_groups.RulespecGroupDatasourcePrograms:
+                return legacy_rulespec_groups.RulespecGroupDatasourceProgramsContainer
             return _to_generated_builtin_sub_group(legacy_main_group, "Virtualization", localizer)
         case ruleset_api_v1.rule_specs.Topic.WINDOWS:
             if (
@@ -800,7 +796,7 @@ def _convert_to_inner_legacy_valuespec(
         case ruleset_api_v1.form_specs.Metric():
             return _convert_to_legacy_metric_name(to_convert, localizer)
 
-        case ruleset_api_v1.form_specs.MonitoredHost() | MonitoredHostExtended():
+        case ruleset_api_v1.form_specs.MonitoredHost():
             return _convert_to_legacy_monitored_host_name(to_convert, localizer)
 
         case ruleset_api_v1.form_specs.MonitoredService():
@@ -829,6 +825,9 @@ def _convert_to_inner_legacy_valuespec(
 
         case UserSelection():
             return _convert_to_legacy_user_selection(to_convert, localizer)
+
+        case StringAutocompleter():
+            return _convert_to_legacy_autocompleter(to_convert, localizer)
 
         case other:
             raise NotImplementedError(other)
@@ -1284,14 +1283,8 @@ def _convert_to_legacy_dictionary(
     required_group_keys = set(grouped_elements_map.keys()) - hidden_group_keys
 
     default_keys: list[str] | None = None
-    if isinstance(to_convert, DictionaryExtended) and (prefill := to_convert.prefill) is not None:
-        default_keys = []
-        for key, value in prefill.value.items():
-            if not isinstance(value, VueDefaultValue):
-                raise ValueError(
-                    "Unable to migrate prefill value. Only able to use Vue-DefaultValue as value for key."
-                )
-            default_keys.append(key)
+    if isinstance(to_convert, DictionaryExtended):
+        default_keys = to_convert.default_checked
 
     return legacy_valuespecs.Transform(
         legacy_valuespecs.Dictionary(
@@ -1434,7 +1427,9 @@ def _convert_to_legacy_dropdown_choice(
             element.name.value if isinstance(element.name, enum.Enum) else element.name,
             element.title.localize(localizer),
         )
-        for element in to_convert.elements
+        for element in (
+            to_convert.elements() if callable(to_convert.elements) else to_convert.elements
+        )
     ]
     converted_kwargs: dict[str, Any] = {
         "title": _localize_optional(to_convert.title, localizer),
@@ -2180,7 +2175,9 @@ def _convert_to_legacy_http_proxy(
             choices=[
                 (
                     "environment",
-                    ruleset_api_v1.Title("Use from environment").localize(localizer),
+                    ruleset_api_v1.Title("Auto-detect proxy settings for this network").localize(
+                        localizer
+                    ),
                     legacy_valuespecs.FixedValue(
                         value="environment",
                         help=ruleset_api_v1.Help(
@@ -2197,7 +2194,7 @@ def _convert_to_legacy_http_proxy(
                 ),
                 (
                     "no_proxy",
-                    ruleset_api_v1.Title("Connect without proxy").localize(localizer),
+                    ruleset_api_v1.Title("No proxy").localize(localizer),
                     legacy_valuespecs.FixedValue(
                         value=None,
                         totext=ruleset_api_v1.Label(
@@ -2207,7 +2204,7 @@ def _convert_to_legacy_http_proxy(
                 ),
                 (
                     "global",
-                    ruleset_api_v1.Title("Use globally configured proxy").localize(localizer),
+                    ruleset_api_v1.Title("Globally configured proxy").localize(localizer),
                     legacy_valuespecs.DropdownChoice(
                         choices=_global_proxy_choices,
                         sorted=True,
@@ -2215,7 +2212,7 @@ def _convert_to_legacy_http_proxy(
                 ),
                 (
                     "url",
-                    ruleset_api_v1.Title("Use explicit proxy settings").localize(localizer),
+                    ruleset_api_v1.Title("Manual proxy configuration").localize(localizer),
                     legacy_valuespecs.Url(
                         title=ruleset_api_v1.Title("Proxy URL").localize(localizer),
                         default_scheme="http",
@@ -2277,7 +2274,7 @@ def _convert_to_legacy_metric_name(
 
 
 def _convert_to_legacy_monitored_host_name(
-    to_convert: ruleset_api_v1.form_specs.MonitoredHost | MonitoredHostExtended,
+    to_convert: ruleset_api_v1.form_specs.MonitoredHost,
     localizer: Callable[[str], str],
 ) -> legacy_valuespecs.MonitoredHostname:
     converted_kwargs: dict[str, Any] = {
@@ -2295,9 +2292,6 @@ def _convert_to_legacy_monitored_host_name(
     if (title := _localize_optional(to_convert.title, localizer)) is None:
         title = ruleset_api_v1.Title("Host name").localize(localizer)
     converted_kwargs["title"] = title
-    if isinstance(to_convert, MonitoredHostExtended):
-        converted_kwargs["default_value"] = to_convert.prefill.value
-
     return legacy_valuespecs.MonitoredHostname(**converted_kwargs)
 
 
@@ -2516,4 +2510,45 @@ def _convert_to_legacy_user_selection(
         help=_localize_optional(to_convert.help_text, localizer),
         only_contacts=legacy_filter.only_contacts,
         only_automation=legacy_filter.only_automation,
+    )
+
+
+def _convert_to_legacy_validation_with_none(
+    v1_validate_funcs: Iterable[Callable[[_ValidateFuncType], object]],
+    localizer: Callable[[str], str],
+) -> Callable[[_ValidateFuncType | None, str], None]:
+    def wrapper(value: _ValidateFuncType | None, var_prefix: str) -> None:
+        if value is None:
+            return
+        try:
+            _ = [v1_validate_func(value) for v1_validate_func in v1_validate_funcs]
+        except ruleset_api_v1.form_specs.validators.ValidationError as e:
+            raise MKUserError(var_prefix, e.message.localize(localizer))
+
+    return wrapper
+
+
+def _convert_to_legacy_autocompleter(
+    to_convert: StringAutocompleter, localizer: Callable[[str], str]
+) -> AjaxDropdownChoice:
+    return AjaxDropdownChoice(
+        title=_localize_optional(to_convert.title, localizer),
+        help=_localize_optional(to_convert.help_text, localizer),
+        validate=_convert_to_legacy_validation_with_none(to_convert.custom_validate, localizer)
+        if to_convert.custom_validate
+        else None,
+        autocompleter=AutocompleterConfig(ident=to_convert.autocompleter.data.ident)
+        if to_convert.autocompleter
+        else None,
+    )
+
+
+T = TypeVar("T")
+
+
+def convert_dictionary_formspec_to_valuespec(
+    form_spec: Callable[[], ruleset_api_v1.form_specs.Dictionary | DictionaryExtended],
+) -> ValueSpecDictionary:
+    return cast(
+        ValueSpecDictionary, convert_to_legacy_valuespec(form_spec(), translate_to_current_language)
     )

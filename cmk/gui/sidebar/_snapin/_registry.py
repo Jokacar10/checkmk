@@ -9,12 +9,12 @@ from typing import Literal, Self
 from pydantic import BaseModel
 
 from cmk.ccc.plugin_registry import Registry
-
 from cmk.gui import pagetypes
 from cmk.gui.i18n import _
-from cmk.gui.pages import page_registry
+from cmk.gui.pages import page_registry, PageEndpoint
 from cmk.gui.permissions import Permission, permission_registry
 from cmk.gui.type_defs import Icon, PermissionName
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.valuespec import CascadingDropdown, CascadingDropdownChoice, Dictionary, ValueSpec
 
 from ._base import CustomizableSidebarSnapin, SidebarSnapin
@@ -44,7 +44,7 @@ class SnapinRegistry(Registry[type[SidebarSnapin]]):
         )
 
         for path, page_func in instance().page_handlers().items():
-            page_registry.register_page_handler(path, page_func)
+            page_registry.register(PageEndpoint(path, page_func))
 
     def get_customizable_snapin_types(self) -> list[tuple[str, type[CustomizableSidebarSnapin]]]:
         return [
@@ -180,9 +180,9 @@ class CustomSnapins(pagetypes.Overridable[CustomSnapinsConfig]):
 
     @classmethod
     def parameters(
-        cls, mode: pagetypes.PageMode
+        cls, mode: pagetypes.PageMode, user_permissions: UserPermissions
     ) -> list[tuple[str, list[tuple[float, str, ValueSpec]]]]:
-        parameters = super().parameters(mode)
+        parameters = super().parameters(mode, user_permissions)
 
         parameters += [
             (
@@ -274,15 +274,15 @@ def custom_snapin_classes(
                 return "custom_snapin.%s" % cls.type_name()
 
             @classmethod
-            def may_see(cls) -> bool:
-                return cls._custom_snapin.is_permitted()
+            def may_see(cls, user_permissions: UserPermissions) -> bool:
+                return cls._custom_snapin.is_permitted(user_permissions)
 
         snapins[CustomSnapin.type_name()] = CustomSnapin
 
     return snapins
 
 
-def all_snapins() -> dict[str, type[SidebarSnapin]]:
+def all_snapins(user_permissions: UserPermissions) -> dict[str, type[SidebarSnapin]]:
     return dict(snapin_registry.items()) | custom_snapin_classes(
-        CustomSnapins.load().instances_sorted()
+        CustomSnapins.load(user_permissions).instances_sorted()
     )

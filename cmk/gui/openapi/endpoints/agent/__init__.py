@@ -17,12 +17,11 @@ in [Agent Deployment](https://docs.checkmk.com/latest/en/agent_deployment.html).
 from collections.abc import Mapping
 from typing import Any
 
+from cmk import fields
 from cmk.gui.http import ContentDispositionType, Response
 from cmk.gui.openapi.restful_objects import constructors, Endpoint
 from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.utils import agent
-
-from cmk import fields
 
 OS_TYPES_AVAILABLE_IN_RAW = ["linux_rpm", "linux_deb", "windows_msi"]
 
@@ -73,5 +72,5 @@ def download_agent(params: Mapping[str, Any]) -> Response:
     return response
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(download_agent)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(download_agent, ignore_duplicates=ignore_duplicates)

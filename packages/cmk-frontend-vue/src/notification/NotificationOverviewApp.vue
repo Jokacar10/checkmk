@@ -5,12 +5,14 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import type * as NotificationTypes from 'cmk-shared-typing/typescript/notifications'
-import NotificationStats from '@/notification/components/NotificationStats.vue'
-import NotificationCoreStats from '@/notification/components/NotificationCoreStats.vue'
-import NotificationRules from '@/notification/components/NotificationRules.vue'
-import NotificationFallbackWarning from '@/notification/components/NotificationFallbackWarning.vue'
+import { onMounted, ref } from 'vue'
+
 import CmkIconButton from '@/components/CmkIconButton.vue'
-import { ref, onMounted } from 'vue'
+
+import NotificationCoreStats from '@/notification/components/NotificationCoreStats.vue'
+import NotificationFallbackWarning from '@/notification/components/NotificationFallbackWarning.vue'
+import NotificationRules from '@/notification/components/NotificationRules.vue'
+import NotificationStats from '@/notification/components/NotificationStats.vue'
 
 const props = defineProps<{
   overview_title_i18n: string
@@ -49,6 +51,7 @@ function toggleContent() {
   <NotificationFallbackWarning
     v-if="fallback_warning"
     :properties="fallback_warning"
+    class="notification-overview__fallback-warning"
   ></NotificationFallbackWarning>
   <h3 class="notification-overview__header" @click.prevent="toggleContent()">
     <CmkIconButton name="tree_closed" size="xsmall" :rotate="isContentVisible ? 90 : 0" />
@@ -56,28 +59,33 @@ function toggleContent() {
   </h3>
   <div v-if="isContentVisible" class="notification-overview__container">
     <div class="notification-overview__stats-container">
-      <NotificationStats
-        :notification_stats="notification_stats"
-        :toggle_content="toggleContent"
-      ></NotificationStats>
+      <NotificationStats :notification_stats="notification_stats"></NotificationStats>
       <NotificationCoreStats :stats="core_stats"></NotificationCoreStats>
     </div>
-    <NotificationRules :rule_sections="rule_sections" :collapse="toggleContent"></NotificationRules>
+    <NotificationRules :rule_sections="rule_sections"></NotificationRules>
   </div>
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
+.notification-overview__fallback-warning {
+  margin: 8px 0 24px;
+}
+
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .notification-overview__container {
   display: flex;
   margin-bottom: 24px;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .notification-overview__header {
-  margin: 0 0 12px 0;
+  margin: 0 0 12px;
   font-size: var(--font-size-normal);
   cursor: pointer;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .notification-overview__stats-container {
   max-width: min-content;
 }

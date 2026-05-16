@@ -10,11 +10,9 @@ import pytest
 
 from cmk.ccc.site import SiteId
 from cmk.ccc.user import UserId
-
+from cmk.crypto.password import Password
 from cmk.gui import key_mgmt
 from cmk.gui.type_defs import Key
-
-from cmk.crypto.password import Password
 
 
 @pytest.mark.usefixtures("request_context")
@@ -22,7 +20,7 @@ def test_key_mgmt_create_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setattr(time, "time", lambda: 123)
 
     key = key_mgmt.generate_key(
-        "älias", Password("passphra$e"), UserId("dingdöng"), SiteId("test-site"), key_size=1024
+        "älias", Password("passphra$e"), UserId("dingdöng"), SiteId("test_site"), key_size=1024
     )
     assert isinstance(key, Key)
     assert key.alias == "älias"

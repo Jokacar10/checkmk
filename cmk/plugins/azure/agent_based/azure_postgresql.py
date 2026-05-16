@@ -33,7 +33,9 @@ check_plugin_azure_postgresql_memory = CheckPlugin(
     ),
     check_function=check_memory(),
     check_ruleset_name="memory_utilization",
-    check_default_parameters={},
+    check_default_parameters={
+        "levels": (80.0, 90.0),
+    },
 )
 
 
@@ -82,7 +84,9 @@ check_plugin_azure_postgresql_replication = CheckPlugin(
     ),
     check_function=check_replication(),
     check_ruleset_name="replication_lag",
-    check_default_parameters={},
+    check_default_parameters={
+        "levels": (60, 600),
+    },
 )
 
 
@@ -97,7 +101,7 @@ check_plugin_azure_postgresql_connections = CheckPlugin(
     ),
     check_function=check_connections(),
     check_ruleset_name="database_connections",
-    check_default_parameters={},
+    check_default_parameters={"failed_connections": (1, 1)},
 )
 
 

@@ -7,56 +7,57 @@ from collections.abc import Callable, Iterable
 from typing import TypedDict
 
 from cmk.gui import site_config, sites
-from cmk.gui.config import active_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.dashboard import get_permitted_dashboards
 from cmk.gui.htmllib.foldable_container import foldable_container
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
 from cmk.gui.i18n import _, _l
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import get_main_menu_items_prefixed_by_segment, MegaMenuRegistry
-from cmk.gui.sidebar import (
-    footnotelinks,
-    make_topic_menu,
-    show_topic_menu,
-    SidebarSnapin,
-    SnapinRegistry,
-)
-from cmk.gui.type_defs import (
-    ABCMegaMenuSearch,
-    Choices,
-    MegaMenu,
-    RoleName,
-    TopicMenuItem,
-    TopicMenuTopic,
-    ViewSpec,
-    Visual,
-)
-from cmk.gui.views.store import get_permitted_views
-from cmk.gui.watolib.activate_changes import ActivateChanges
-from cmk.gui.watolib.hosts_and_folders import folder_tree, FolderTree
-from cmk.gui.watolib.main_menu import main_module_registry, MainModuleTopic
-from cmk.gui.watolib.search import (
+from cmk.gui.main_menu import get_main_menu_items_prefixed_by_segment, MainMenuRegistry
+from cmk.gui.permissions import permission_registry
+from cmk.gui.search import (
     ABCMatchItemGenerator,
     MatchItem,
     MatchItemGeneratorRegistry,
     MatchItems,
 )
+from cmk.gui.sidebar import (
+    footnotelinks,
+    make_main_menu,
+    show_main_menu,
+    SidebarSnapin,
+    SnapinRegistry,
+)
+from cmk.gui.type_defs import (
+    Choices,
+    MainMenu,
+    MainMenuItem,
+    MainMenuTopic,
+    RoleName,
+    ViewSpec,
+    Visual,
+)
+from cmk.gui.utils.roles import UserPermissions
+from cmk.gui.views.store import get_permitted_views
+from cmk.gui.watolib.activate_changes import ActivateChanges
+from cmk.gui.watolib.hosts_and_folders import folder_tree, FolderTree
+from cmk.gui.watolib.main_menu import main_module_registry, MainModuleTopic
 
 
 def register(
     snapin_registry: SnapinRegistry,
     match_item_generator_registry: MatchItemGeneratorRegistry,
-    mega_menu_registry: MegaMenuRegistry,
+    main_menu_registry: MainMenuRegistry,
 ) -> None:
     snapin_registry.register(SidebarSnapinWATOMini)
     snapin_registry.register(SidebarSnapinWATOFoldertree)
     match_item_generator_registry.register(MatchItemGeneratorSetup)
-    mega_menu_registry.register(MegaMenuSetup)
+    main_menu_registry.register(MainMenuSetup)
 
 
-def render_wato(mini: bool) -> None:
-    if not active_config.wato_enabled:
+def render_wato(config: Config, mini: bool) -> None:
+    if not config.wato_enabled:
         html.write_text_permissive(_("Setup is disabled."))
     if not user.may("wato.use"):
         html.write_text_permissive(_("You are not allowed to use the setup."))
@@ -74,17 +75,17 @@ def render_wato(mini: bool) -> None:
                     target="main",
                 )
     else:
-        show_topic_menu(treename="wato", menu=menu, show_item_icons=True)
+        show_main_menu(treename="wato", menu=menu, show_item_icons=True)
 
-    pending_info = ActivateChanges().get_pending_changes_info(count_limit=10)
+    pending_info = ActivateChanges.get_pending_changes_info(list(config.sites), count_limit=10)
     if pending_info.has_changes():
         assert pending_info.message is not None  # only for mypy, semantically useless
         footnotelinks([(pending_info.message, "wato.py?mode=changelog")])
         html.div("", class_="clear")
 
 
-def get_wato_menu_items() -> list[TopicMenuTopic]:
-    by_topic: dict[MainModuleTopic, TopicMenuTopic] = {}
+def get_wato_menu_items() -> list[MainMenuTopic]:
+    by_topic: dict[MainModuleTopic, MainMenuTopic] = {}
     for module_class in main_module_registry.values():
         module = module_class()
 
@@ -93,7 +94,7 @@ def get_wato_menu_items() -> list[TopicMenuTopic]:
 
         topic = by_topic.setdefault(
             module.topic,
-            TopicMenuTopic(
+            MainMenuTopic(
                 name=module.topic.name,
                 title=str(module.topic.title),
                 icon=module.topic.icon_name,
@@ -101,14 +102,14 @@ def get_wato_menu_items() -> list[TopicMenuTopic]:
             ),
         )
         topic.entries.append(
-            TopicMenuItem(
+            MainMenuItem(
                 name=module.mode_or_url,
                 title=module.title,
                 url=module.get_url(),
                 sort_index=module.sort_index,
                 is_show_more=module.is_show_more,
                 icon=module.icon,
-                megamenu_search_terms=module.megamenu_search_terms(),
+                main_menu_search_terms=module.main_menu_search_terms(),
             )
         )
 
@@ -121,49 +122,20 @@ def get_wato_menu_items() -> list[TopicMenuTopic]:
 
 
 def _hide_menu() -> bool:
-    return site_config.is_wato_slave_site() and not active_config.wato_enabled
+    return (
+        site_config.is_distributed_setup_remote_site(active_config.sites)
+        and not active_config.wato_enabled
+    )
 
 
-class SetupSearch(ABCMegaMenuSearch):
-    """Search field in the setup menu"""
-
-    def show_search_field(self) -> None:
-        html.open_div(id_="mk_side_search_setup")
-        # TODO: Implement submit action (e.g. show all results of current query)
-        with html.form_context(f"mk_side_{self.name}", add_transid=False, onsubmit="return false;"):
-            tooltip = _("Search for menu entries, settings, hosts and rule sets.")
-            html.input(
-                id_=f"mk_side_search_field_{self.name}",
-                type_="text",
-                name="search",
-                title=tooltip,
-                autocomplete="off",
-                placeholder=_("Search in Setup"),
-                onkeydown="cmk.search.on_key_down('setup')",
-                oninput="cmk.search.on_input_search('setup');",
-            )
-            html.input(
-                id_=f"mk_side_search_field_clear_{self.name}",
-                name="reset",
-                type_="button",
-                onclick="cmk.search.on_click_reset('setup');",
-                # When the user searched for something, let him jump to the first result with the first
-                # <TAB> key press instead of jumping to the reset button. The reset can be triggered via
-                # the <ESC> key.
-                tabindex="-1",
-            )
-        html.close_div()
-        html.div("", id_="mk_side_clear")
-
-
-MegaMenuSetup = MegaMenu(
+MainMenuSetup = MainMenu(
     name="setup",
     title=_l("Setup"),
     icon="main_setup",
     sort_index=15,
     topics=get_wato_menu_items,
-    search=SetupSearch("setup_search"),
     hide=_hide_menu,
+    hint=_("Press Ctrl + K to trigger search"),
 )
 
 
@@ -171,7 +143,7 @@ class MatchItemGeneratorSetupMenu(ABCMatchItemGenerator):
     def __init__(
         self,
         name: str,
-        topic_generator: Callable[[], Iterable[TopicMenuTopic]] | None,
+        topic_generator: Callable[[], Iterable[MainMenuTopic]] | None,
     ) -> None:
         super().__init__(name)
         self._topic_generator = topic_generator
@@ -179,16 +151,16 @@ class MatchItemGeneratorSetupMenu(ABCMatchItemGenerator):
     def generate_match_items(self) -> MatchItems:
         yield from (
             MatchItem(
-                title=topic_menu_item.title,
+                title=main_menu_item.title,
                 topic=_("Setup"),
-                url=topic_menu_item.url,
+                url=main_menu_item.url,
                 match_texts=[
-                    topic_menu_item.title,
-                    *topic_menu_item.megamenu_search_terms,
+                    main_menu_item.title,
+                    *main_menu_item.main_menu_search_terms,
                 ],
             )
-            for topic_menu_topic in (self._topic_generator() if self._topic_generator else [])
-            for topic_menu_item in get_main_menu_items_prefixed_by_segment(topic_menu_topic)
+            for main_menu_topic in (self._topic_generator() if self._topic_generator else [])
+            for main_menu_item in get_main_menu_items_prefixed_by_segment(main_menu_topic)
         )
 
     @staticmethod
@@ -200,7 +172,7 @@ class MatchItemGeneratorSetupMenu(ABCMatchItemGenerator):
         return True
 
 
-MatchItemGeneratorSetup = MatchItemGeneratorSetupMenu("setup", MegaMenuSetup.topics)
+MatchItemGeneratorSetup = MatchItemGeneratorSetupMenu("setup", MainMenuSetup.topics)
 
 
 class SidebarSnapinWATOMini(SidebarSnapin):
@@ -229,8 +201,8 @@ class SidebarSnapinWATOMini(SidebarSnapin):
     def refresh_regularly(cls) -> bool:
         return True
 
-    def show(self) -> None:
-        render_wato(mini=True)
+    def show(self, config: Config) -> None:
+        render_wato(config, mini=True)
 
 
 FolderEntry = TypedDict(
@@ -367,9 +339,10 @@ class SidebarSnapinWATOFoldertree(SidebarSnapin):
             "interaction with any other snap-in."
         )
 
-    def show(self) -> None:
-        if not site_config.is_wato_slave_site():
-            if not active_config.wato_enabled:
+    def show(self, config: Config) -> None:
+        user_permissions = UserPermissions.from_config(config, permission_registry)
+        if not site_config.is_distributed_setup_remote_site(config.sites):
+            if not config.wato_enabled:
                 html.write_text_permissive(_("Setup is disabled."))
 
         user_folders = compute_foldertree()
@@ -382,8 +355,8 @@ class SidebarSnapinWATOFoldertree(SidebarSnapin):
         dflt_target_name: str = "allhosts"
         dflt_topic_name: str = ""
         for name, view in get_permitted_views().items():
-            if (not active_config.visible_views or name in active_config.visible_views) and (
-                not active_config.hidden_views or name not in active_config.hidden_views
+            if (not config.visible_views or name in config.visible_views) and (
+                not config.hidden_views or name not in config.hidden_views
             ):
                 views_to_show.append((name, view))
                 if name == dflt_target_name:
@@ -400,7 +373,7 @@ class SidebarSnapinWATOFoldertree(SidebarSnapin):
         ]
         visuals_to_show += [("dashboards", (k, v)) for k, v in get_permitted_dashboards().items()]
 
-        topics = make_topic_menu(visuals_to_show)
+        topics = make_main_menu(visuals_to_show, user_permissions)
         topic_choices: Choices = [(topic.title, topic.title) for topic in topics]
 
         html.open_table()

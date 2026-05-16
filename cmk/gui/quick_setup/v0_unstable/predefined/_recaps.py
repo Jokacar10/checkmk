@@ -3,10 +3,12 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
-from cmk.gui.form_specs.vue.form_spec_visitor import serialize_data_for_frontend
-from cmk.gui.form_specs.vue.visitors import DataOrigin
+from livestatus import SiteConfiguration
+
+from cmk.ccc.site import SiteId
+from cmk.gui.form_specs.vue import RawDiskData, serialize_data_for_frontend
 from cmk.gui.quick_setup.v0_unstable._registry import quick_setup_registry
 from cmk.gui.quick_setup.v0_unstable.predefined._common import (
     build_formspec_map_from_stages,
@@ -25,6 +27,7 @@ def recaps_form_spec(
     stage_index: StageIndex,
     parsed_form_data: ParsedFormData,
     _progress_logger: ProgressLogger,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     debug: bool,
 ) -> Sequence[Widget]:
     quick_setup = quick_setup_registry.get(quick_setup_id)
@@ -39,9 +42,8 @@ def recaps_form_spec(
             form_spec=serialize_data_for_frontend(
                 form_spec=quick_setup_formspec_map[form_spec_id],
                 field_id=form_spec_id,
-                origin=DataOrigin.DISK,
                 do_validate=False,
-                value=form_data,
+                value=RawDiskData(form_data),
             ),
         )
         for form_spec_id, form_data in parsed_form_data.items()

@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, cast, Literal, TypeVar
 
+import cmk.gui.pages
+import cmk.utils.paths
 from cmk.ccc.store import (
     acquire_lock,
     load_from_mk_file,
@@ -24,19 +26,15 @@ from cmk.ccc.store import (
     save_to_mk_file,
 )
 from cmk.ccc.user import UserId
-
-import cmk.utils.paths
-from cmk.utils.local_secrets import AutomationUserSecret
-from cmk.utils.paths import htpasswd_file, var_dir
-
-import cmk.gui.pages
+from cmk.crypto import password_hashing
+from cmk.crypto.password import Password
 from cmk.gui import hooks, utils
 from cmk.gui.config import active_config
 from cmk.gui.hooks import request_memoize
 from cmk.gui.htmllib.html import html
 from cmk.gui.i18n import _
 from cmk.gui.log import logger
-from cmk.gui.logged_in import LoggedInUser, save_user_file
+from cmk.gui.logged_in import load_user_file, save_user_file
 from cmk.gui.type_defs import (
     SessionInfo,
     TwoFactorCredentials,
@@ -45,16 +43,16 @@ from cmk.gui.type_defs import (
     Users,
     UserSpec,
 )
+from cmk.gui.user_connection_config_types import UserConnectionConfig
 from cmk.gui.utils.htpasswd import Htpasswd
-from cmk.gui.utils.roles import AutomationUserFile, roles_of_user
+from cmk.gui.utils.roles import AutomationUserFile
+from cmk.utils.local_secrets import AutomationUserSecret
+from cmk.utils.paths import htpasswd_file, var_dir
 
-from cmk.crypto import password_hashing
-from cmk.crypto.password import Password
-
-from ._connections import active_connections, get_connection
+from ._connections import active_connections, get_connection, get_connection_uncached
 from ._connector import UserConnector
-from ._user_attribute import get_user_attributes
-from ._user_spec import add_internal_attributes
+from ._user_attribute import UserAttribute
+from ._user_spec import add_internal_attributes, new_user_template
 
 T = TypeVar("T")
 
@@ -106,8 +104,15 @@ def save_two_factor_credentials(user_id: UserId, credentials: TwoFactorCredentia
     save_custom_attr(user_id, "two_factor_credentials", repr(credentials))
 
 
-def rewrite_users(now: datetime) -> None:
-    save_users(load_users(lock=True), now)
+def rewrite_users(user_attributes: Sequence[tuple[str, UserAttribute]], now: datetime) -> None:
+    save_users(
+        load_users(lock=True),
+        user_attributes,
+        active_config.user_connections,
+        now=now,
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )
 
 
 def _root_dir() -> Path:
@@ -276,13 +281,10 @@ def _add_passwords(users: Users) -> Users:
             users[uid]["password"] = password
             users[uid]["locked"] = locked
         else:
-            # Create entry if this is an admin user
-            new_user = UserSpec(
-                roles=roles_of_user(uid),
-                password=password,
-                locked=False,
-                connector="htpasswd",
-            )
+            # Creating users based on htpasswd entries only. This is an ancient feature,
+            # which we keep for the moment, but aim to remove it soon.
+            new_user = new_user_template("htpasswd", active_config.default_user_profile)
+            new_user["password"] = password
 
             add_internal_attributes(new_user)
 
@@ -355,19 +357,38 @@ def split_dict(d: Mapping[str, Any], keylist: list[str], positive: bool) -> dict
     return {k: v for k, v in d.items() if (k in keylist) == positive}
 
 
-def save_users(profiles: Users, now: datetime) -> None:
-    logger.debug(f"Saving the profiles of the following users: {', '.join(sorted(profiles))}")
+def _update_users(
+    changed_users: Sequence[UserId],
+    all_users: Users,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    user_connections: Sequence[UserConnectionConfig],
+    *,
+    now: datetime,
+    pprint_value: bool,
+    call_users_saved_hook: bool,
+) -> None:
+    logger.debug(f"Saving the profiles of the following users: {', '.join(sorted(all_users))}")
 
-    write_contacts_and_users_file(profiles)
+    write_contacts_and_users_file(
+        all_users,
+        user_attributes,
+        user_connections,
+        custom_default_config_dir=None,
+        pprint_value=pprint_value,
+    )
 
     # Execute user connector save hooks
-    hook_save(profiles)
+    _hook_save(all_users, user_connections)
 
-    updated_profiles = _add_custom_macro_attributes(profiles)
+    all_users_with_custom_macros = _add_custom_macro_attributes(user_attributes, all_users)
 
-    _save_auth_serials(updated_profiles)
-    _save_user_profiles(updated_profiles, now)
-    _cleanup_old_user_profiles(updated_profiles)
+    _save_auth_serials(all_users_with_custom_macros)
+    changed_users_with_custom_macros = {
+        changed_user: all_users_with_custom_macros[changed_user] for changed_user in changed_users
+    }
+    # profiles are saved per user, so we need to save the changed users only
+    _save_user_profiles(changed_users_with_custom_macros, user_attributes, now)
+    _cleanup_old_user_profiles(all_users_with_custom_macros)
 
     # Release the lock to make other threads access possible again asap
     # This lock is set by load_users() only in the case something is expected
@@ -378,21 +399,55 @@ def save_users(profiles: Users, now: datetime) -> None:
     # The magic attribute has been added by the lru_cache decorator.
     load_users.cache_clear()  # type: ignore[attr-defined]
 
-    # Call the users_saved hook
-    hooks.call("users-saved", updated_profiles)
+    if call_users_saved_hook:
+        hooks.call("users-saved", all_users_with_custom_macros)
+
+
+def save_users(
+    profiles: Users,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    user_connections: Sequence[UserConnectionConfig],
+    now: datetime,
+    pprint_value: bool,
+    call_users_saved_hook: bool,
+) -> None:
+    _update_users(
+        list(profiles.keys()),
+        profiles,
+        user_attributes,
+        user_connections,
+        now=now,
+        pprint_value=pprint_value,
+        call_users_saved_hook=call_users_saved_hook,
+    )
+
+
+def update_user(
+    changed_user: UserId,
+    all_users: Users,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    now: datetime,
+) -> None:
+    _update_users(
+        [changed_user],
+        all_users,
+        user_attributes,
+        active_config.user_connections,
+        now=now,
+        pprint_value=active_config.wato_pprint_config,
+        call_users_saved_hook=True,
+    )
 
 
 # TODO: Isn't this needed only while generating the contacts.mk?
 #       Check this and move it to the right place
-def _add_custom_macro_attributes(profiles: Users) -> Users:
+def _add_custom_macro_attributes(
+    user_attributes: Sequence[tuple[str, UserAttribute]], profiles: Users
+) -> Users:
     updated_profiles = copy.deepcopy(profiles)
 
     # Add custom macros
-    core_custom_macros = {
-        name
-        for name, attr in get_user_attributes()
-        if attr.add_custom_macro()  #
-    }
+    core_custom_macros = {name for name, attr in user_attributes if attr.add_custom_macro()}
     for user in updated_profiles.keys():
         for macro in core_custom_macros:
             if macro in updated_profiles[user]:
@@ -406,10 +461,11 @@ def _add_custom_macro_attributes(profiles: Users) -> Users:
 # Write user specific files
 def _save_user_profiles(
     updated_profiles: Users,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
     now: datetime,
 ) -> None:
-    non_contact_keys = _non_contact_keys()
-    multisite_keys = _multisite_keys()
+    non_contact_keys = _non_contact_keys(user_attributes)
+    multisite_keys = _multisite_keys(user_attributes)
 
     for user_id, user in updated_profiles.items():
         (cmk.utils.paths.profile_dir / user_id).mkdir(mode=0o770, exist_ok=True)
@@ -501,11 +557,15 @@ def _cleanup_old_user_profiles(updated_profiles: Users) -> None:
 
 def write_contacts_and_users_file(
     profiles: Users,
-    custom_default_config_dir: str | None = None,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    user_connections: Sequence[UserConnectionConfig],
+    custom_default_config_dir: str | None,
+    *,
+    pprint_value: bool,
 ) -> None:
-    non_contact_keys = _non_contact_keys()
-    multisite_keys = _multisite_keys()
-    updated_profiles = _add_custom_macro_attributes(profiles)
+    non_contact_keys = _non_contact_keys(user_attributes)
+    multisite_keys = _multisite_keys(user_attributes)
+    updated_profiles = _add_custom_macro_attributes(user_attributes, profiles)
 
     if custom_default_config_dir:
         check_mk_config_dir = Path(custom_default_config_dir) / "conf.d/wato"
@@ -517,11 +577,22 @@ def write_contacts_and_users_file(
     non_contact_attributes_cache: dict[str | None, Sequence[str]] = {}
     multisite_attributes_cache: dict[str | None, Sequence[str]] = {}
     for user_settings in updated_profiles.values():
-        connector = user_settings.get("connector")
-        if connector not in non_contact_attributes_cache:
-            non_contact_attributes_cache[connector] = non_contact_attributes(connector)
-        if connector not in multisite_attributes_cache:
-            multisite_attributes_cache[connector] = multisite_attributes(connector)
+        connection_id = user_settings.get("connector")
+        if connection_id is None:
+            non_contact_attributes_cache[None] = []
+            multisite_attributes_cache[None] = []
+            continue
+
+        if connection_id not in non_contact_attributes_cache:
+            connection = get_connection_uncached(connection_id, user_connections)
+            non_contact_attributes_cache[connection_id] = (
+                connection.non_contact_attributes(user_attributes) if connection else []
+            )
+        if connection_id not in multisite_attributes_cache:
+            connection = get_connection_uncached(connection_id, user_connections)
+            multisite_attributes_cache[connection_id] = (
+                connection.multisite_attributes(user_attributes) if connection else []
+            )
 
     # Remove multisite keys in contacts.
     # TODO: Clean this up. Just improved the performance, but still have no idea what its actually doing...
@@ -559,7 +630,7 @@ def write_contacts_and_users_file(
         check_mk_config_dir / "contacts.mk",
         key="contacts",
         value=contacts,
-        pprint_value=active_config.wato_pprint_config,
+        pprint_value=pprint_value,
     )
 
     # GUI specific user configuration
@@ -567,18 +638,29 @@ def write_contacts_and_users_file(
         multisite_config_dir / "users.mk",
         key="multisite_users",
         value=users,
-        pprint_value=active_config.wato_pprint_config,
+        pprint_value=pprint_value,
     )
 
 
-def non_contact_attributes(connection_id: str | None) -> Sequence[str]:
+def _non_contact_attributes(
+    connection_id: str | None, user_attributes: Sequence[tuple[str, UserAttribute]]
+) -> Sequence[str]:
     """Returns a list of connection specific non contact attributes"""
-    return _get_attributes(connection_id, lambda c: c.non_contact_attributes())
+    return _get_attributes(connection_id, lambda c: c.non_contact_attributes(user_attributes))
 
 
-def multisite_attributes(connection_id: str | None) -> Sequence[str]:
+def _multisite_attributes(
+    connection_id: str | None, user_attributes: Sequence[tuple[str, UserAttribute]]
+) -> Sequence[str]:
     """Returns a list of connection specific multisite attributes"""
-    return _get_attributes(connection_id, lambda c: c.multisite_attributes())
+    return _get_attributes(connection_id, lambda c: c.multisite_attributes(user_attributes))
+
+
+def locked_attributes(
+    connection_id: str | None, user_attributes: Sequence[tuple[str, UserAttribute]]
+) -> Sequence[str]:
+    """Returns a list of connection specific locked attributes"""
+    return _get_attributes(connection_id, lambda c: c.locked_attributes(user_attributes))
 
 
 def _get_attributes(
@@ -588,7 +670,7 @@ def _get_attributes(
     return selector(connection) if connection else []
 
 
-def _non_contact_keys() -> list[str]:
+def _non_contact_keys(user_attributes: Sequence[tuple[str, UserAttribute]]) -> list[str]:
     """User attributes not to put into contact definitions for Check_MK"""
     return [
         "automation_secret",
@@ -604,14 +686,14 @@ def _non_contact_keys() -> list[str]:
         "serial",
         "session_info",
         "two_factor_credentials",
-    ] + _get_multisite_custom_variable_names()
+    ] + _get_multisite_custom_variable_names(user_attributes)
 
 
-def _multisite_keys() -> list[str]:
+def _multisite_keys(user_attributes: Sequence[tuple[str, UserAttribute]]) -> list[str]:
     """User attributes to put into multisite configuration"""
     multisite_variables = [
         var
-        for var in _get_multisite_custom_variable_names()
+        for var in _get_multisite_custom_variable_names(user_attributes)
         if var
         not in ("start_url", "ui_theme", "ui_sidebar_position", "ui_saas_onboarding_button_toggle")
     ]
@@ -624,8 +706,10 @@ def _multisite_keys() -> list[str]:
     ] + multisite_variables
 
 
-def _get_multisite_custom_variable_names() -> list[str]:
-    return [name for name, attr in get_user_attributes() if attr.domain() == "multisite"]  #
+def _get_multisite_custom_variable_names(
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+) -> list[str]:
+    return [name for name, attr in user_attributes if attr.domain() == "multisite"]
 
 
 def _save_auth_serials(updated_profiles: Users) -> None:
@@ -638,7 +722,15 @@ def _save_auth_serials(updated_profiles: Users) -> None:
 
 
 def create_cmk_automation_user(
-    now: datetime, name: str, alias: str, role: str, store_secret: bool
+    name: str,
+    alias: str,
+    role: str,
+    store_secret: bool,
+    user_attributes: Sequence[tuple[str, UserAttribute]],
+    user_connections: Sequence[UserConnectionConfig],
+    *,
+    now: datetime,
+    pprint_value: bool,
 ) -> None:
     secret = Password.random(24)
     users = load_users(lock=True)
@@ -658,7 +750,14 @@ def create_cmk_automation_user(
         "language": "en",
         "connector": "htpasswd",
     }
-    save_users(users, now)
+    save_users(
+        users,
+        user_attributes,
+        user_connections,
+        now=now,
+        pprint_value=pprint_value,
+        call_users_saved_hook=True,
+    )
 
 
 def _save_cached_profile(
@@ -679,7 +778,7 @@ def _save_cached_profile(
 
 
 def load_cached_profile(user_id: UserId) -> UserSpec | None:
-    return LoggedInUser(user_id).load_file("cached_profile", None)
+    return cast(UserSpec | None, load_user_file("cached_profile", user_id, deflt=None, lock=False))
 
 
 def contactgroups_of_user(user_id: UserId) -> list[_ContactgroupName]:
@@ -737,10 +836,10 @@ def show_exception(connection_id: str, title: str, e: Exception, debug: bool = T
     )
 
 
-def hook_save(users: Users) -> None:
+def _hook_save(users: Users, user_connections: Sequence[UserConnectionConfig]) -> None:
     """Hook function can be registered here to be executed during saving of the
     new user construct"""
-    for connection_id, connection in active_connections():
+    for connection_id, connection in active_connections(user_connections):
         try:
             connection.save_users(users)
         except Exception as e:
@@ -749,7 +848,7 @@ def hook_save(users: Users) -> None:
             show_exception(connection_id, _("Error during saving"), e)
 
 
-def general_userdb_job(now: datetime) -> None:
+def general_userdb_job(user_attributes: Sequence[tuple[str, UserAttribute]], now: datetime) -> None:
     """This function registers general stuff, which is independet of the single
     connectors to each page load. It is exectued AFTER all other connections jobs."""
 
@@ -758,7 +857,7 @@ def general_userdb_job(now: datetime) -> None:
     # Create initial auth.serials file, same issue as auth.php above
     serials_file = htpasswd_file.with_name("auth.serials")
     if not serials_file.exists() or serials_file.stat().st_size == 0:
-        rewrite_users(now)
+        rewrite_users(user_attributes, now)
 
 
 def convert_session_info(value: str) -> dict[str, SessionInfo]:

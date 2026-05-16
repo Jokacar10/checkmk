@@ -11,7 +11,6 @@ from typing import Any, cast
 from urllib.parse import unquote
 
 from cmk.ccc.user import UserId
-
 from cmk.gui import forms
 from cmk.gui.default_name import unique_default_name_suggestion
 from cmk.gui.exceptions import HTTPRedirect, MKAuthException, MKUserError
@@ -39,7 +38,7 @@ from cmk.gui.type_defs import (
 from cmk.gui.user_async_replication import user_profile_async_replication_page
 from cmk.gui.utils.flashed_messages import flash
 from cmk.gui.utils.html import HTML
-from cmk.gui.utils.roles import is_user_with_publish_permissions
+from cmk.gui.utils.roles import is_user_with_publish_permissions, UserPermissions
 from cmk.gui.utils.transaction_manager import transactions
 from cmk.gui.utils.urls import file_name_and_query_vars_from_url, makeuri_contextless
 from cmk.gui.validate import validate_id
@@ -66,6 +65,7 @@ from ._store import available, delete_local_file, move_visual_to_local, save, TV
 def page_edit_visual(  # type: ignore[no-untyped-def]
     what: VisualTypeName,
     all_visuals: dict[tuple[UserId, VisualName], TVisual],
+    user_permissions: UserPermissions,
     custom_field_handler=None,
     create_handler=None,
     info_handler=None,
@@ -81,7 +81,7 @@ def page_edit_visual(  # type: ignore[no-untyped-def]
     visual: dict[str, Any] = {
         "link_from": {},
         "context": {},
-        "megamenu_search_terms": [],
+        "main_menu_search_terms": [],
     }
 
     mode = request.get_str_input_mandatory("mode", "edit")
@@ -187,7 +187,7 @@ def page_edit_visual(  # type: ignore[no-untyped-def]
         ),
     ]
 
-    if is_user_with_publish_permissions("visual", user.id, what):
+    if is_user_with_publish_permissions("visual", user.id, what, user_permissions):
         visibility_elements.append(
             (
                 "public",
@@ -222,6 +222,7 @@ def page_edit_visual(  # type: ignore[no-untyped-def]
         all_visuals,
         mode,
         what,
+        user_permissions,
     )
     if mode == "clone":
         context_specs = get_context_specs(
@@ -253,7 +254,7 @@ def page_edit_visual(  # type: ignore[no-untyped-def]
             # TODO: Currently not editable, but keep settings
             visual = {
                 "link_from": old_visual["link_from"],
-                "megamenu_search_terms": old_visual["megamenu_search_terms"],
+                "main_menu_search_terms": old_visual["main_menu_search_terms"],
             }
 
             # Important for saving
@@ -278,7 +279,7 @@ def page_edit_visual(  # type: ignore[no-untyped-def]
             for key, _value in visibility_elements:
                 visual[key] = general_properties["visibility"].get(key, False)
 
-            if not is_user_with_publish_permissions("visual", user.id, what):
+            if not is_user_with_publish_permissions("visual", user.id, what, user_permissions):
                 visual["public"] = False
 
             if create_handler:
@@ -530,6 +531,7 @@ def _vs_general(
     all_visuals: dict[tuple[UserId, VisualName], TVisual],
     mode: str,
     what: VisualTypeName,
+    user_permissions: UserPermissions,
 ) -> Dictionary:
     return Dictionary(
         title=_("General properties"),
@@ -591,7 +593,7 @@ def _vs_general(
                         "topic name you can do this <a href='%s'>here</a>."
                     )
                     % "pagetype_topics.py",
-                    choices=PagetypeTopics.choices(),
+                    choices=PagetypeTopics.choices(user_permissions),
                 ),
             ),
             (
@@ -645,7 +647,11 @@ def _vs_general(
         ],
         validate=validate_id(
             mode,
-            {k: v for k, v in available(what, all_visuals).items() if v["owner"] == user.id},
+            {
+                k: v
+                for k, v in available(what, all_visuals, user_permissions).items()
+                if v["owner"] == user.id
+            },
         ),
     )
 

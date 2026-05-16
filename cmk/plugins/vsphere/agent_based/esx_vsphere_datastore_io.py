@@ -5,16 +5,15 @@
 
 import time
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
-from typing import Any, NamedTuple
+from dataclasses import dataclass
+from typing import Any, ClassVar
 
 from cmk.agent_based.v2 import (
     CheckPlugin,
     CheckResult,
     DiscoveryResult,
     get_value_store,
-    Result,
     RuleSetType,
-    State,
 )
 from cmk.plugins.lib.diskstat import (
     check_diskstat_dict_legacy,
@@ -34,10 +33,21 @@ from cmk.plugins.vsphere.lib.esx_vsphere import average_parsed_data, CounterValu
 # datastore.totalWriteLatency|4c4ece34-3d60f64f-1584-0022194fe902|0#2#7|millisecond
 
 
-class PostParser(NamedTuple):
+@dataclass(frozen=True)
+class PostParser:
+    # Based on a chat with ChatGPT and a search on Perplexity.ai:
+    # In VMware vSphere metrics, a value of -1 typically indicates that the metric data is unavailable,
+    # not applicable, or not collected for that particular interval or object.
+
+    _RAW_INVALID_VALUE: ClassVar[str] = "-1"
+
     key: str
     evaluate: Callable[[CounterValues], float]
     counter: str
+
+    def __call__(self, values: CounterValues) -> float | None:
+        valid_values = [value for value in values if value != self._RAW_INVALID_VALUE]
+        return self.evaluate(valid_values) if any(valid_values) else None
 
 
 _POST_PARSERS = [
@@ -134,26 +144,16 @@ def _check_esx_vsphere_datastore_io(
 
         for instance, values in field_data.items():
             item_name = item_mapping[instance]
-            datastores.setdefault(item_name, {})[parser.key] = parser.evaluate(values[0][0])
+            if (parsed_value := parser(values[0][0])) is not None:
+                datastores.setdefault(item_name, {})[parser.key] = parsed_value
 
     if item == "SUMMARY":
-        # Exclude disks with only negative values. This means that no data could be collected by
-        # the ESX host or vCenter.
-        # See: https://github.com/vmware/pyvmomi/issues/191#issuecomment-72217028
-        disk = combine_disks(
-            disk for disk in datastores.values() if all(x >= 0 for x in disk.values())
-        )
+        disk = combine_disks(datastores.values())
     else:
         try:
             disk = datastores[item]
         except KeyError:
             return
-
-    if all(x < 0 for x in disk.values()):
-        # A "-1" in the raw data indicates that the ESX host or vCenter could not determine a value.
-        # See: https://github.com/vmware/pyvmomi/issues/191#issuecomment-72217028
-        yield Result(state=State.UNKNOWN, summary="No valid data from queried host")
-        return
 
     yield from check_diskstat_dict_legacy(
         params=params,

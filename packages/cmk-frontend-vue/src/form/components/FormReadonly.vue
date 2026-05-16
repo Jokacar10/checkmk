@@ -4,50 +4,54 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script lang="ts">
-import { h, type VNode, defineComponent, type PropType } from 'vue'
 import type {
-  Components,
-  Dictionary,
-  FormSpec,
-  List,
-  TimeSpan,
-  SingleChoice,
-  SingleChoiceElement,
-  CascadingSingleChoice,
-  LegacyValuespec,
-  FixedValue,
   BooleanChoice,
-  MultilineText,
-  Password,
-  Tuple,
-  OptionalChoice,
-  ListOfStrings,
-  DualListChoice,
+  CascadingSingleChoice,
   CheckboxListChoice,
-  Labels,
+  Components,
   ConditionChoices,
   ConditionChoicesValue,
   ConditionGroup,
-  TimeSpecific,
-  FileUpload,
+  Dictionary,
   DictionaryElement,
   DictionaryGroup,
-  MultipleChoiceElement
+  DualListChoice,
+  FileUpload,
+  FixedValue,
+  FormSpec,
+  Labels,
+  LegacyValuespec,
+  List,
+  ListOfStrings,
+  MultilineText,
+  MultipleChoiceElement,
+  OptionalChoice,
+  Password,
+  SingleChoice,
+  SingleChoiceElement,
+  TimeSpan,
+  TimeSpecific,
+  Tuple,
+  TwoColumnDictionary
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import {
-  groupNestedValidations,
-  groupIndexedValidations,
-  type ValidationMessages
-} from '@/form/components/utils/validation'
-import { splitToUnits, getSelectedMagnitudes, ALL_MAGNITUDES } from './utils/timeSpan'
-import {
-  translateOperator,
-  type Operator,
-  type OperatorI18n
-} from './forms/FormConditionChoices/utils'
-import type { DualListChoiceElement } from '@/form/components/forms/FormDualListChoice.vue'
+import { type PropType, type VNode, defineComponent, h } from 'vue'
+
+import type { DualListElement } from '@/components/CmkDualList'
+
 import type { CheckboxListChoiceElement } from '@/form/components/forms/FormCheckboxListChoice.vue'
 import FormLabelsLabel from '@/form/components/forms/FormLabelsLabel.vue'
+import {
+  type ValidationMessages,
+  groupIndexedValidations,
+  groupNestedValidations
+} from '@/form/components/utils/validation'
+
+import {
+  type Operator,
+  type OperatorI18n,
+  translateOperator
+} from './forms/FormConditionChoices/utils'
+import { ALL_MAGNITUDES, getSelectedMagnitudes, splitToUnits } from './utils/timeSpan'
 
 function renderForm(
   formSpec: FormSpec,
@@ -56,13 +60,27 @@ function renderForm(
 ): VNode {
   switch (formSpec.type as Components['type']) {
     case 'dictionary':
-      return renderDict(formSpec as Dictionary, value as Record<string, unknown>, backendValidation)
+      return renderDict(
+        formSpec as Dictionary,
+        'one_column',
+        value as Record<string, unknown>,
+        backendValidation
+      )
+    case 'two_column_dictionary':
+      return renderDict(
+        formSpec as TwoColumnDictionary,
+        'two_columns',
+        value as Record<string, unknown>,
+        backendValidation
+      )
     case 'time_span':
       return renderTimeSpan(formSpec as TimeSpan, value as number)
     case 'string':
     case 'integer':
     case 'float':
     case 'metric':
+    case 'date_picker':
+    case 'time_picker':
       return renderSimpleValue(formSpec, value as string, backendValidation)
     case 'single_choice_editable':
     case 'single_choice':
@@ -94,7 +112,7 @@ function renderForm(
     case 'catalog':
       return h('div', 'Catalog does not support readonly')
     case 'dual_list_choice':
-      return renderDualListChoice(formSpec as DualListChoice, value as DualListChoiceElement[])
+      return renderDualListChoice(formSpec as DualListChoice, value as DualListElement[])
     case 'checkbox_list_choice':
       return renderCheckboxListChoice(
         formSpec as CheckboxListChoice,
@@ -186,7 +204,7 @@ function renderTuple(
   )
 }
 
-function renderDualListChoice(formSpec: DualListChoice, value: DualListChoiceElement[]): VNode {
+function renderDualListChoice(formSpec: DualListChoice, value: DualListElement[]): VNode {
   let localElements: MultipleChoiceElement[] = formSpec.elements
   if (formSpec.autocompleter) {
     localElements = [...localElements, ...value]
@@ -273,7 +291,8 @@ function renderFixedValue(formSpec: FixedValue): VNode {
 }
 
 function renderDict(
-  formSpec: Dictionary,
+  formSpec: Dictionary | TwoColumnDictionary,
+  layout: 'one_column' | 'two_columns',
   value: Record<string, unknown>,
   backendValidation: ValidationMessages
 ): VNode {
@@ -353,7 +372,7 @@ function renderDict(
 
   const cssClasses = [
     'form-readonly__dictionary',
-    formSpec.layout === 'two_columns' ? 'form-readonly__dictionary--two_columns' : ''
+    layout === 'two_columns' ? 'form-readonly__dictionary--two_columns' : ''
   ]
 
   if (dictElements.length === 0) {
@@ -614,22 +633,25 @@ export default defineComponent({
 </script>
 
 <style scoped>
+/* stylelint-disable no-descending-specificity */
+
 .form-readonly__error {
   background-color: var(--form-readonly-error-bg-color);
 }
 
 table.form-readonly__table {
-  margin-top: 0px;
+  margin-top: 0;
   border-collapse: collapse;
 
   td {
     vertical-align: top;
-    padding: 0px 5px 0px 0px;
+    padding: 0 5px 0 0;
   }
 
   table {
     border-collapse: collapse;
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.force-inline-th > tbody {
       & > tr {
         display: inline-block;
@@ -638,7 +660,7 @@ table.form-readonly__table {
         & > td {
           display: inline-block !important;
           vertical-align: top;
-          padding: 0px 5px 0px 0px;
+          padding: 0 5px 0 0;
         }
       }
 
@@ -649,6 +671,7 @@ table.form-readonly__table {
     }
   }
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   .font-weight-normal {
     font-weight: normal;
   }
@@ -660,9 +683,10 @@ table.form-readonly__table {
 
 .form-readonly__dictionary {
   display: inline-table;
-  border-spacing: 0px;
+  border-spacing: 0;
 
   > tr {
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     > td.dict_title {
       min-width: 20ch;
       max-width: 70ch;
@@ -670,6 +694,7 @@ table.form-readonly__table {
       overflow-wrap: break-word;
     }
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.dict_group {
       > td:first-child {
         padding-left: 8px;
@@ -684,6 +709,7 @@ table.form-readonly__table {
   }
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .form-readonly__dictionary--two_columns > tr {
   line-height: 18px;
 
@@ -696,29 +722,31 @@ table.form-readonly__table {
   > td > .form-readonly__multiple-choice span {
     display: block;
 
-    &:before {
+    &::before {
       content: '';
     }
   }
 }
 
 .form-readonly__multiple-choice span {
-  &:not(:first-child):before {
+  &:not(:first-child)::before {
     content: ', ';
   }
 
-  &.form-readonly__multiple-choice__max-entries:before {
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
+  &.form-readonly__multiple-choice__max-entries::before {
     content: '';
   }
 }
 
 .form-readonly__list {
-  padding-left: 0px !important;
+  padding-left: 0 !important;
   list-style-position: inside;
   list-style-type: circle;
+
   > li {
     display: flex;
-    padding-left: 0px !important;
+    padding-left: 0 !important;
 
     ul {
       margin-left: 5px;
@@ -732,16 +760,18 @@ table.form-readonly__table {
 
 .form-readonly__labels {
   display: flex;
-  flex-direction: row;
+  flex-flow: row wrap;
   justify-content: start;
   align-items: center;
-  flex-wrap: wrap;
   gap: 5px 0;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .form-readonly__cascading-single-choice__layout-horizontal {
   margin-bottom: 4px;
 }
+
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .form-readonly__cascading-single-choice__layout-horizontal > div {
   margin-right: var(--spacing-half);
   display: inline-block;
@@ -751,10 +781,12 @@ table.form-readonly__table {
   display: inline;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .form-readonly__tuple__layout-horizontal > span {
   margin: 5px;
 }
 
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .form-readonly__tuple__layout-vertical {
   padding: 3px 0;
 

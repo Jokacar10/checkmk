@@ -7,10 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from cmk.ccc.hostaddress import HostAddress
-
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.servicename import ServiceName
-
+from cmk.checkengine.checkerplugin import AggregatedResult, ConfiguredService
 from cmk.checkengine.checking import (
     ABCCheckingConfig,
     check_plugins_missing_data,
@@ -20,15 +17,10 @@ from cmk.checkengine.checking import (
 from cmk.checkengine.checkresults import UnsubmittableServiceCheckResult
 from cmk.checkengine.exitspec import ExitSpec
 from cmk.checkengine.parameters import TimespecificParameters, TimespecificParameterSet
-from cmk.checkengine.plugins import (
-    AggregatedResult,
-    CheckPlugin,
-    CheckPluginName,
-    ConfiguredService,
-    ServiceID,
-)
-
+from cmk.checkengine.plugins import CheckPlugin, CheckPluginName, ServiceID
 from cmk.discover_plugins import PluginLocation
+from cmk.utils.rulesets import RuleSetName
+from cmk.utils.servicename import ServiceName
 
 _DUMMY_DF_PLUGIN = CheckPlugin(
     name=CheckPluginName("df"),
@@ -195,6 +187,9 @@ class AutocheckEntryLike:
     parameters: Mapping[str, str]
     service_labels: Mapping[str, str]
 
+    def id(self) -> ServiceID:
+        return ServiceID(self.check_plugin_name, self.item)
+
 
 class _CheckingConfig(ABCCheckingConfig):
     def __call__(self, *args: object) -> Sequence[Mapping[str, object]]:
@@ -205,7 +200,7 @@ def test_service_configurer() -> None:
     service_configurer = ServiceConfigurer(
         checking_config=_CheckingConfig(),
         plugins={CheckPluginName("df"): _DUMMY_DF_PLUGIN},
-        get_service_description=lambda _host, check, item: f"{check}-{item}",
+        get_service_description=lambda _host, service: f"{service[0]}-{service[1]}",
         get_effective_host=lambda host, _desc, _labels: host,
         get_service_labels=lambda _host, _desc, labels: labels,
     )

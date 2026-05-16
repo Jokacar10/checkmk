@@ -4,14 +4,19 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import FormEdit from './components/FormEdit.vue'
-import FormReadonly from '@/form/components/FormReadonly.vue'
 import type { FormSpec } from 'cmk-shared-typing/typescript/vue_formspec_components'
-import type { ValidationMessages } from '@/form/components/utils/validation'
+import { computed, ref } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
 import { immediateWatch } from '@/lib/watch'
+
 import HelpText from '@/components/HelpText.vue'
 import { useErrorBoundary } from '@/components/useErrorBoundary'
+
+import FormReadonly from '@/form/components/FormReadonly.vue'
+import type { ValidationMessages } from '@/form/components/utils/validation'
+
+import FormEdit from './components/FormEdit.vue'
 
 const props = defineProps<{
   id: string
@@ -71,15 +76,15 @@ const { ErrorBoundary } = useErrorBoundary()
         <FormReadonly :data="dataRef" :backend-validation="validation" :spec="spec"></FormReadonly>
       </div>
 
-      <HelpText :help="spec.help" />
+      <HelpText :help="untranslated(spec.help)" />
       <div v-if="activeMode === 'edit' || activeMode === 'both'">
         <table class="nform">
           <tbody>
             <tr>
               <td>
                 <FormEdit
+                  v-if="display_mode === 'edit' || display_mode === 'both'"
                   v-model:data="dataRef"
-                  :v-if="display_mode === 'edit' || display_mode === 'both'"
                   :backend-validation="validation"
                   :spec="spec"
                 />
@@ -95,6 +100,7 @@ const { ErrorBoundary } = useErrorBoundary()
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 .nform {
   margin: 0;
   background: transparent;

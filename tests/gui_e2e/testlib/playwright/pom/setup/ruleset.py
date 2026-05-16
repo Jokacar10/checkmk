@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class Ruleset(CmkPage):
-    """Represent any page with service ruleset."""
+    """Represent any page with service ruleset.
+
+    TODO: remove `exact_rule`.
+    Present playwright <-> Checkmk UI interaction breaks the usage.
+    """
 
     def __init__(
         self,
@@ -35,13 +39,16 @@ class Ruleset(CmkPage):
     @override
     def navigate(self) -> None:
         logger.info("Navigate to '%s' page", self.rule_name)
-        self.main_menu.setup_searchbar.fill(self.rule_name)
+        self.main_menu.global_searchbar.fill(self.rule_name)
+
+        results = self.main_menu.active_side_menu_popup.get_by_role(role="listitem")
         if self.section_name:
-            self.main_menu.locator(f"div[id='{self.section_name}']").get_by_role(
-                role="link", name=self.rule_name, exact=self._exact
-            ).click()
-        else:
-            self.main_menu.locator().get_by_role(role="link", name=self.rule_name).click()
+            results = results.filter(has_text=self.section_name)
+
+        rule_pattern = re.compile(f"{re.escape(self.rule_name)}$")
+        selection = results.get_by_role(role="link", name=rule_pattern, exact=self._exact)
+
+        selection.click()
         self.page.wait_for_url(url=re.compile(quote_plus("mode=edit_ruleset")), wait_until="load")
         self.validate_page()
 
@@ -57,7 +64,8 @@ class Ruleset(CmkPage):
 
     @property
     def created_new_rule_message(self) -> Pattern[str]:
-        return re.compile(f'Created new rule in ruleset "{self.rule_name}" .*')
+        escaped = re.escape(self.rule_name)
+        return re.compile(f'Created new rule in ruleset "{escaped}" .*')
 
     @property
     def add_rule_button(self) -> Locator:

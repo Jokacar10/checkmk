@@ -8,27 +8,27 @@ import re
 from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from logging import Logger
-from pathlib import Path
-
-from cmk.ccc import tty
-from cmk.ccc.exceptions import MKGeneralException, MKSNMPError, MKTimeout, OnError
-from cmk.ccc.tty import format_warning
-
-from cmk.utils.regex import regex
-from cmk.utils.sectionname import SectionName
-
-from cmk.snmplib import get_single_oid, SNMPBackend, SNMPDetectAtom, SNMPDetectBaseType
 
 import cmk.fetchers._snmpcache as snmp_cache
+from cmk.ccc import tty
+from cmk.ccc.exceptions import MKGeneralException, MKTimeout, OnError
+from cmk.ccc.tty import format_warning
+from cmk.helper_interface import FetcherError
+from cmk.snmplib import (
+    get_single_oid,
+    SNMPBackend,
+    SNMPDetectAtom,
+    SNMPDetectBaseType,
+    SNMPSectionName,
+)
 
-SNMPScanSection = tuple[SectionName, SNMPDetectBaseType]
+type SNMPScanSection = tuple[SNMPSectionName, SNMPDetectBaseType]
 
 
 @dataclass(frozen=True, kw_only=True)
 class SNMPScanConfig:
     on_error: OnError
     missing_sys_description: bool
-    oid_cache_dir: Path
 
 
 # gather auto_discovered check_plugin_names for this host
@@ -37,7 +37,7 @@ def gather_available_raw_section_names(
     *,
     scan_config: SNMPScanConfig,
     backend: SNMPBackend,
-) -> frozenset[SectionName]:
+) -> frozenset[SNMPSectionName]:
     if not sections:
         return frozenset()
 
@@ -63,10 +63,8 @@ def _snmp_scan(
     *,
     scan_config: SNMPScanConfig,
     backend: SNMPBackend,
-) -> frozenset[SectionName]:
-    snmp_cache.initialize_single_oid_cache(
-        backend.config.hostname, backend.config.ipaddress, cache_dir=scan_config.oid_cache_dir
-    )
+) -> frozenset[SNMPSectionName]:
+    snmp_cache.initialize_single_oid_cache(backend.config.hostname, backend.config.ipaddress)
     backend.logger.debug("  SNMP scan:")
 
     if scan_config.missing_sys_description:
@@ -80,9 +78,6 @@ def _snmp_scan(
         backend=backend,
     )
     _output_snmp_check_plugins("SNMP scan found", found_sections, backend.logger)
-    snmp_cache.write_single_oid_cache(
-        backend.config.hostname, backend.config.ipaddress, cache_dir=scan_config.oid_cache_dir
-    )
     return found_sections
 
 
@@ -100,7 +95,7 @@ def _prefetch_description_object(*, backend: SNMPBackend) -> None:
             )
             is None
         ):
-            raise MKSNMPError(
+            raise FetcherError(
                 "Cannot fetch %s OID %s. Please check your SNMP "
                 "configuration. Possible reason might be: Wrong credentials, "
                 "wrong SNMP version, Firewall rules, etc." % (name, oid),
@@ -121,8 +116,8 @@ def _find_sections(
     *,
     on_error: OnError,
     backend: SNMPBackend,
-) -> frozenset[SectionName]:
-    found_sections: set[SectionName] = set()
+) -> frozenset[SNMPSectionName]:
+    found_sections: set[SNMPSectionName] = set()
     for name, specs in sections:
         oid_value_getter = functools.partial(
             get_single_oid,
@@ -173,15 +168,26 @@ def _evaluate_snmp_detection(
             # check for "not_exists"
             return pattern == ".*" and not flag
         # ignore case!
-        return bool(regex(pattern, re.IGNORECASE | re.DOTALL).fullmatch(value)) is flag
+        return bool(_regex_cache(pattern, re.IGNORECASE | re.DOTALL).fullmatch(value)) is flag
 
     return any(
         all(_impl(atom, oid_value_getter) for atom in alternative) for alternative in detect_spec
     )
 
 
+@functools.cache
+def _regex_cache(pattern: str, flags: int) -> re.Pattern[str]:
+    """
+    compiling regex is compute intensive. So in the fetcher we rather cache regex which change rarely.
+    """
+    try:
+        return re.compile(pattern, flags=flags)
+    except Exception as e:
+        raise RuntimeError(f"Invalid regular expression '{pattern}': {e}")
+
+
 def _output_snmp_check_plugins(
-    title: str, collection: Collection[SectionName], logger: Logger
+    title: str, collection: Collection[SNMPSectionName], logger: Logger
 ) -> None:
     collection_out = " ".join(str(n) for n in sorted(collection)) if collection else "-"
     logger.debug(

@@ -269,6 +269,10 @@ msgstr "Aantal onbekende signaleringen"
 msgid "#Containers"
 msgstr "#Containers"
 
+#, fuzzy
+msgid "#Containers exited"
+msgstr "#Containers gestopt"
+
 msgid "#Containers paused"
 msgstr "#Containers gepauzeerd"
 
@@ -2416,6 +2420,10 @@ msgstr ""
 "overeenkomst te definiëren. Voor elke overeenkomende dienst op de "
 "gespecificeerde hosts zal een kindnode worden aangemaakt. "
 
+#, fuzzy, python-format
+msgid "A relay with alias '%s' already exists"
+msgstr "Een regelpakket met deze ID bestaat al."
+
 msgid ""
 "A reliable backup ensures that your monitoring environment can be restored "
 "in case of data loss.<br><br>We recommend using the <a href=\"wato.py?"
@@ -2607,10 +2615,6 @@ msgstr ""
 "een andere account. Als de beheerder van de account waartoe de rol behoort u "
 "een externe ID heeft gegeven, geef die waarde dan op in de parameter Externe "
 "ID. "
-
-#, python-format
-msgid "A user with the id \"%s\" does not exist."
-msgstr "Een gebruiker met het id \"%s\" bestaat niet."
 
 msgid "A value in seconds"
 msgstr "Een waarde in seconden"
@@ -2982,6 +2986,17 @@ msgstr "AWS/WAFV2 Grenzen"
 msgid "AWS/WAFV2 Web ACL Requests"
 msgstr "AWS/WAFV2 Web ACL Verzoeken"
 
+#, fuzzy
+msgid "Abnormal terminated calls in"
+msgstr "Actieve paden"
+
+msgid "Abnormal terminated calls in/out"
+msgstr ""
+
+#, fuzzy
+msgid "Abnormal terminated calls out"
+msgstr "Actieve eenheid"
+
 msgid "Abort with an error"
 msgstr "Afbreken met een fout"
 
@@ -3010,6 +3025,10 @@ msgstr "Absoluut"
 #, python-format
 msgid "Absolute %s space"
 msgstr "Absolute %s ruimte"
+
+#, fuzzy
+msgid "Absolute Limit"
+msgstr "Absoluut"
 
 #, fuzzy
 msgid "Absolute archive path"
@@ -3739,12 +3758,12 @@ msgid "Active and inactive memory - files and anonymous"
 msgstr "Actief en inactief geheugen"
 
 #, fuzzy
-msgid "Active calls"
+msgid "Active calls in"
 msgstr "Actieve paden"
 
 #, fuzzy
-msgid "Active calls in"
-msgstr "Actieve paden"
+msgid "Active calls in/out"
+msgstr "Actieve eenheid"
 
 #, fuzzy
 msgid "Active calls out"
@@ -3939,6 +3958,10 @@ msgstr "Nieuwe gebruikersconfiguratie toevoegen"
 msgid "Add Prefix"
 msgstr "Voorvoegsel toevoegen"
 
+#, fuzzy
+msgid "Add Relay"
+msgstr "Sleutel toevoegen"
+
 msgid "Add Rule ID"
 msgstr "Regel ID toevoegen"
 
@@ -4048,9 +4071,6 @@ msgstr "Inhoud toevoegen"
 
 msgid "Add context information to title"
 msgstr "Voeg contextinformatie toe aan titel"
-
-msgid "Add custom icon or action"
-msgstr "Aangepast pictogram of actie toevoegen"
 
 msgid "Add customer"
 msgstr "Klant toevoegen"
@@ -4211,6 +4231,10 @@ msgstr "Nieuwe actie toevoegen"
 
 msgid "Add new aggregation"
 msgstr "Nieuwe aggregatie toevoegen"
+
+#, fuzzy
+msgid "Add new credentials"
+msgstr "Gebruik geloofsbrieven"
 
 msgid "Add new element"
 msgstr "Nieuw element toevoegen"
@@ -4375,6 +4399,10 @@ msgstr "Voeg willekeurige hosts toe"
 msgid "Add recipient"
 msgstr "Ontvanger"
 
+#, fuzzy
+msgid "Add relay configuration"
+msgstr "RRA-configuratie"
+
 msgid "Add remote instance"
 msgstr "Externe instantie toevoegen"
 
@@ -4445,6 +4473,10 @@ msgstr "Configuratie toestand toevoegen"
 msgid "Add stored report"
 msgstr "Opgeslagen rapport toevoegen"
 
+#, fuzzy
+msgid "Add subscription tag"
+msgstr "Abonnementsstatus"
+
 msgid "Add tag"
 msgstr "Tag toevoegen"
 
@@ -4477,6 +4509,16 @@ msgstr ""
 "Voeg tekst van gebeurtenissen toe aan gegevens die naar de "
 "gebeurtenissenconsole worden doorgestuurd. Tekens met een nieuwe regel "
 "worden vervangen door '~'."
+
+msgid ""
+"Add the tags you want to use to filter the resources. Only resources with "
+"every tags matching, will be monitored."
+msgstr ""
+
+msgid ""
+"Add the tags you want to use to filter the subscriptions. Only subscriptions "
+"with every tags matching, will be monitored."
+msgstr ""
 
 msgid "Add these contact groups to the host"
 msgstr "Voeg deze contactgroepen toe aan de host"
@@ -5140,10 +5182,6 @@ msgstr "Agent bakkerij registratie"
 msgid "Agent Bakery packages"
 msgstr "Agent bakkerij pakketten"
 
-#, fuzzy
-msgid "Agent Download"
-msgstr "Laatste download"
-
 msgid "Agent Error"
 msgstr "Agent Fout"
 
@@ -5169,14 +5207,6 @@ msgstr "Op agenten gebaseerde plugins (Checks, Inventory)"
 #, fuzzy
 msgid "Agent certificates"
 msgstr "Agent Certificaten"
-
-#, fuzzy
-msgid "Agent connection successful"
-msgstr "Agent %s succesvol"
-
-#, fuzzy
-msgid "Agent connection test running"
-msgstr "Time-out verbinding instellen"
 
 msgid "Agent controller"
 msgstr "Agent controller"
@@ -5473,6 +5503,9 @@ msgstr "Alarmen"
 
 msgid "Alert"
 msgstr "Waarschuwing"
+
+msgid "Alert after being at or above the threshold for"
+msgstr ""
 
 msgid "Alert handler"
 msgstr "Waarschuwings afhandelaar"
@@ -6261,6 +6294,9 @@ msgstr ""
 "Hiermee kan een gebruiker geplande rapporten van andere gebruikers wijzigen "
 "en ook willekeurige e-mailadressen opgeven als rapportbestemming."
 
+msgid "Allows access to the SaaS onboarding."
+msgstr ""
+
 #, fuzzy
 msgid ""
 "Allows the assignment of the Robotmk plan/test services to another host."
@@ -6397,13 +6433,6 @@ msgid ""
 msgstr ""
 "Bijna alle beschikbare filters, gebruikt om diensten te zoeken en eventueel "
 "acties te ondernemen"
-
-#, fuzzy
-msgid "Already installed the agent?"
-msgstr "Installeer Python altijd met agent"
-
-msgid "Already installed the agent? If so, please check your firewall settings"
-msgstr ""
 
 msgid "Also bulk outside of time period"
 msgstr "Ook bulk buiten de periode"
@@ -6822,6 +6851,10 @@ msgstr ""
 msgid "Another session is active"
 msgstr "Een andere sessie is actief"
 
+#, fuzzy
+msgid "Answer seizure ratio"
+msgstr "Varnish Backend Succes Ratio"
+
 msgid "AntiVirus last update age"
 msgstr "AntiVirus laatste update leeftijd"
 
@@ -7233,8 +7266,9 @@ msgstr "Opgeruimd audit log."
 msgid "Arcserve (German) backups (Windows)"
 msgstr "Arcserve (Duitse) back-ups (Windows)"
 
-msgid "Area"
-msgstr "Gebied"
+#, fuzzy
+msgid "Are you sure you want to delete this relay?"
+msgstr "U mag deze %s niet verwijderen."
 
 #, fuzzy, python-format
 msgid "Argument files (%s)"
@@ -7470,10 +7504,6 @@ msgstr ""
 "van het server antwoord (standaard: <tt>HTTP/1.</tt>). Indien gespecificeerd "
 "slaat alle andere statusregel logica over (ex: 3xx, 4xx, 5xx verwerking)"
 
-#, fuzzy
-msgid "At least one selection is missing."
-msgstr "Staat wanneer bestand ontbreekt"
-
 msgid "At least one triggering event must be selected."
 msgstr ""
 
@@ -7599,7 +7629,7 @@ msgid "AudioCodes SBC Calls"
 msgstr ""
 
 #, fuzzy
-msgid "AudioCodes System Events"
+msgid "AudioCodes system events"
 msgstr "APC Inrow Systeem Gebeurtenissen"
 
 msgid "Audit log"
@@ -7754,18 +7784,11 @@ msgid "Authorizations per DB security group"
 msgstr "Autorisaties per DB-beveiligingsgroep"
 
 #, fuzzy
-msgid "Authorized users"
+msgid "Authorized user"
 msgstr "Toegestane sites"
-
-#, fuzzy
-msgid "Auto"
-msgstr "Automatisch"
 
 msgid "Auto (DEFAULT)"
 msgstr "Auto (DEFAULT)"
-
-msgid "Auto - adjust to actual values"
-msgstr "Auto - aanpassen aan werkelijke waarden"
 
 msgid "Auto Restart on Crash"
 msgstr "Automatische herstart bij crash"
@@ -7781,6 +7804,10 @@ msgstr "Automatisch krimpen uit"
 
 msgid "Auto shrink on"
 msgstr "Automatisch krimpen aan"
+
+#, fuzzy
+msgid "Auto-detect proxy settings for this network"
+msgstr "Flapdetectie-instellingen voor hosts"
 
 msgid "Auto-disconnect time"
 msgstr "Automatische ontkoppelingstijd"
@@ -7834,6 +7861,10 @@ msgstr "Automatische activering"
 
 msgid "Automatic agent updates"
 msgstr "Automatische agent updates"
+
+#, fuzzy
+msgid "Automatic detection"
+msgstr "Automatisch verwijderen"
 
 msgid "Automatic detection (Python 3 > Python 2)"
 msgstr "Automatische detectie (Python 3 > Python 2)"
@@ -8207,6 +8238,10 @@ msgstr "Gemiddeld aantal berichten bovenste niveaus"
 msgid "Average number of messages"
 msgstr "Gemiddeld aantal berichten"
 
+#, fuzzy
+msgid "Average over"
+msgstr "Gemiddelde waarde"
+
 msgid "Average pending tasks delta"
 msgstr "Gemiddelde delta in afwachting van taken"
 
@@ -8254,16 +8289,18 @@ msgstr "Gemiddelde groei"
 msgid "Average speed of backup"
 msgstr "Gemiddelde snelheid van back-up"
 
-#, fuzzy
-msgid "Average success ratio"
-msgstr "Varnish Backend Succes Ratio"
-
 msgid ""
 "Average the CPU utilization over the specified time period before levels are "
 "applied."
 msgstr ""
 "Gemiddelde van CPU-gebruik over de gespecificeerde tijdsperiode voordat "
 "niveaus worden toegepast."
+
+msgid ""
+"Average the instantaneous load over the specified number of minutes. Note: "
+"This does NOT affect \"Levels an extended period of time\" above, which "
+"always checks the instantaneous value."
+msgstr ""
 
 msgid "Average time messages stay on queue"
 msgstr "Gemiddelde tijd dat berichten in de wachtrij staan"
@@ -8864,6 +8901,38 @@ msgid "Azure Load Balancer Health"
 msgstr "Gezondheid Azure Load Balancer"
 
 #, fuzzy
+msgid "Azure Redis CPU utilization"
+msgstr "GCP/Redis CPU-gebruik"
+
+#, fuzzy
+msgid "Azure Redis Cache effectiveness"
+msgstr "Databaseverbindingen"
+
+#, fuzzy
+msgid "Azure Redis connections"
+msgstr "Databaseverbindingen"
+
+#, fuzzy
+msgid "Azure Redis latency"
+msgstr "Gemiddelde schijflatentie"
+
+#, fuzzy
+msgid "Azure Redis memory"
+msgstr "Absoluut vrij geheugen"
+
+#, fuzzy
+msgid "Azure Redis replication"
+msgstr "Databaseverbindingen"
+
+#, fuzzy
+msgid "Azure Redis server load"
+msgstr "Redis server naam"
+
+#, fuzzy
+msgid "Azure Redis throughput"
+msgstr "Lees doorvoer"
+
+#, fuzzy
 msgid "Azure SQL database CPU usage"
 msgstr "Azure Databases"
 
@@ -9212,6 +9281,12 @@ msgstr "Back-up opdracht"
 msgid "Backup modes"
 msgstr "Back-up modi"
 
+msgid ""
+"Backup process has started. You can safely navigate away from this page as "
+"the process will continue in the background. Refresh this page to check the "
+"current status."
+msgstr ""
+
 msgid "Backup size"
 msgstr "Back-up grootte"
 
@@ -9432,6 +9507,10 @@ msgid "Bazel Cache User"
 msgstr "Max Cache Leeftijd"
 
 #, fuzzy
+msgid "Bazel Cache Version"
+msgstr "Max Cache Leeftijd"
+
+#, fuzzy
 msgid "Bazel Cache password"
 msgstr "Database wachtwoord"
 
@@ -9622,6 +9701,9 @@ msgstr "Zowel"
 #, fuzzy
 msgid "Both - Display the information for both pod and container levels"
 msgstr "Beide - Toon de informatie voor beide, pod en container, niveaus"
+
+msgid "Both conditions must match (defensive)"
+msgstr ""
 
 msgid "Bottom"
 msgstr "Bodem"
@@ -10407,19 +10489,6 @@ msgstr ""
 "Certificaatvalidatie is standaard uitgeschakeld omdat het in dit stadium "
 "niet relevant is voor de veiligheid, zie <a href=\"https://checkmk.com/werk/"
 "14715\" target=\"_blank\">werk #14715</a>."
-
-#, fuzzy
-msgid ""
-"By default, data relating to a VM is sent to the group host corresponding to "
-"the resource group of the VM, the same way as for any other resource. If the "
-"VM is present in your monitoring as a separate host, you can choose to send "
-"the data to the VM itself."
-msgstr ""
-"Standaard worden gegevens met betrekking tot een VM verzonden naar de groep "
-"host die overeenkomt met de resource groep van de VM, op dezelfde manier als "
-"voor elke andere resource. Als de VM als een afzonderlijke host in uw "
-"monitoring aanwezig is, kunt u ervoor kiezen om de gegevens naar de VM zelf "
-"te sturen."
 
 msgid ""
 "By default, each host has a piggyback data source.<br><br><b>Use piggyback "
@@ -11246,6 +11315,10 @@ msgstr "Cache %s"
 msgid "Cache hits for pass"
 msgstr "hits voor pass"
 
+#, fuzzy
+msgid "Cache internode latency"
+msgstr "Conferentie Latency creëren"
+
 msgid "Cache interval"
 msgstr "Cache-interval"
 
@@ -11255,6 +11328,14 @@ msgstr "Cachegrootte"
 
 msgid "Cache misses per second"
 msgstr "Cache missers per seconde"
+
+#, fuzzy
+msgid "Cache read throughput (/sec)"
+msgstr "Lees doorvoer"
+
+#, fuzzy
+msgid "Cache requests"
+msgstr "Mislukte verzoeken"
 
 msgid "Cache several non-status queries"
 msgstr "Cache verschillende niet-status queries"
@@ -11266,6 +11347,10 @@ msgstr "Cachegrootte"
 #, fuzzy
 msgid "Cache this section"
 msgstr "dit gedeelte uitschakelen"
+
+#, fuzzy
+msgid "Cache write throughput (/sec)"
+msgstr "Schrijf doorvoer"
 
 msgid "Cached"
 msgstr "Cached"
@@ -11335,22 +11420,6 @@ msgstr ""
 
 msgid "Calling final hooks"
 msgstr "Definitieve haken oproepen"
-
-#, fuzzy
-msgid "Calls in"
-msgstr "Beller ID"
-
-#, fuzzy
-msgid "Calls in/out"
-msgstr "Noem een regel"
-
-#, fuzzy
-msgid "Calls out"
-msgstr "Noem een regel"
-
-#, fuzzy
-msgid "Calls per second"
-msgstr "Pagina's per seconde"
 
 msgid "Can be used until version:"
 msgstr "Kan gebruikt worden tot versie:"
@@ -11547,6 +11616,9 @@ msgstr "Kan geen gegevens ophalen via Livestatus"
 msgid "Cannot find %s with the name %s"
 msgstr "Kan %s met de naam %s niet vinden"
 
+msgid "Cannot find fallback topic 'Other'"
+msgstr ""
+
 #, python-format
 msgid "Cannot find image \"%s\" in %s"
 msgstr "Kan afbeelding \"%s\" niet vinden in %s"
@@ -11571,13 +11643,6 @@ msgstr "Kan %s niet laden: %s"
 
 #, fuzzy, python-format
 msgid ""
-"Cannot load HW/SW Inventory history %s. Please remove the corrupted files."
-msgstr ""
-"Kan HW/SW inventarisgeschiedenisitems %s niet laden. Verwijder alstublieft "
-"de beschadigde bestanden."
-
-#, fuzzy, python-format
-msgid ""
 "Cannot load HW/SW Inventory history entries %s. Please remove the corrupted "
 "files."
 msgstr ""
@@ -11585,21 +11650,25 @@ msgstr ""
 "de beschadigde bestanden."
 
 #, fuzzy, python-format
-msgid "Cannot load HW/SW Inventory tree %s. Please remove the corrupted file."
+msgid ""
+"Cannot load HW/SW Inventory history of %s. Please remove the corrupted files "
+"%s."
 msgstr ""
-"Kan HW/SW inventarisboom %s niet laden. Verwijder het beschadigde bestand."
+"Kan HW/SW inventarisgeschiedenisitems %s niet laden. Verwijder alstublieft "
+"de beschadigde bestanden."
+
+#, fuzzy, python-format
+msgid ""
+"Cannot load HW/SW Inventory of %s. Please remove corrupted inventory or "
+"status data tree files."
+msgstr ""
+"Kan HW/SW inventarisgeschiedenisitems %s niet laden. Verwijder alstublieft "
+"de beschadigde bestanden."
 
 #, fuzzy, python-format
 msgid ""
 "Cannot load HW/SW Inventory tree of host %s. Please remove the corrupted "
 "file."
-msgstr ""
-"Kan HW/SW inventarisbomen %s niet laden. Verwijder alstublieft de "
-"beschadigde bestanden."
-
-#, fuzzy, python-format
-msgid ""
-"Cannot load HW/SW Inventory trees %s. Please remove the corrupted files."
 msgstr ""
 "Kan HW/SW inventarisbomen %s niet laden. Verwijder alstublieft de "
 "beschadigde bestanden."
@@ -11733,6 +11802,10 @@ msgstr "Koolstof wachtrij gebruik"
 
 msgid "Carbon queue usage rate"
 msgstr "Verbruik in de koolstofketen"
+
+#, fuzzy
+msgid "Cardinality reduction aggregation method"
+msgstr "Opsporingspercentage"
 
 msgid "Casa module: CPU temperature"
 msgstr "Casa module: CPU temperatuur"
@@ -11969,6 +12042,10 @@ msgstr "Vernieuwde weergave wijzigen"
 msgid "Changed"
 msgstr "Gewijzigd"
 
+#, fuzzy, python-format
+msgid "Changed %s connection %s"
+msgstr "Gewijzigde LDAP-verbinding %s"
+
 #, python-format
 msgid "Changed %s from %s to %s"
 msgstr "Veranderd %s van %s naar %s"
@@ -11980,10 +12057,6 @@ msgstr "Configuratie variabele %s veranderd in %s."
 #, fuzzy
 msgid "Changed DCD global settings"
 msgstr "Globale instelling wijzigen"
-
-#, python-format
-msgid "Changed LDAP connection %s"
-msgstr "Gewijzigde LDAP-verbinding %s"
 
 #, python-format
 msgid "Changed alert handler rule %d"
@@ -12014,6 +12087,10 @@ msgstr "Gewijzigde meldingsregel %d"
 
 #, fuzzy, python-format
 msgid "Changed notification parameter %d"
+msgstr "Gewijzigde meldingsregel %d"
+
+#, fuzzy, python-format
+msgid "Changed notification rule #%s"
 msgstr "Gewijzigde meldingsregel %d"
 
 #, python-format
@@ -12057,14 +12134,6 @@ msgstr "Veranderde eigenschappen van klant"
 #, fuzzy, python-format
 msgid "Changed properties of installed extension package %s %s"
 msgstr "Gewijzigde eigenschappen van geïnstalleerd extensiepakket %s"
-
-#, python-format
-msgid ""
-"Changed properties of rule \"%s\", moved from folder \"%s\" to top of folder "
-"\"%s\""
-msgstr ""
-"Gewijzigde eigenschappen van regel \"%s\", verplaatst van map \"%s\" naar "
-"boven in map \"%s\""
 
 #, python-format
 msgid ""
@@ -12196,6 +12265,10 @@ msgstr ""
 
 msgid "Check IMAP/EWS Mailboxes"
 msgstr "IMAP/EWS Mailboxen controleren"
+
+#, fuzzy
+msgid "Check Interval"
+msgstr "Cache-interval"
 
 msgid "Check LDAP service access"
 msgstr "Toegang tot LDAP-service controleren"
@@ -12634,10 +12707,6 @@ msgstr "Checkmk agent"
 msgid "Checkmk agent / API integrations"
 msgstr "Checkmk agent / API integraties"
 
-#, fuzzy
-msgid "Checkmk agent connection failed"
-msgstr "Checkmk agent verbindingsmodus"
-
 msgid "Checkmk agent connection mode"
 msgstr "Checkmk agent verbindingsmodus"
 
@@ -12741,8 +12810,18 @@ msgstr ""
 "apparaten die problemen hebben met sommige SNMP-implementaties. U kunt deze "
 "regel gebruiken om het SNMP-backend voor deze hosts te selecteren."
 
+msgid ""
+"Checkmk has identified and attempted to redact sensitive information in the "
+"crash report. It is advised that you manually review the content of this "
+"report and ensure any additional sensitive data is removed before sharing "
+"the crash report."
+msgstr ""
+
 msgid "Checkmk helper usage"
 msgstr "Checkmk helper gebruik"
+
+msgid "Checkmk metrics are created from OTel datapoints. Configure them here."
+msgstr ""
 
 #, fuzzy
 msgid "Checkmk partner or reseller"
@@ -12999,7 +13078,7 @@ msgid "Checks via SSH. "
 msgstr "Controles via SSH. "
 
 #, fuzzy
-msgid "Checks' man pages (deprecated)"
+msgid "Checks' man pages (outdated, ignored)"
 msgstr "De man pagina's van de controles"
 
 msgid "Child Node Generation"
@@ -13477,6 +13556,14 @@ msgstr "Berichten opruimen"
 msgid "Cleanup of working directory"
 msgstr "Inactief opruimen van werknemer"
 
+#, fuzzy
+msgid "Cleanup parameters"
+msgstr "Modelparameters"
+
+#, fuzzy
+msgid "Cleanup strategy"
+msgstr "Berichten opruimen"
+
 msgid "Cleanup when disk space is below"
 msgstr "Opschonen wanneer schijfruimte minder is"
 
@@ -13521,6 +13608,11 @@ msgstr "Klik hier om de activeringsstatus per site te zien."
 #, fuzzy, python-format
 msgid "Click on 'Register %s' to enable two-factor authentication via %s."
 msgstr "Twee-factor authenticatie verwijderen van %s"
+
+msgid ""
+"Click the \"Add Relay\" button to start setting up your first Relay "
+"configuration."
+msgstr ""
 
 msgid ""
 "Click the \"Add configuration\" button to start setting up your first "
@@ -13707,10 +13799,6 @@ msgstr "Kloon deze verbinding om een nieuwe te maken"
 
 msgid "Clone this element"
 msgstr "Kloon dit element"
-
-#, fuzzy
-msgid "Clone this entry"
-msgstr "Kloon deze metriek"
 
 #, fuzzy
 msgid "Clone this managed robot"
@@ -14188,14 +14276,6 @@ msgstr ""
 msgid "Community forum"
 msgstr "Gemeenschapsforum"
 
-#, fuzzy
-msgid "Community translated languages"
-msgstr "Maak vertaalde gemeenschapstalen mogelijk"
-
-#, fuzzy
-msgid "Community translated languages (not supported)"
-msgstr "Inschakelen van vertaalde gemeenschapstalen (niet ondersteund)"
-
 msgid "Compare against discovered state"
 msgstr "Vergelijken met ontdekte staat"
 
@@ -14333,6 +14413,10 @@ msgstr "Berekeningsresultaat: %s - %s"
 #, fuzzy
 msgid "Compute REST API specification"
 msgstr "SLA-specificatie"
+
+#, fuzzy
+msgid "Compute a rate"
+msgstr "Snelheid afgeleverde berichten"
 
 msgid "Compute average over last "
 msgstr "Bereken gemiddelde over laatste "
@@ -14613,6 +14697,14 @@ msgstr ""
 #, fuzzy
 msgid "Configure fallback email address"
 msgstr "Uitwijkmailadres voor crashmeldingen"
+
+#, fuzzy
+msgid "Configure for all metrics"
+msgstr "Gebruikers-ID's met kleine letters afdwingen."
+
+#, fuzzy
+msgid "Configure for specific metrics"
+msgstr "Specifieke sites"
 
 msgid "Configure grouping of interfaces"
 msgstr "Groepering van interfaces configureren"
@@ -15144,8 +15236,17 @@ msgstr "Verbinden via UNIX socket"
 msgid "Connect without password"
 msgstr "Verbinden zonder wachtwoord"
 
-msgid "Connect without proxy"
-msgstr "Verbinden zonder proxy"
+#, fuzzy
+msgid "Connected Clients"
+msgstr "Verbindingen"
+
+#, fuzzy
+msgid "Connected Relay configurations"
+msgstr "RRA-configuratie"
+
+#, fuzzy
+msgid "Connected clients"
+msgstr "Aantal aangesloten cliënten"
 
 msgid "Connecter and connectee sites must be different."
 msgstr ""
@@ -15177,11 +15278,6 @@ msgstr "Duur van de verbinding"
 msgid "Connection established. The connection settings seem to be ok."
 msgstr "Verbinding gemaakt. De verbindingsinstellingen lijken in orde te zijn."
 
-msgid ""
-"Connection failed, enter new hostname to check again or download and install "
-"the Checkmk agent."
-msgstr ""
-
 #, fuzzy, python-format
 msgid "Connection id %s already exists."
 msgstr "Een regelpakket met deze ID bestaat al."
@@ -15195,6 +15291,10 @@ msgstr "Verbinding verbroken"
 
 msgid "Connection name"
 msgstr "Naam verbinding"
+
+#, fuzzy
+msgid "Connection options"
+msgstr "Duur van de verbinding"
 
 #, fuzzy, python-format
 msgid "Connection representation: %s"
@@ -15262,6 +15362,14 @@ msgstr "Type aansluiting"
 msgid "Connections"
 msgstr "Verbindingen"
 
+#, fuzzy
+msgid "Connections closed rate"
+msgstr "Verbinding laat verbroken"
+
+#, fuzzy
+msgid "Connections created rate"
+msgstr "Verbinding laat verbroken"
+
 msgid "Connections dropped"
 msgstr "Verbindingen verbroken"
 
@@ -15284,6 +15392,10 @@ msgid "Connections per second"
 msgstr "Verbindingen per seconde"
 
 msgid "Connectivity"
+msgstr "Connectiviteit"
+
+#, fuzzy
+msgid "Connectivity lag"
 msgstr "Connectiviteit"
 
 msgid "Connector outlets"
@@ -15335,10 +15447,6 @@ msgstr "Consolidatiefunctie voor de [grafiek#rrds|RRD] gegevenskolom"
 
 msgid "Consolidation functions"
 msgstr "Consolidatiefuncties"
-
-#, fuzzy
-msgid "Constant"
-msgstr "Instantie"
 
 msgid "Consumed capacity"
 msgstr "Verbruikte capaciteit"
@@ -15600,14 +15708,6 @@ msgstr "Controller"
 msgid "Controller version"
 msgstr "Controller Versie"
 
-#, python-format
-msgid "Convert %s to lower case"
-msgstr "Zet %s om in kleine letters"
-
-#, python-format
-msgid "Convert %s to upper case"
-msgstr "Zet %s om in hoofdletters"
-
 msgid "Convert FQHN"
 msgstr "Omzetten FQHN"
 
@@ -15625,6 +15725,14 @@ msgstr "Hostnamen omzetten naar hoofdletters"
 msgid "Convert imported User-IDs to lower case during synchronization."
 msgstr ""
 "Converteer geïmporteerde User-IDs naar kleine letters tijdens synchronisatie."
+
+#, fuzzy
+msgid "Convert to lower case"
+msgstr "Zet %s om in kleine letters"
+
+#, fuzzy
+msgid "Convert to upper case"
+msgstr "Zet %s om in hoofdletters"
 
 msgid "Cooldown before retrying failed remote or local delivery"
 msgstr ""
@@ -15830,6 +15938,13 @@ msgid "Could not access your GCP account. Please check your credentials."
 msgstr ""
 "Geen gebruikersobject gevonden voor synchronisatie. Controleer uw "
 "filterinstellingen."
+
+#, python-format
+msgid ""
+"Could not connect to automation helper. Possibly the service <tt>automation-"
+"helper</tt> is not started, please make sure that all site services are "
+"started. Tried to connect via <tt>%s</tt>. Reported error was: %s."
+msgstr ""
 
 #, fuzzy, python-format
 msgid ""
@@ -16424,7 +16539,8 @@ msgstr "Gemaakt door ouder scan"
 msgid "Created events"
 msgstr "Gecreëerde gebeurtenissen"
 
-msgid "Created new LDAP connection"
+#, fuzzy, python-format
+msgid "Created new %s connection"
 msgstr "Nieuwe LDAP-verbinding gemaakt"
 
 msgid "Created new alert handler rule"
@@ -16488,6 +16604,10 @@ msgstr "Nieuwe tijdsperiode aangemaakt %s"
 #, python-format
 msgid "Created new users: %s"
 msgstr "Nieuwe gebruikers aangemaakt: %s"
+
+#, fuzzy, python-format
+msgid "Created relay '%s'"
+msgstr "Nieuwe rol '%s' aangemaakt"
 
 msgid "Created with Checkmk Version $CHECK_MK_VERSION$"
 msgstr "Aangemaakt met Checkmk-versie $CHECK_MK_VERSION$"
@@ -16873,9 +16993,6 @@ msgstr "Schakel momenteel deze aggregatie uit"
 msgid "Currently in downtime"
 msgstr "Momenteel in downtime"
 
-msgid "Currently indexing, please try again shortly."
-msgstr "Wordt momenteel geïndexeerd, probeer het binnenkort opnieuw."
-
 msgid "Currently open connections"
 msgstr "Momenteel open verbindingen"
 
@@ -16913,10 +17030,6 @@ msgstr "Momenteel zijn er %s nog niet geactiveerd."
 msgid "Currently, there is one pending change not yet activated."
 msgstr ""
 "Momenteel is er één wijziging in behandeling die nog niet is geactiveerd."
-
-#, fuzzy
-msgid "Custom"
-msgstr "Klant"
 
 msgid "Custom Action"
 msgstr "Aangepaste actie"
@@ -17054,6 +17167,10 @@ msgstr "Aangepaste meldingentabel voor gebruiker %s"
 msgid "Custom notification table of this user"
 msgstr "Aangepaste meldingentabel van deze gebruiker"
 
+#, fuzzy
+msgid "Custom port"
+msgstr "Aangepaste gastheer"
+
 msgid "Custom probe state"
 msgstr "Aangepaste sondestatus"
 
@@ -17091,6 +17208,10 @@ msgstr "Aangepast zijbalk element"
 
 msgid "Custom sidebar elements"
 msgstr "Aangepaste zijbalk elementen"
+
+#, fuzzy
+msgid "Custom start URL"
+msgstr "Aangepaste URL"
 
 msgid "Custom states"
 msgstr "Aangepaste staten"
@@ -17357,6 +17478,10 @@ msgstr "Fase 1.1: Afhalen van site \"%s\""
 #, fuzzy
 msgid "DCD batch history"
 msgstr "Zoekgeschiedenis"
+
+#, fuzzy
+msgid "DCD cycles and batches."
+msgstr "DR:BD rollen en diskstates"
 
 #, fuzzy
 msgid "DCD global settings"
@@ -18060,10 +18185,6 @@ msgid ""
 "agent user installation script fails."
 msgstr ""
 
-#, fuzzy
-msgid "Decimal"
-msgstr "Decibel"
-
 #, python-format
 msgid "Decimal with symbol %s"
 msgstr ""
@@ -18123,6 +18244,10 @@ msgstr "Standaard (%s)"
 #, fuzzy
 msgid "Default BI visualization settings"
 msgstr "Standaard BI-visualisatie-instellingen"
+
+#, fuzzy
+msgid "Default cleanup parameters"
+msgstr "Modelparameters"
 
 msgid "Default color"
 msgstr "Standaard kleur"
@@ -18204,6 +18329,10 @@ msgstr "Standaard timerbereik voor rapportage"
 
 msgid "Default rule pack"
 msgstr "Standaard regelpakket"
+
+#, fuzzy
+msgid "Default start URL"
+msgstr "Standaardstatus"
 
 msgid ""
 "Default state if a tunnel, which is not listed above in this rule, can no "
@@ -18320,10 +18449,6 @@ msgstr ""
 msgid "Define host assignment"
 msgstr "Host toewijzing definiëren"
 
-#, fuzzy
-msgid "Define levels for"
-msgstr "Definieer niveaus voor in afwachting van pods"
-
 msgid "Define levels for pending pods"
 msgstr "Definieer niveaus voor in afwachting van pods"
 
@@ -18403,9 +18528,12 @@ msgstr ""
 msgid ""
 "Define the metric name to be monitored here as an exact match. Metric names "
 "are calculated from <a href='https://checkmk.com/werk/18209'>Open Telemetry "
-"datapoint attributes</a> and the <a href='https://checkmk.com/werk/"
-"18108'>Open Telemetry metric unit</a>. This needs to be an exact match to "
-"the metric name in the service."
+"datapoint attributes</a> or the <a href='https://checkmk.com/werk/"
+"18249'>Open Telemetry metric name</a> and the <a href='https://checkmk.com/"
+"werk/18249'>Open Telemetry metric unit</a> This needs to be an exact match "
+"to the metric name in the service.<br><br>The autocomplete suggestions may "
+"be incomplete. A unknown metric name can be specified manually.<br><br>In "
+"certain cases the autocomplete feature may be unavailable. "
 msgstr ""
 
 msgid ""
@@ -18702,6 +18830,10 @@ msgstr "Toegestane kaarten verwijderen"
 msgid "Delete processed messages"
 msgstr "Verwerkte berichten verwijderen"
 
+#, fuzzy
+msgid "Delete relay"
+msgstr "Verwijderde rol '%s'"
+
 #, python-format
 msgid "Delete report schedule entry #%d"
 msgstr "Rapportschema-item verwijderen #%d"
@@ -18860,6 +18992,10 @@ msgstr "Verwijder deze meldingsregel"
 msgid "Delete this notification rule"
 msgstr "Verwijder deze meldingsregel"
 
+#, fuzzy
+msgid "Delete this relay"
+msgstr "Verwijder deze toets"
+
 msgid "Delete this role"
 msgstr "Verwijder deze rol"
 
@@ -18910,6 +19046,10 @@ msgstr "Verwijder verdwenen hosts"
 msgid "Deleted %s %d"
 msgstr "%s %d verwijderd"
 
+#, fuzzy, python-format
+msgid "Deleted %s connection %s"
+msgstr "Verwijderde verbinding %s"
+
 #, python-format
 msgid "Deleted %s group %s"
 msgstr "Geschrapt %s groep %s"
@@ -18943,10 +19083,6 @@ msgid "Deleted attribute %s"
 msgstr "Attribuut %s verwijderd"
 
 #, python-format
-msgid "Deleted connection %s"
-msgstr "Verwijderde verbinding %s"
-
-#, python-format
 msgid "Deleted custom GUI logo %s"
 msgstr "Aangepast GUI-logo verwijderd %s"
 
@@ -18966,9 +19102,17 @@ msgstr "Verwijderde host %s"
 msgid "Deleted notification parameter %d"
 msgstr "Kennisgevingsregel verwijderen #%d"
 
+#, fuzzy, python-format
+msgid "Deleted notification rule #%s"
+msgstr "Kennisgevingsregel verwijderen #%d"
+
 #, python-format
 msgid "Deleted notification rule %d of user %s"
 msgstr "Verwijderde notificatie regel %d van gebruiker %s"
+
+#, fuzzy, python-format
+msgid "Deleted relay '%s'"
+msgstr "Verwijderde rol '%s'"
 
 #, python-format
 msgid "Deleted role '%s'"
@@ -19142,6 +19286,10 @@ msgstr "Zet OpenHardwareMonitor in (headless)"
 #, fuzzy
 msgid "Deploy Oracle databases plug-in"
 msgstr "Implementeer ORACLE databases plugin"
+
+#, fuzzy
+msgid "Deploy Oracle plug-in"
+msgstr "Inzet Arcserve plugin"
 
 #, fuzzy
 msgid "Deploy Podman plug-in"
@@ -19741,6 +19889,9 @@ msgstr "Verschil tussen bevroren en levende aggregatie"
 msgid "Difference between the first and last operation in the oplog"
 msgstr "Verschil tussen de eerste en de laatste bewerking in het oplog"
 
+msgid "Difference in time from provider was too large"
+msgstr ""
+
 msgid "Difference on summed up values lower level"
 msgstr "Verschil op gesommeerde waarden lager niveau"
 
@@ -19774,9 +19925,6 @@ msgstr "Digest (MD5)"
 
 msgid "Digests"
 msgstr "Digests"
-
-msgid "Digits"
-msgstr ""
 
 msgid "Direct I/O"
 msgstr "Directe I/O"
@@ -19996,9 +20144,6 @@ msgstr "Schakel verdwenen diensten uit"
 msgid "Disabled"
 msgstr "Uitgeschakeld"
 
-msgid "Disabled "
-msgstr "Uitgeschakeld "
-
 msgid "Disabled (configured away by admin)"
 msgstr "Uitgeschakeld (weg geconfigureerd door admin)"
 
@@ -20209,6 +20354,10 @@ msgstr "Schijflatentie"
 msgid "Disk Read Latency"
 msgstr "Schijf lees latentie"
 
+#, fuzzy
+msgid "Disk Usage"
+msgstr "Schijfgebruik"
+
 msgid "Disk Utilization"
 msgstr "Schijfgebruik"
 
@@ -20339,6 +20488,10 @@ msgstr "Weergave Ntop bezet, verleden en stroom waarschuwingen"
 
 msgid "Display Ntop flow information"
 msgstr "Geef Ntop stroom informatie weer"
+
+#, fuzzy
+msgid "Display Options"
+msgstr "Toon tabel acties"
 
 msgid "Display SLA statistics"
 msgstr "SLA-statistieken weergeven"
@@ -20610,9 +20763,6 @@ msgstr "Geeft de status van een specifieke host weer."
 msgid "Displays the state of a specific service."
 msgstr "Geeft de status van een specifieke dienst weer."
 
-msgid "Dissolve operation"
-msgstr "Oplossen"
-
 msgid "Dissolve the package, release its files into unpackaged state"
 msgstr "Los het pakket op, geef zijn bestanden vrij in onverpakte toestand"
 
@@ -20705,9 +20855,6 @@ msgstr ""
 msgid "Do not bake a generic agent package for this folder."
 msgstr "Bak geen algemeen agentpakket voor deze map."
 
-msgid "Do not check"
-msgstr "Niet controleren"
-
 msgid "Do not check age of never analyzed/vacuumed tables"
 msgstr ""
 "Controleer de leeftijd van nooit geanalyseerde/gezuiverde tabellen niet"
@@ -20778,6 +20925,10 @@ msgstr "Implementeer OpenHardwareMonitor niet (headless)"
 #, fuzzy
 msgid "Do not deploy Oracle databases plug-in"
 msgstr "Zet geen ORACLE databases plugin in"
+
+#, fuzzy
+msgid "Do not deploy Oracle plug-in"
+msgstr "Geen iptables plugin implementeren"
 
 #, fuzzy
 msgid "Do not deploy Robotmk"
@@ -21150,6 +21301,10 @@ msgstr "Geen placeholder VM's monitoren"
 msgid "Do not monitor service"
 msgstr "Controleer niet"
 
+#, fuzzy
+msgid "Do not monitor subscriptions"
+msgstr "Controleer niet"
+
 msgid "Do not offer this action as a command on open events"
 msgstr "Bied deze actie niet aan als een commando bij open gebeurtenissen"
 
@@ -21236,9 +21391,6 @@ msgstr "Inventarisatie statusgegevens"
 
 msgid "Do transfer context"
 msgstr "Draag context over"
-
-msgid "Do you really want to move the selected aggregations?"
-msgstr "Wilt u echt de geselecteerde aggregaten verplaatsen?"
 
 #, fuzzy, python-format
 msgid ""
@@ -21342,6 +21494,10 @@ msgstr "Bekijk en bewerk de parameters voor deze dienst"
 msgid "Don't change state"
 msgstr "Verander niet van toestand"
 
+#, fuzzy
+msgid "Don't compute a rate"
+msgstr "Snelheid afgeleverde berichten"
+
 msgid "Don't create a group service for the following groups"
 msgstr "Maak geen groepsdienst aan voor de volgende groepen"
 
@@ -21444,10 +21600,6 @@ msgstr "Download"
 #, python-format
 msgid "Download %s package of agent for %s"
 msgstr "Download %s pakket van agent voor %s"
-
-#, fuzzy
-msgid "Download & install agent"
-msgstr "Gedownloade Agent"
 
 #, fuzzy
 msgid "Download (internet connection)"
@@ -21882,6 +22034,10 @@ msgid "ESX Datastores (used space and growth)"
 msgstr "ESX Datastores (gebruikte ruimte en groei)"
 
 #, fuzzy
+msgid "ESX GPU Utilization"
+msgstr "CPU-gebruik"
+
+#, fuzzy
 msgid "ESX Host System Maintenance Mode"
 msgstr "ESX Hostsystem onderhoudsmodus"
 
@@ -22297,6 +22453,10 @@ msgstr "Bewerk de eigenschappen van deze regel"
 msgid "Edit properties of this rule pack"
 msgstr "Bewerk de eigenschappen van dit regelpakket"
 
+#, fuzzy
+msgid "Edit relay configuration"
+msgstr "Host configuratie"
+
 msgid "Edit report content"
 msgstr "Inhoud rapport bewerken"
 
@@ -22420,6 +22580,10 @@ msgstr "Bewerk deze meldingsregel"
 msgid "Edit this notification rule"
 msgstr "Bewerk deze meldingsregel"
 
+#, fuzzy
+msgid "Edit this relay"
+msgstr "Wijzig deze regel"
+
 msgid "Edit this report"
 msgstr "Dit verslag bewerken"
 
@@ -22472,6 +22636,10 @@ msgstr "Bewerkte host tag groep %s (%s)"
 #, python-format
 msgid "Edited properties of folder %s"
 msgstr "Bewerkte eigenschappen van map %s"
+
+#, fuzzy, python-format
+msgid "Edited relay '%s'"
+msgstr "Wijzig regel '%s'"
 
 #, python-format
 msgid "Edited rule in ruleset \"%s\" in folder \"%s\""
@@ -22628,7 +22796,7 @@ msgstr "Elektrisch vermogen"
 msgid "Electrical power"
 msgstr "Elektrisch vermogen"
 
-#, fuzzy, python-format
+#, fuzzy, no-python-format
 msgid "Electrical tension in % of normal value"
 msgstr "Elektrische spanning in % van de normale waarde"
 
@@ -22903,6 +23071,10 @@ msgstr "Activeer replicatie van een master"
 
 msgid "Enable row shading"
 msgstr "Rij arcering inschakelen"
+
+#, fuzzy
+msgid "Enable safe host names"
+msgstr "Hostnamen vertalen"
 
 msgid "Enable service notifications"
 msgstr "Inschakelen dienst meldingen"
@@ -23260,9 +23432,6 @@ msgstr "Motor CPU-gebruik"
 
 msgid "Engine IDs (only needed for SNMPv3)"
 msgstr "Engine ID's (alleen nodig voor SNMPv3)"
-
-msgid "Engineering scientific"
-msgstr ""
 
 msgid "English"
 msgstr "Engels"
@@ -23640,6 +23809,26 @@ msgstr "Escaping is <a href=\"%s\">algemeen ingeschakeld</a>"
 msgid "Established TCP/UDP connections"
 msgstr "Gevestigde TCP/UDP-verbindingen"
 
+#, fuzzy
+msgid "Established calls in"
+msgstr "Gevestigde verbindingen"
+
+#, fuzzy
+msgid "Established calls in rate"
+msgstr "Gevestigde verbindingen"
+
+#, fuzzy
+msgid "Established calls in/out"
+msgstr "Actieve eenheid"
+
+#, fuzzy
+msgid "Established calls out"
+msgstr "Actieve eenheid"
+
+#, fuzzy
+msgid "Established calls out rate"
+msgstr "Actieve eenheid"
+
 msgid "Established connections"
 msgstr "Gevestigde verbindingen"
 
@@ -23945,6 +24134,10 @@ msgstr ""
 
 msgid "Every week on..."
 msgstr "Elke week op..."
+
+#, fuzzy
+msgid "Evicted keys"
+msgstr "Aantal uitgezette sleutels"
 
 msgid "Evictions"
 msgstr "Uitzettingen"
@@ -24299,6 +24492,10 @@ msgid "Expected String"
 msgstr "Verwachte String"
 
 #, fuzzy
+msgid "Expected VM Generation"
+msgstr "Verwachte trajectsituatie"
+
+#, fuzzy
 msgid "Expected active paths"
 msgstr "Verwacht aantal actieve paden"
 
@@ -24396,6 +24593,10 @@ msgstr "Verloopt op"
 msgid "Expire time"
 msgstr "Verlooptijd"
 
+#, fuzzy
+msgid "Expired keys"
+msgstr "Verlopen objecten"
+
 msgid "Expired objects"
 msgstr "Verlopen objecten"
 
@@ -24411,10 +24612,6 @@ msgstr "Verklaring van de gebeurtenis"
 
 msgid "Explicit"
 msgstr "Expliciet"
-
-#, python-format
-msgid "Explicit %s mapping"
-msgstr "Expliciete %s mapping"
 
 msgid "Explicit Queue Names"
 msgstr "Expliciete wachtrijnamen"
@@ -24455,11 +24652,19 @@ msgstr "Expliciete etiketten"
 msgid "Explicit list of IP addresses"
 msgstr "Expliciete lijst van IP-adressen"
 
+#, fuzzy
+msgid "Explicit list of subscription IDs"
+msgstr "Expliciete lijst van IP-adressen"
+
 msgid "Explicit mapping of job exit codes to states"
 msgstr "Expliciete koppeling van de exitcodes van banen aan staten"
 
 msgid "Explicit match"
 msgstr "Expliciete overeenkomst"
+
+#, fuzzy
+msgid "Explicit name mapping"
+msgstr "Expliciete %s mapping"
 
 msgid "Explicit number"
 msgstr "Expliciet getal"
@@ -24482,9 +24687,6 @@ msgstr "Expliciete set"
 
 msgid "Explicit tablespaces"
 msgstr "Expliciete tablespaces"
-
-msgid "Explicit vertical range"
-msgstr "Expliciet verticaal bereik"
 
 #, fuzzy
 msgid "Explicit, rule set, discovered"
@@ -24511,6 +24713,10 @@ msgid "Explicitly specified groups"
 msgstr "uitdrukkelijk gespecificeerde groepen"
 
 msgid "Explicitly specify resources"
+msgstr "Expliciet middelen specificeren"
+
+#, fuzzy
+msgid "Explicitly specify subscription IDs"
 msgstr "Expliciet middelen specificeren"
 
 msgid "Export"
@@ -24556,6 +24762,9 @@ msgstr "Uitdrukkelijke Servicecode"
 msgid "Extend downtimes by..."
 msgstr "Verleng uitvaltijden door..."
 
+msgid "Extend post-diagnostics phase by additional time span"
+msgstr ""
+
 msgid "Extend the Checkmk GUI with your custom icons"
 msgstr "Breid de Checkmk GUI uit met uw eigen iconen"
 
@@ -24564,6 +24773,10 @@ msgstr "Uitgebreide perfagegevens"
 
 msgid "Extension"
 msgstr "Uitbreiding"
+
+#, fuzzy
+msgid "Extension package enabled and active."
+msgstr "Uitbreiding pakketbestanden"
 
 msgid "Extension package files"
 msgstr "Uitbreiding pakketbestanden"
@@ -24574,10 +24787,6 @@ msgid ""
 "this mkp and see the complete error message running this command on the "
 "command line: %s"
 msgstr ""
-
-#, fuzzy
-msgid "Extension package installed."
-msgstr "Uitbreiding pakketbestanden"
 
 msgid "Extension packages"
 msgstr "Uitbreidingspakketten"
@@ -24787,10 +24996,6 @@ msgstr "Fabrieksinstelling"
 msgid "Fahrenheit"
 msgstr "Fahrenheit"
 
-#, fuzzy
-msgid "Fail over partner"
-msgstr "Failover staten"
-
 msgid "Failed"
 msgstr "Mislukt"
 
@@ -24829,7 +25034,7 @@ msgid "Failed get locations requests"
 msgstr "Mislukte verzoeken om locaties te krijgen"
 
 #, fuzzy, python-format
-msgid "Failed host tag condition '%s' (Has the tags %s)"
+msgid "Failed host tag condition (Host tags: %s, Required: %s)"
 msgstr ""
 "Deze host is niet geslaagd voor host tag voorwaarde '%s' (hij heeft de tags "
 "%s)"
@@ -24858,6 +25063,12 @@ msgstr "Mislukte verzoeken om Adressbook bestanden"
 
 msgid "Failed search requests"
 msgstr "Mislukte zoekopdrachten"
+
+msgid ""
+"Failed service that are disabled are also considered for the status of the "
+"service. Activating this option will cause the service to be CRIT if a "
+"failed service is disabled."
+msgstr ""
 
 #, python-format
 msgid ""
@@ -24954,6 +25165,10 @@ msgstr "Mislukt bij het uitvoeren van de test %s: %s"
 msgid "Failed to extract %s"
 msgstr "Mislukt uitpakken %s"
 
+#, fuzzy, python-format
+msgid "Failed to extract sync archive [%d]: %s"
+msgstr "Kan geen sync-archief aanmaken [%d]: %s"
+
 #, python-format
 msgid "Failed to fetch peer certificate (%s)"
 msgstr "Kan peer-certificaat niet ophalen (%s)"
@@ -25010,10 +25225,6 @@ msgstr ""
 "specificatie. Je kan dit proberen te verhelpen door de regel te openen voor "
 "bewerking en de regel opnieuw op te slaan zonder wijziging."
 
-#, python-format
-msgid "Failed to process your MIB file (%s): %s"
-msgstr "Verwerking van uw MIB-bestand mislukt (%s): %s"
-
 msgid "Failed to read the Apache process ID"
 msgstr "Het is niet gelukt om de Apache proces-ID te lezen"
 
@@ -25046,8 +25257,13 @@ msgstr ""
 "Het is niet gelukt om het crashrapport te versturen. Download het "
 "alstublieft handmatig en stuur het naar <a href=\"%s\">%s</a>"
 
-msgid "Failed to set start URL"
+#, fuzzy, python-format
+msgid "Failed to set start URL: %s"
 msgstr "Mislukt om start URL in te stellen"
+
+#, fuzzy, python-format
+msgid "Failed to sign the agents: %s"
+msgstr "Mislukt om de agenten te bakken: %s"
 
 msgid "Failed to spare ratio"
 msgstr "Verhouding mislukt tot reserve"
@@ -25576,6 +25792,10 @@ msgstr "Filter %s selectie op dienst: "
 msgid "Filter / Search"
 msgstr "Filteren / Zoeken"
 
+#, fuzzy
+msgid "Filter Azure tags imported as host/service labels"
+msgstr "Gebruik poortnaam als dienstnaam"
+
 msgid "Filter aggregations"
 msgstr "Filter aggregaties"
 
@@ -25642,10 +25862,6 @@ msgstr "Filter %s selectie op dienst: "
 #, fuzzy
 msgid "Filter tags"
 msgstr "Filters"
-
-#, fuzzy
-msgid "Filter tags imported as host/service labels"
-msgstr "Gebruik poortnaam als dienstnaam"
 
 msgid "Filter valid annotations by key pattern"
 msgstr "Geldige annotaties filteren op sleutelpatroon"
@@ -26194,6 +26410,10 @@ msgid "For specific SIDs"
 msgstr "Voor specifieke SID's"
 
 #, fuzzy
+msgid "For specific hosts"
+msgstr "Voor specifieke SID's"
+
+#, fuzzy
 msgid ""
 "For the host name field, a partial word search (infix search) is used — the "
 "entered text is searched, at any position, in the host name. Furthermore, "
@@ -26344,9 +26564,6 @@ msgstr "Formaat tijdbereiken"
 
 msgid "Format time stamps as"
 msgstr "Formatteer tijdstempels als"
-
-msgid "Formula"
-msgstr "Formule"
 
 msgid "FortiGate HighAvailability"
 msgstr "FortiGate Hoge Beschikbaarheid"
@@ -26880,6 +27097,14 @@ msgstr "GET/POST variabelen van deze pagina"
 msgid "GI resource"
 msgstr "CPU-bronnen"
 
+#, fuzzy
+msgid "GPU"
+msgstr "CPU"
+
+#, fuzzy
+msgid "GPU Utilization"
+msgstr "CPU-gebruik"
+
 msgid "GPU utilization"
 msgstr "CPU-gebruik"
 
@@ -26893,8 +27118,8 @@ msgid ""
 msgstr ""
 
 #, fuzzy
-msgid "GUI extensions (deprecated)"
-msgstr "GUI-uitbreidingen"
+msgid "GUI extensions"
+msgstr "Gebroken GUI uitbreidingen"
 
 #, python-format
 msgid ""
@@ -27006,10 +27231,23 @@ msgstr "Rapport genereren in achtergrondtaak"
 msgid "Generate report preview in background job"
 msgstr "Genereer rapportvoorbeeld in achtergrondtaak"
 
+#, fuzzy
+msgid "Generate service labels"
+msgstr "Overeenkomende dienst labels"
+
+msgid ""
+"Generate service labels based on matching conditions. All matching entries "
+"will add to the list of service labels."
+msgstr ""
+
 msgid "Generate service labels for created groups"
 msgstr "Aanmaken van service labels voor aangemaakte groepen"
 
 msgid "Generate service labels for discovered interfaces"
+msgstr "Genereer dienstlabels voor ontdekte interfaces"
+
+#, fuzzy
+msgid "Generate service labels for discovered matching interfaces"
 msgstr "Genereer dienstlabels voor ontdekte interfaces"
 
 msgid ""
@@ -27027,6 +27265,14 @@ msgstr "cartridge specificatie"
 
 msgid "Generating report..."
 msgstr "Het genereren van rapport..."
+
+#, fuzzy
+msgid "Generation 1"
+msgstr "Algemene opties"
+
+#, fuzzy
+msgid "Generation 2"
+msgstr "Algemene opties"
 
 msgid "Generic UPS Device: Temperature sensor"
 msgstr "Generiek UPS apparaat: Temperatuursensor"
@@ -27070,6 +27316,10 @@ msgstr "Verbinding bewerken"
 #, fuzzy
 msgid "Gerrit instance to query."
 msgstr "Jenkins instantie om te bevragen."
+
+#, fuzzy
+msgid "Get commands"
+msgstr "geen commando's"
 
 msgid "Get file from SFTP server"
 msgstr "Bestand van SFTP-server halen"
@@ -27158,6 +27408,10 @@ msgstr "Globale instellingen die overeenkomen met '%s'"
 
 msgid "GlobalProtect Utilization"
 msgstr "GlobalProtect Gebruik"
+
+#, fuzzy
+msgid "Globally configured proxy"
+msgstr "Gebruik globaal geconfigureerde proxy"
 
 msgid "Globbing pattern for input files"
 msgstr "Globbing patroon voor invoerbestanden"
@@ -27305,20 +27559,8 @@ msgstr "Grafiek is zichtbaar"
 msgid "Graph layout"
 msgstr "Grafiek lay-out"
 
-#, fuzzy
-msgid "Graph lines"
-msgstr "Grafiek Opties"
-
-#, fuzzy
-msgid "Graph metrics with all zero values"
-msgstr "Metriek met alle nulwaarden"
-
 #, fuzzy, python-format
 msgid "Graph not found '%s'"
-msgstr "Grafiek Opties"
-
-#, fuzzy
-msgid "Graph options"
 msgstr "Grafiek Opties"
 
 msgid "Graph rendering options"
@@ -27859,6 +28101,10 @@ msgid "HW/SW Inventory (Linux, Windows, Solaris, AIX)"
 msgstr "Hardware/Software-Inventarisatie (Linux, Windows, Solaris, AIX)"
 
 #, fuzzy
+msgid "HW/SW Inventory cleanup"
+msgstr "HW/SW-inventarisatieregels"
+
+#, fuzzy
 msgid "HW/SW Inventory history"
 msgstr "Inventarisatie geschiedenis van host"
 
@@ -28064,6 +28310,10 @@ msgstr "Percentage gezondheidscontrole"
 msgid "Health probe status lower levels"
 msgstr "Gezondheidssonde status lagere niveaus"
 
+#, fuzzy
+msgid "Healthy"
+msgstr "Gezondheid"
+
 msgid "Healthy hosts"
 msgstr "Gezonde gastheren"
 
@@ -28228,6 +28478,14 @@ msgstr ""
 "indien minstens één node zich in een andere status dan OK bevindt. De "
 "gezondheidsniveaus moeten voor elk knooppunt gelijk zijn, dus alleen voor "
 "het eerste knooppunt worden de gezondheidsniveaus gecontroleerd."
+
+#, fuzzy
+msgid ""
+"Here you can configure absolute levels for total restart count and last hour "
+"restarts."
+msgstr ""
+"Hier kunt u absolute niveaus configureren voor het totale aantal herstarts "
+"en herstarts in het afgelopen uur."
 
 msgid ""
 "Here you can configure absolute levels for total restart count and restarts "
@@ -29125,6 +29383,10 @@ msgstr "Geschiedenis van de kennisgevingen"
 
 msgid "History of scheduled downtimes"
 msgstr "Geschiedenis van geplande uitvaltijd"
+
+#, fuzzy
+msgid "Hit ratio"
+msgstr "Init duur"
 
 msgid "Hits"
 msgstr "Hits"
@@ -31318,6 +31580,14 @@ msgstr "Hyper-V Server: Staat van VM's"
 msgid "Hyper-V VM Guest Information (Windows)"
 msgstr "Hyper-V VM Gastgegevens (Windows)"
 
+#, fuzzy
+msgid "Hyper-V VM integration services"
+msgstr "Hyper-V Server: Staat van VM's"
+
+#, fuzzy
+msgid "Hyper-V VM summary"
+msgstr "Hyper-V VM's (Windows)"
+
 msgid "Hyper-V VMs (Windows)"
 msgstr "Hyper-V VM's (Windows)"
 
@@ -31424,6 +31694,9 @@ msgstr "IBM SVC-schijf"
 msgid "IBM SVC licenses"
 msgstr "IBM SVC-licenties"
 
+msgid "IBM TSM: number of tapes in scratch pool"
+msgstr ""
+
 msgid "ICMP"
 msgstr "ICMP"
 
@@ -31484,9 +31757,6 @@ msgstr "ID: %s"
 
 msgid "IDLE"
 msgstr "IDLE"
-
-msgid "IEC"
-msgstr ""
 
 #, python-format
 msgid "IEC with symbol %s"
@@ -32129,10 +32399,10 @@ msgstr "Als agent_hash is weggelaten, moet doel worden gegeven."
 msgid "If available, the following metric will be shown"
 msgstr "Indien beschikbaar, wordt de volgende metriek getoond"
 
-#, python-brace-format
+#, fuzzy
 msgid ""
 "If case conversion and regular expression do not work for all cases then you "
-"can specify explicity pairs of origin {0} and translated {0} here. This "
+"can specify explicit pairs of original and translated names here. This "
 "mapping is being applied <b>after</b> the case conversion and <b>after</b> a "
 "regular expression conversion (if that matches)."
 msgstr ""
@@ -32731,6 +33001,11 @@ msgid ""
 "role will be required to use a two-factor authentication and will be logged "
 "out of any current sessions if they have not enabled two-factor. 'Enforce "
 "two-factor authentication' in global settings will override this setting."
+msgstr ""
+
+msgid ""
+"If too many metrics are produced by a service, they will be aggregated. "
+"Configure the aggregation method here."
 msgstr ""
 
 msgid "If value is a tuple it has to have length of two."
@@ -33502,6 +33777,14 @@ msgstr ""
 "zullen in staat zijn om Multisite als een webservice te gebruiken zonder "
 "verdere configuratie."
 
+#, fuzzy, python-format
+msgid ""
+"If you want to continue to use Checkmk and keep your data, please contact "
+"the Checkmk sales team at %s."
+msgstr ""
+"Als u Checkmk wilt blijven gebruiken, koop dan een licentie die %s "
+"ondersteunt of neem contact op met het Checkmk-verkoopteam op %s."
+
 #, python-format
 msgid ""
 "If you want to continue to use Checkmk without restrictions, please contact "
@@ -33511,14 +33794,6 @@ msgstr ""
 "Als u Checkmk zonder beperkingen wilt blijven gebruiken, neem dan contact op "
 "met het Checkmk-verkoopteam op %s en vernieuw uw licentie. Als u uw licentie "
 "hebt gekocht via een %s, neem dan contact met hen op."
-
-#, fuzzy, python-format
-msgid ""
-"If you want to continue to use Checkmk, please contact the Checkmk sales "
-"team at %s."
-msgstr ""
-"Als u Checkmk wilt blijven gebruiken, koop dan een licentie die %s "
-"ondersteunt of neem contact op met het Checkmk-verkoopteam op %s."
 
 #, python-format
 msgid ""
@@ -33735,6 +34010,10 @@ msgstr "Negeer deze niveaus"
 #, fuzzy
 msgid "Ignore undo tablespaces (Default)"
 msgstr "Negeer undo Tablespaces (Standaard)"
+
+#, fuzzy
+msgid "Ignore unrecognized events"
+msgstr "Negeer bevestigde gebeurtenissen"
 
 msgid "Ignore unsuccessful validation (in case of TLS/SSL)"
 msgstr "Negeer mislukte validatie (in geval van TLS/SSL)"
@@ -34269,6 +34548,10 @@ msgstr ""
 "instelling kunt u forceren dat de uitlezing van de sensor wordt "
 "geïnterpreteerd als aangepast. "
 
+#, fuzzy
+msgid "In termination"
+msgstr "Pauze"
+
 msgid ""
 "In the change log of the Checkmk software version the administrator can "
 "manage change log entries (Werks) that requrire user interaction. These "
@@ -34289,8 +34572,9 @@ msgstr ""
 "waarschuwingen opgeslagen. Dit bestand wordt regelmatig hernoemd en opnieuw "
 "opgestart, wat hier kan worden geconfigureerd."
 
+#, fuzzy
 msgid ""
-"In the mega menus you can select between two options: Have a green icon only "
+"In the main menus you can select between two options: Have a green icon only "
 "for the headlines – the 'topics' – for lean design. Or have a colored icon "
 "for every entry so that over time you can zoom in more quickly to a specific "
 "entry."
@@ -35396,6 +35680,14 @@ msgstr "Ongeldig datatype van timestamp: moet int of float zijn."
 msgid "Invalid datatype of value: %s"
 msgstr "Ongeldige gegevensbron: %s"
 
+#, fuzzy
+msgid "Invalid date format"
+msgstr "Ongeldige gegevensbron: %s"
+
+#, fuzzy, python-format
+msgid "Invalid date format %s"
+msgstr "Ongeldige gegevensbron: %s"
+
 #, fuzzy, python-format
 msgid "Invalid date format: %s"
 msgstr "Ongeldige gegevensbron: %s"
@@ -35410,6 +35702,10 @@ msgstr "Ongeldig verwacht callable voor %s op idx %d: %r"
 #, fuzzy, python-format
 msgid "Invalid extension type, supported types are: %s"
 msgstr "Ongeldig fixel element type '%s'"
+
+#, fuzzy, python-format
+msgid "Invalid figure content: %s"
+msgstr "Ongeldige gebruikersverbinding: %s"
 
 msgid "Invalid file name"
 msgstr "Ongeldige bestandsnaam"
@@ -35436,6 +35732,10 @@ msgid ""
 "Invalid folder name. Only the characters a-z, A-Z, 0-9, _ and - are allowed."
 msgstr ""
 "Ongeldige mapnaam. Alleen de tekens a-z, A-Z, 0-9, _ en - zijn toegestaan."
+
+#, fuzzy, python-format
+msgid "Invalid graph content: %s"
+msgstr "Ongeldig grafiektype: %s"
 
 #, python-format
 msgid "Invalid graph type '%s'"
@@ -35488,9 +35788,6 @@ msgstr "Ongeldige inloggegevens."
 msgid "Invalid man page: Failed to get the title"
 msgstr "Ongeldige man pagina: Mislukt om de titel te krijgen"
 
-msgid "Invalid messaging method selected."
-msgstr "Ongeldige berichtmethode geselecteerd."
-
 #, fuzzy, python-format
 msgid "Invalid mime type, supported types are: %s"
 msgstr "Ongeldig fixel element type '%s'"
@@ -35540,6 +35837,10 @@ msgstr "Ongeldig URL-schema. Moet een van zijn: %s"
 #, fuzzy
 msgid "Invalid receipt"
 msgstr "Ongeldig rapport"
+
+#, python-brace-format
+msgid "Invalid regex pattern. Expected: {validate_pattern}"
+msgstr ""
 
 msgid "Invalid regular expression"
 msgstr "Ongeldige reguliere uitdrukking"
@@ -35640,6 +35941,14 @@ msgstr "Ongeldige test."
 #, fuzzy
 msgid "Invalid text"
 msgstr "Ongeldige test."
+
+#, fuzzy
+msgid "Invalid time format"
+msgstr "Ongeldige ident: %s"
+
+#, fuzzy, python-format
+msgid "Invalid time format %s"
+msgstr "Ongeldige ident: %s"
 
 #, python-format
 msgid "Invalid time format '<tt>%s</tt>', please use <tt>24:00</tt> format."
@@ -35989,7 +36298,7 @@ msgstr "Het is niet toegestaan om hier een \"!\" voor te zetten."
 #, fuzzy
 msgid ""
 "It's possible to have clusters that share nodes. You could say that such "
-"clusters &quot;overlap&quot;. In such a case using the ruleset <i>Clustered "
+"clusters \"overlap\". In such a case using the ruleset <i>Clustered "
 "services</i> is not sufficient since it would not be clear to which of the "
 "several possible clusters a service found on such a shared node should be "
 "assigned to. With this ruleset you can assign services and explicitly "
@@ -36829,10 +37138,6 @@ msgstr ""
 "Labels moeten in het formaat <tt>[KEY]:[VALUE]</tt> zijn. Bijvoorbeeld "
 "<tt>cmk/os_family:linux</tt>."
 
-#, fuzzy
-msgid "Labels need to be unique."
-msgstr "De ID moet uniek zijn."
-
 msgid "Lambda"
 msgstr "Lambda"
 
@@ -36969,6 +37274,10 @@ msgstr "Laatste host controle is niet recent genoeg"
 
 msgid "Last host state change"
 msgstr "Laatste wijziging van de hoststatus"
+
+#, fuzzy
+msgid "Last hour restarts"
+msgstr "De laatste 25 uur"
 
 msgid "Last known details"
 msgstr "Laatst bekende gegevens"
@@ -37141,7 +37450,7 @@ msgid ""
 msgstr ""
 
 #, fuzzy
-msgid "Legacy GUI extensions (deprecated)"
+msgid "Legacy GUI extensions"
 msgstr "Verouderde GUI-uitbreidingen"
 
 #, python-format
@@ -37155,11 +37464,11 @@ msgid "Legacy agent management"
 msgstr "Beheer van oudere agenten"
 
 #, fuzzy
-msgid "Legacy check plug-ins (deprecated)"
-msgstr "Plugins voor oudere controles"
+msgid "Legacy check plug-ins (outdated, ignored)"
+msgstr "Op agenten gebaseerde plugins (Checks, Inventory)"
 
 #, fuzzy
-msgid "Legacy inventory plug-ins (deprecated)"
+msgid "Legacy inventory plug-ins (outdated, ignored)"
 msgstr "Verouderde inventaris plugins"
 
 msgid "Legacy run"
@@ -37319,9 +37628,6 @@ msgstr "Bovenste niveaus voor \"ESI-waarschuwingen\" per seconde"
 msgid "Levels for Inodes"
 msgstr "Niveaus voor Inodes"
 
-msgid "Levels for Meta"
-msgstr "Niveaus voor Meta"
-
 msgid "Levels for Number of Licenses"
 msgstr "Niveaus voor aantal licenties"
 
@@ -37420,6 +37726,10 @@ msgstr "Niveaus voor geheugengebruik"
 
 msgid "Levels for memory utilization"
 msgstr "Niveaus voor geheugengebruik"
+
+#, fuzzy
+msgid "Levels for meta"
+msgstr "Niveaus voor Meta"
 
 msgid "Levels for minimum wait time for a lock"
 msgstr "Niveaus voor minimum wachttijd voor een slot"
@@ -37873,6 +38183,10 @@ msgstr "Niveaus op gebruikte capaciteit in bytes"
 msgid "Levels on write capacity"
 msgstr "Niveaus op schrijfcapaciteit"
 
+#, fuzzy
+msgid "Levels over an extended period of time"
+msgstr "Niveaus over een langere periode op replicatievertraging"
+
 msgid "Levels over an extended time period on a single core CPU utilization"
 msgstr "Niveaus over een langere periode op een enkele kern CPU-gebruik"
 
@@ -37943,10 +38257,6 @@ msgid "License expired: Renew license now to avoid site deletion."
 msgstr "Licentie verlopen: Licentie nu vernieuwen"
 
 #, fuzzy
-msgid "License expired: Renew license now to reactivate change activation."
-msgstr "Licentie verlopen: Licentie nu vernieuwen"
-
-#, fuzzy
 msgid "License key list"
 msgstr "Licentiegegevens"
 
@@ -37973,6 +38283,12 @@ msgstr "Licentie geschorst: Neem nu contact op met het Checkmk verkoopteam"
 #, fuzzy
 msgid "License suspended: Contact Checkmk sales team now."
 msgstr "Licentie geschorst: Neem nu contact op met het Checkmk verkoopteam"
+
+#, fuzzy, python-format
+msgid ""
+"License terminated. Your license expires in %d days. Renew license now to "
+"avoid site deletion."
+msgstr "Licentie verlopen: Licentie nu vernieuwen"
 
 msgid "License usage"
 msgstr "Licentiegebruik"
@@ -39376,7 +39692,7 @@ msgid "Lower levels for active connections"
 msgstr "Niveaus voor actieve verbindingen"
 
 #, fuzzy
-msgid "Lower levels for average success ratio"
+msgid "Lower levels for answer seizure ratio"
 msgstr "Lagere niveaus voor SMS-succespercentage"
 
 msgid "Lower levels for burst balance"
@@ -39408,6 +39724,10 @@ msgid "Lower levels for incoming requests to a JVM application server"
 msgstr ""
 "Deze regel stelt de waarschuwings- en kriticoniveaus in voor het aantal "
 "inkomende verzoeken naar een JVM applicatieserver."
+
+#, fuzzy
+msgid "Lower levels for network effectiveness"
+msgstr "Lagere niveaus voor levenslange gezondheid"
 
 #, fuzzy
 msgid "Lower levels for notification delivery rate"
@@ -39488,6 +39808,14 @@ msgstr "Lijst van verwachte logfiles"
 
 msgid "Lower threshold on open files and sockets"
 msgstr ""
+
+#, fuzzy, python-brace-format
+msgid "Lower threshold on {property} number of Podman containers"
+msgstr "Definieer lagere niveaus voor het aantal totale containers"
+
+#, fuzzy, python-brace-format
+msgid "Lower threshold on {property} number of Podman pods"
+msgstr "Definieer lagere niveaus voor het aantal totale containers"
 
 msgid "Lower thresholds on mail transfer threads"
 msgstr ""
@@ -40078,6 +40406,11 @@ msgstr ""
 msgid "Manage monitoring agents"
 msgstr "Beheer van toezichthoudende agenten"
 
+msgid ""
+"Manage relay configurations. Relays allow a Checkmk site to monitor SNMP "
+"based devices residing in a network that is not reachable from the internet."
+msgstr ""
+
 msgid "Manage services"
 msgstr "Diensten beheren"
 
@@ -40149,8 +40482,16 @@ msgstr "Handmatig"
 msgid "Manual check"
 msgstr "Handmatige controle"
 
+#, fuzzy
+msgid "Manual configuration"
+msgstr "configuratie"
+
 msgid "Manual page for this check type"
 msgstr "Handboekpagina voor dit controletype"
+
+#, fuzzy
+msgid "Manual proxy configuration"
+msgstr "configuratie"
 
 msgid "Manual snapshots"
 msgstr "Handmatige momentopnamen"
@@ -40254,21 +40595,8 @@ msgstr ""
 "worden."
 
 #, fuzzy
-msgid "Map data"
-msgstr "In kaart gebrachte gegevens"
-
-msgid "Map data relating to VMs"
-msgstr "Kaartgegevens met betrekking tot VM's"
-
-msgid "Map data to group host"
-msgstr "Map gegevens naar groep host"
-
-#, fuzzy
 msgid "Map data to specific host (Piggyback)"
 msgstr "uitdrukkelijk gespecificeerde groepen"
-
-msgid "Map data to the VM itself"
-msgstr "Map gegevens naar de VM zelf"
 
 msgid "Map device state"
 msgstr "Apparaatstatus in kaart brengen"
@@ -40447,6 +40775,10 @@ msgstr "Match gastgroepen"
 msgid "Match host labels"
 msgstr "Overeenkomende host labels"
 
+#, fuzzy
+msgid "Match host names"
+msgstr "Overeenkomende host labels"
+
 msgid "Match host tags"
 msgstr "Overeenkomende host tags"
 
@@ -40567,6 +40899,10 @@ msgstr "Passend bij"
 msgid "Matching Criteria"
 msgstr "Bijbehorende criteria"
 
+#, fuzzy
+msgid "Matching conditions"
+msgstr "Specificeer overeenstemmende voorwaarden"
+
 msgid "Matching criteria"
 msgstr "Bijbehorende criteria"
 
@@ -40589,6 +40925,10 @@ msgstr "Matrix van prestatiegegevens"
 
 msgid "Max Cache Age"
 msgstr "Max Cache Leeftijd"
+
+#, fuzzy
+msgid "Max age of the newest snapshot"
+msgstr "Maximum leeftijd van de oudste momentopname"
 
 msgid "Max age of the oldest snapshot"
 msgstr "Maximum leeftijd van de oudste momentopname"
@@ -40810,8 +41150,21 @@ msgstr "Maximaal toegestane gebruikers"
 msgid "Maximum allowed validity"
 msgstr "Maximaal toegestane leeftijd"
 
+msgid ""
+"Maximum amount of memory targeted to be allocated by the process heap. Note "
+"that typically the total memory usage of process will be about 50MiB higher "
+"than this value. This defines the hard limit."
+msgstr ""
+
 msgid "Maximum amount of non-operational access points"
 msgstr "Maximumaantal niet-operationele toegangspunten"
+
+msgid ""
+"Maximum amount of total memory targeted to be allocated by the process heap. "
+"This option is used to calculate memory limit from the total available "
+"memory. For instance setting of 75% with the total memory of 1GiB will "
+"result in the limit of 750 MiB."
+msgstr ""
 
 msgid "Maximum bulk size"
 msgstr "Maximale bulkgrootte"
@@ -40850,6 +41203,10 @@ msgstr "Maximaal aantal gelijktijdige Real-Time controles"
 
 msgid "Maximum connections per second"
 msgstr "Maximale verbindingen per seconde"
+
+#, fuzzy
+msgid "Maximum connectivity lag"
+msgstr "Site connectiviteit"
 
 msgid "Maximum count"
 msgstr "Maximum aantal"
@@ -41068,6 +41425,20 @@ msgstr "Maximumgrootte van alle bestanden op de back-upruimte"
 msgid "Maximum speed"
 msgstr "Maximum snelheid"
 
+msgid ""
+"Maximum spike expected between the measurements of memory usage. The value "
+"must be less than limit. This option is used to calculate spike limit from "
+"the total available memory. For instance setting of 25% with the total "
+"memory of 1GiB will result in the spike limit of 250MiB."
+msgstr ""
+
+#, python-format
+msgid ""
+"Maximum spike expected between the measurements of memory usage. The value "
+"must be less than the limit. The soft limit value will be equal to (limit - "
+"spike limit). The recommended value for spike limit is about 20% limit."
+msgstr ""
+
 msgid "Maximum spool duration"
 msgstr "Maximale spoelduur"
 
@@ -41080,6 +41451,10 @@ msgstr "Procesruntime"
 
 msgid "Maximum time since last start of job execution"
 msgstr "Maximale tijd sinds de laatste start van de taakuitvoering"
+
+#, fuzzy
+msgid "Maximum time since the last successful sync"
+msgstr "Tijd sinds de laatste succesvolle planning"
 
 #, fuzzy
 msgid "Maximum uptime of the device"
@@ -41236,6 +41611,14 @@ msgstr "Geheugen"
 
 msgid "Memory (RAM)"
 msgstr "Geheugen (RAM)"
+
+#, fuzzy
+msgid "Memory Limit"
+msgstr "Geheugengrootte"
+
+#, fuzzy
+msgid "Memory Limiter"
+msgstr "Geheugengrootte"
 
 #, fuzzy
 msgid "Memory Modules"
@@ -41577,15 +41960,15 @@ msgstr "Metrische prognose"
 msgid "Metric History"
 msgstr "Metrische geschiedenis"
 
+#, fuzzy
+msgid "Metric configuration"
+msgstr "Host configuratie"
+
 msgid "Metric label"
 msgstr "Metrisch etiket"
 
 msgid "Metric levels"
 msgstr "Metrische niveaus"
-
-#, fuzzy
-msgid "Metric name"
-msgstr "Metrisch etiket"
 
 #, fuzzy
 msgid "Metric name (exact match)"
@@ -41668,10 +42051,6 @@ msgstr "Gebruikers migreren naar een andere verbinding"
 #, python-format
 msgid "Migrated %d %s to connector '%s': %s"
 msgstr "Gemigreerd %d %s naar connector '%s': %s"
-
-#, fuzzy
-msgid "Migrated Parents"
-msgstr "Gebruikers migreren"
 
 #, fuzzy
 msgid "Migrating"
@@ -41841,10 +42220,6 @@ msgstr "Spiegel de verticale as"
 
 msgid "Mirror views"
 msgstr "Spiegel aanzichten"
-
-#, fuzzy
-msgid "Mirrored"
-msgstr "Gespiegeld gebied"
 
 #, fuzzy
 msgid "Mirroring"
@@ -42215,6 +42590,10 @@ msgstr "Monitor Android-apparaten"
 msgid "Monitor CloudFront WAFs"
 msgstr "CloudFront WAF's monitoren"
 
+#, fuzzy
+msgid "Monitor Oracle Databases"
+msgstr "Gebeurtenisendatabase"
+
 msgid "Monitor Route53"
 msgstr "Bewaak Route53"
 
@@ -42231,6 +42610,10 @@ msgstr "Controleer alle gevonden gevallen"
 
 msgid "Monitor all instances found"
 msgstr "Controleer alle gevonden gevallen"
+
+#, fuzzy
+msgid "Monitor all subscriptions"
+msgstr "Abonnementen op evenementen"
 
 msgid "Monitor and graph the lanes, if the port has multiple"
 msgstr "Monitor en maak een grafiek van de lanes, als de poort meerdere"
@@ -42611,10 +42994,6 @@ msgstr "Montagemogelijkheden"
 msgid "More than %d results"
 msgstr "Meer dan %d resultaten"
 
-#, python-format
-msgid "More than %d results available, please refine your search."
-msgstr "Meer dan %d resultaten beschikbaar, verfijn uw zoekopdracht."
-
 #, fuzzy
 msgid ""
 "Most elements have a hard coded static title and some are aware of their "
@@ -42757,6 +43136,14 @@ msgid ""
 "Moved rule %s from position #%d to #%d in ruleset \"%s\" in folder \"%s\""
 msgstr ""
 "Regel %s verplaatst van positie #%d naar #%d in regelset \"%s\" in map \"%s\""
+
+#, fuzzy, python-format
+msgid ""
+"Moved rule %s of ruleset \"%s\" from folder \"%s\" to position #%d in folder "
+"\"%s\""
+msgstr ""
+"Gewijzigde eigenschappen van regel \"%s\", verplaatst van map \"%s\" naar "
+"boven in map \"%s\""
 
 #, python-format
 msgid "Moved rule %s to pack %s"
@@ -43410,10 +43797,6 @@ msgstr "Naam van de virtuele machine en/of het<br>type vuilnisverzameling"
 msgid "Name of the virtual machine and/or<br>threadpool"
 msgstr "Naam van de virtuele machine en/of<br>threadpool"
 
-#, fuzzy
-msgid "Name or IP address of the host where MS SQL runs if host name fails"
-msgstr "Hostnaam of IPv4 adres voor luisteraar"
-
 msgid "Name resolution"
 msgstr "Naam resolutie"
 
@@ -43542,6 +43925,10 @@ msgstr ""
 
 msgid "Negate: find hosts <b>not</b> having this package"
 msgstr "Negeren: zoek hosts <b>die dit pakket niet</b> hebben"
+
+#, fuzzy
+msgid "Negative age tolerance"
+msgstr "Een lege waarde is hier niet toegestaan."
 
 msgid "Negative match (Exclude matching hosts from the set)"
 msgstr "Negatieve overeenkomst (sluit overeenkomende hosts uit van de set)"
@@ -43696,6 +44083,10 @@ msgstr "Netwerkadres:"
 msgid "Network containers"
 msgstr "Docker-containers"
 
+#, fuzzy
+msgid "Network effectiveness ratio"
+msgstr "Specificatie van het netwerk"
+
 msgid "Network filesystem - overall status and usage (e.g. NFS)"
 msgstr "Netwerk bestandssysteem - algemene status en gebruik (b.v. NFS)"
 
@@ -43794,6 +44185,10 @@ msgstr "Installeer nooit Python met de agent"
 
 msgid "Never remove files newer than"
 msgstr "Verwijder nooit bestanden die nieuwer zijn dan"
+
+#, fuzzy
+msgid "Never synchronized"
+msgstr "synchroniseren"
 
 msgid "Never use piggyback data"
 msgstr "Gebruik nooit piggyback data"
@@ -43906,6 +44301,10 @@ msgid "Newest first"
 msgstr "Nieuwste eerst"
 
 #, fuzzy
+msgid "Newest snapshot age"
+msgstr "NetApp Snapshot Reserve"
+
+#, fuzzy
 msgid "Next"
 msgstr "Volgende run"
 
@@ -44006,6 +44405,10 @@ msgstr "Geen controleplugins die de verouderde API gebruiken"
 msgid "No HW/SW Inventory plug-ins using the deprecated API"
 msgstr "Geen controleplugins die de verouderde API gebruiken"
 
+#, fuzzy
+msgid "No Health Check"
+msgstr "Volgende controle"
+
 msgid "No IP"
 msgstr "Geen IP"
 
@@ -44018,6 +44421,10 @@ msgstr "Geen niveaus"
 #, fuzzy
 msgid "No PNP templates using the deprecated API"
 msgstr "Geen controleplugins die de verouderde API gebruiken"
+
+#, fuzzy
+msgid "No Relay configuration yet"
+msgstr "Host configuratie"
 
 msgid "No SNMP"
 msgstr "Geen SNMP"
@@ -44116,6 +44523,10 @@ msgstr "Geen gegevens beschikbaar"
 msgid "No data from any site"
 msgstr "Geen gegevens van een site"
 
+#, fuzzy
+msgid "No data from time provider"
+msgstr "Geen gegevens van een site"
+
 msgid "No data was found with the current parameters of this dashlet."
 msgstr ""
 "Er zijn geen gegevens gevonden met de huidige parameters van dit streepje."
@@ -44125,6 +44536,14 @@ msgstr "Geen gegevens."
 
 msgid "No datasource defined."
 msgstr "Geen datasource gedefinieerd."
+
+#, fuzzy
+msgid "No default values can be set for condition choices."
+msgstr "Standaardwaarden instellen voor alle secties"
+
+#, fuzzy
+msgid "No defaults"
+msgstr "Is standaard"
 
 #, fuzzy
 msgid "No deprecated rule sets found."
@@ -44193,6 +44612,10 @@ msgstr ""
 #, python-format
 msgid "No graph available: %s"
 msgstr "Geen grafiek beschikbaar: %s"
+
+#, fuzzy
+msgid "No graph recipe found"
+msgstr "Geen geldige themamappen gevonden."
 
 #, fuzzy, python-format
 msgid "No graph with the ID <tt>%s</tt> found for user <tt>%s</tt>"
@@ -44313,9 +44736,6 @@ msgstr "Van wachtwoord opslag"
 msgid "No password selected"
 msgstr "Van wachtwoord opslag"
 
-msgid "No pending changes"
-msgstr "Geen hangende wijzigingen"
-
 #, fuzzy
 msgid "No pending changes."
 msgstr "Geen hangende wijzigingen"
@@ -44323,11 +44743,6 @@ msgstr "Geen hangende wijzigingen"
 #, python-format
 msgid "No performance data: %s"
 msgstr "Geen prestatiegegevens: %s"
-
-#, fuzzy
-msgid ""
-"No permission for fallback topic 'Other'. Please contact your administrator."
-msgstr "Neem contact op met uw beheerder."
 
 #, fuzzy
 msgid "No previous cycle available"
@@ -44340,6 +44755,10 @@ msgstr "Gebruik proxy"
 #, fuzzy
 msgid "No re-executions"
 msgstr "Gelijktijdige uitvoeringen"
+
+#, fuzzy
+msgid "No relays configured yet."
+msgstr "Host configuratie"
 
 msgid "No replication with this site"
 msgstr "Geen replicatie met deze site"
@@ -44423,6 +44842,10 @@ msgid ""
 msgstr ""
 "Geen dergelijke inventarisboom van host %s. Het kan ook zijn dat je geen "
 "toegang hebt tot deze host."
+
+#, fuzzy
+msgid "No such value"
+msgstr "No such file"
 
 #, fuzzy
 msgid "No tags defined"
@@ -44931,10 +45354,6 @@ msgstr ""
 msgid "Not yet monitored"
 msgstr "Nog niet gecontroleerd"
 
-#, fuzzy
-msgid "Notation"
-msgstr "Kennisgeving"
-
 #, fuzzy, python-format
 msgid "Notation: %s"
 msgstr "Annotaties: %s"
@@ -44987,6 +45406,12 @@ msgid ""
 msgstr ""
 "Opmerking: Indien u in het rapport ook een limiet hebt ingesteld, dan "
 "vervangt de hier ingestelde limiet die limiet."
+
+msgid ""
+"Note: Simultaneous monitoring of both Nutanix Prism Element and Nutanix "
+"Prism Central is not supported. Doing so may cause conflicting piggyback "
+"data."
+msgstr ""
 
 #, no-python-format
 msgid ""
@@ -45468,6 +45893,18 @@ msgstr "Aantal PING-sondes"
 msgid "Number of Placement Groups"
 msgstr "Aantal regelgroepen"
 
+#, fuzzy
+msgid "Number of Podman containers"
+msgstr "Aantal containers"
+
+#, fuzzy
+msgid "Number of Podman images"
+msgstr "Aantal knooppunten"
+
+#, fuzzy
+msgid "Number of Podman volumes"
+msgstr "Aantal knooppunten"
+
 msgid "Number of Resources"
 msgstr "Aantal middelen"
 
@@ -45488,6 +45925,18 @@ msgid "Number of access points"
 msgstr "Aantal toegangspunten"
 
 msgid "Number of active Plugs"
+msgstr "Aantal actieve stekkers"
+
+#, fuzzy
+msgid "Number of active Podman containers"
+msgstr "Aantal actieve instanties"
+
+#, fuzzy
+msgid "Number of active Podman images"
+msgstr "Aantal actieve stekkers"
+
+#, fuzzy
+msgid "Number of active Podman volumes"
 msgstr "Aantal actieve stekkers"
 
 msgid "Number of active instances"
@@ -45574,6 +46023,14 @@ msgstr "Aantal contextregels na berichten"
 msgid "Number of context lines before messages"
 msgstr "Aantal contextregels vóór berichten"
 
+#, fuzzy
+msgid "Number of created Podman containers"
+msgstr "Aantal lopende containers"
+
+#, fuzzy
+msgid "Number of created Podman pods"
+msgstr "Aantal lopende containers"
+
 msgid "Number of critical alerts"
 msgstr "Aantal kritische signaleringen"
 
@@ -45603,6 +46060,14 @@ msgstr "Aantal datapunten"
 msgid "Number of days from now (single page)"
 msgstr "Aantal dagen vanaf nu (enkele pagina)"
 
+#, fuzzy
+msgid "Number of dead Podman containers"
+msgstr "Aantal containers"
+
+#, fuzzy
+msgid "Number of dead Podman pods"
+msgstr "Aantal containers"
+
 msgid "Number of delayed unassigned shards"
 msgstr "Aantal vertraagde niet-toegewezen scherven"
 
@@ -45629,6 +46094,18 @@ msgstr "Aantal gebeurtenissen in bepaalde tijdspanne bovenste niveau"
 
 msgid "Number of evicted keys"
 msgstr "Aantal uitgezette sleutels"
+
+#, fuzzy
+msgid "Number of exited Podman containers"
+msgstr "Aantal lopende containers"
+
+#, fuzzy
+msgid "Number of exited Podman containers (non-zero)"
+msgstr "Aantal lopende containers"
+
+#, fuzzy
+msgid "Number of exited Podman pods"
+msgstr "Aantal lopende containers"
 
 msgid "Number of expected messages"
 msgstr "Aantal verwachte berichten"
@@ -45700,6 +46177,10 @@ msgstr "Aantal hosts dat in één keer kan worden afgehandeld"
 msgid "Number of idle executors"
 msgstr "Aantal inactieve uitvoerders"
 
+#, fuzzy
+msgid "Number of images"
+msgstr "Aantal artikelen"
+
 msgid "Number of inactive sessions"
 msgstr "Aantal inactieve sessies"
 
@@ -45760,6 +46241,10 @@ msgstr "Aantal mislukte aanmeldingen om de rekening te vergrendelen"
 msgid "Number of matching rules in this pack: %d"
 msgstr "Aantal overeenstemmende regels in dit pakket: %d"
 
+#, fuzzy
+msgid "Number of max hops"
+msgstr "Aantal hops"
+
 msgid "Number of messages currently queued"
 msgstr "Aantal berichten in de wachtrij"
 
@@ -45819,6 +46304,10 @@ msgstr "Verwacht aantal open file descriptors"
 msgid "Number of packets"
 msgstr "Aantal pakketten"
 
+#, fuzzy
+msgid "Number of paused Podman containers"
+msgstr "Aantal lopende containers"
+
 msgid "Number of pending clients in a blocking call"
 msgstr "Aantal wachtende cliënten in een blokkerende oproep"
 
@@ -45865,6 +46354,10 @@ msgstr "Aantal afgewezen verbindingsverzoeken"
 msgid "Number of relocating shards"
 msgstr "Aantal verhuizende scherven"
 
+#, fuzzy
+msgid "Number of removing Podman containers"
+msgstr "Aantal lopende containers"
+
 msgid "Number of requests"
 msgstr "Aantal verzoeken"
 
@@ -45880,6 +46373,10 @@ msgstr "Aantal verzoeken met retourcode klasse 4xx (cliëntfout)"
 msgid "Number of requests with return code class 5xx (server error)"
 msgstr "Aantal verzoeken met retourcode klasse 5xx (serverfout)"
 
+#, fuzzy
+msgid "Number of restarting Podman containers"
+msgstr "Aantal lopende containers"
+
 msgid "Number of retries"
 msgstr "Aantal herhalingen"
 
@@ -45891,6 +46388,14 @@ msgstr ""
 
 msgid "Number of rule groups"
 msgstr "Aantal regelgroepen"
+
+#, fuzzy
+msgid "Number of running Podman containers"
+msgstr "Aantal lopende containers"
+
+#, fuzzy
+msgid "Number of running Podman pods"
+msgstr "Aantal lopende containers"
 
 msgid "Number of running containers"
 msgstr "Aantal lopende containers"
@@ -46009,11 +46514,23 @@ msgstr "Aantal stand-by paden"
 msgid "Number of steps aggregated into one data point"
 msgstr "Aantal stappen samengevoegd tot één gegevenspunt"
 
+#, fuzzy
+msgid "Number of stopped Podman containers"
+msgstr "Aantal containers"
+
+#, fuzzy
+msgid "Number of stopped Podman pods"
+msgstr "Aantal containers"
+
 msgid "Number of stuck tasks"
 msgstr "Aantal vastgelopen taken"
 
 msgid "Number of tables"
 msgstr "Aantal tabellen"
+
+#, fuzzy
+msgid "Number of tapes in the scratch pool"
+msgstr "Aantal veranderingen sinds laatste dump"
 
 #, fuzzy
 msgid "Number of tasks"
@@ -46076,6 +46593,10 @@ msgstr "Aantal vCPU's gereserveerd voor de VM"
 
 msgid "Number of vaults"
 msgstr "Aantal kluizen"
+
+#, fuzzy
+msgid "Number of volumes"
+msgstr "Aantal kolommen"
 
 msgid "Number of warnings"
 msgstr "Aantal waarschuwingen"
@@ -46455,6 +46976,10 @@ msgstr "Leeftijd oudste bericht"
 msgid "Oldest replication slot lag size"
 msgstr "Oudste replicatiegroef Lagegrootte"
 
+#, fuzzy
+msgid "Oldest snapshot age"
+msgstr "Leeftijd oudste bericht"
+
 msgid "Omit ICMP payload"
 msgstr "ICMP payload weglaten"
 
@@ -46589,6 +47114,10 @@ msgstr ""
 
 msgid "One RRD per host/service (saves disk IO, only with CMC)"
 msgstr "Eén RRD per host/service (spaart disk IO, alleen met CMC)"
+
+#, fuzzy
+msgid "One condition needs to match (offensive)"
+msgstr "De regelvoorwaarden komen niet overeen."
 
 msgid "One heartbeat every"
 msgstr "Een hartslag elke"
@@ -46860,6 +47389,10 @@ msgstr ""
 "Hernoem alleen hostnamen waarvan de namen <i>beginnen</i> met de reguliere "
 "expressie die hier is ingevoerd."
 
+#, fuzzy
+msgid "Only root socket"
+msgstr "Slechts procent"
+
 msgid "Only show current value"
 msgstr "Toon alleen huidige waarde"
 
@@ -46901,6 +47434,10 @@ msgstr "Alleen hoofdletters zijn toegestaan"
 
 msgid "Only use device's levels, ignore yours"
 msgstr "Gebruik alleen de niveaus van het apparaat, negeer de jouwe"
+
+#, fuzzy
+msgid "Only user sockets"
+msgstr "Open netwerk sockets"
 
 msgid "Only valid in Jenkins versions <= 1.622."
 msgstr ""
@@ -47081,10 +47618,6 @@ msgstr "Operaties"
 
 msgid "Operations States"
 msgstr "Operatie Staten"
-
-#, fuzzy
-msgid "Operations on selected graph lines"
-msgstr "Werking op geselecteerde metriek"
 
 msgid "Operations per second"
 msgstr "Bewerkingen per seconde"
@@ -47596,6 +48129,10 @@ msgstr "ORACLE Totaal kleine schrijffouten"
 #, fuzzy
 msgid "Oracle count"
 msgstr "Totaal aantal"
+
+#, fuzzy
+msgid "Oracle credentials"
+msgstr "Gebruik geloofsbrieven"
 
 #, fuzzy
 msgid "Oracle data file backup large read bytes"
@@ -48207,10 +48744,6 @@ msgstr "Orig. IP"
 msgid "Origin"
 msgstr "Oorsprong"
 
-#, python-format
-msgid "Original %s"
-msgstr "Origineel %s"
-
 msgid "Original IP address"
 msgstr "Oorspronkelijk IP-adres"
 
@@ -48227,6 +48760,10 @@ msgstr "Originele tekst"
 msgid "Original host name when host name has been rewritten, empty otherwise"
 msgstr ""
 "Oorspronkelijke hostnaam wanneer de hostnaam herschreven is, anders leeg"
+
+#, fuzzy
+msgid "Original name"
+msgstr "Originele tekst"
 
 msgid "Other"
 msgstr "Andere"
@@ -48833,6 +49370,10 @@ msgid "PGs Active + Undersized + Degraded + Remapped + Backfill + Toofull"
 msgstr ""
 
 msgid "PGs Active + Undersized + Degraded + Remapped + Backfill + Wait"
+msgstr ""
+
+msgid ""
+"PGs Active + Undersized + Degraded + Remapped + Backfill + Wait + Toofull"
 msgstr ""
 
 msgid "PGs Active + Undersized + Degraded + Remapped + Backfilling"
@@ -49459,6 +50000,10 @@ msgstr "Wachtwoord bestaat niet of gebruik niet toegestaan"
 msgid "Password does not exist or using not permitted."
 msgstr "Wachtwoord bestaat niet of gebruik niet toegestaan"
 
+#, fuzzy
+msgid "Password field can not be empty"
+msgstr "Toegangssleutel"
+
 msgid "Password for binding, if your server requires an authentication"
 msgstr "Wachtwoord voor binding, als uw server een authenticatie vereist"
 
@@ -49554,6 +50099,9 @@ msgstr ""
 msgid ""
 "Path to the user certificate. If the path is not exist or empty, the user "
 "certificate will not be used."
+msgstr ""
+
+msgid "Path to tnsnames.ora or sqlnet.ora file"
 msgstr ""
 
 msgid "Path to unix socket"
@@ -50626,11 +51174,6 @@ msgstr ""
 "licentie tijdig wordt verlengd. Als u uw licentie hebt gekocht via een %s, "
 "neem dan contact met hen op."
 
-msgid ""
-"Please contact your Checkmk administrator to ensure that your license is "
-"extended in time."
-msgstr ""
-
 msgid "Please contact your administrator."
 msgstr "Neem contact op met uw beheerder."
 
@@ -50667,11 +51210,6 @@ msgstr "Geef een tijd op."
 
 msgid "Please enter a filename."
 msgstr "Voer een bestandsnaam in."
-
-#, fuzzy
-msgid "Please enter a hostname to test Checkmk agent connection"
-msgstr ""
-"Gelieve een hostnaam in te stellen voor de herclassificatie van de hoststatus"
 
 #, fuzzy
 msgid "Please enter a name."
@@ -50814,6 +51352,9 @@ msgstr ""
 "systeem Apache configuratie moet instellen om de Checkmk GUI te vertellen "
 "over de SSL setup."
 
+msgid "Please note that your site will be deleted when the trial period ends. "
+msgstr ""
+
 #, fuzzy
 msgid ""
 "Please note, that the agent replaces spaces in the service names with "
@@ -50950,9 +51491,6 @@ msgstr "Selecteer ten minste één element"
 #, fuzzy
 msgid "Please select at least one item to monitor"
 msgstr "Selecteer ten minste één element"
-
-msgid "Please select at least one messaging method."
-msgstr "Kies ten minste één berichtmethode."
 
 #, fuzzy
 msgid "Please select at least one or more regions to continue."
@@ -51331,8 +51869,42 @@ msgid "Pod resources: StatefulSet"
 msgstr "Pod bronnen: StatefulSet"
 
 #, fuzzy
+msgid "Podman"
+msgstr "# Containers"
+
+#, fuzzy
+msgid "Podman Container Health"
+msgstr "# Containers"
+
+#, fuzzy
+msgid "Podman Container Restarts"
+msgstr "# Containers"
+
+#, fuzzy
+msgid "Podman Container Status"
+msgstr "# Containers"
+
+#, fuzzy
+msgid "Podman Containers"
+msgstr "# Containers"
+
+#, fuzzy
+msgid "Podman Disk Usage"
+msgstr "Schijfgebruik"
+
+#, fuzzy
 msgid "Podman Monitoring"
 msgstr "Toezicht"
+
+#, fuzzy
+msgid "Podman Pods"
+msgstr "# Containers"
+
+msgid "Podman socket path"
+msgstr ""
+
+msgid "Podman socket paths"
+msgstr ""
 
 msgid "Pods"
 msgstr "Pods"
@@ -51507,6 +52079,10 @@ msgstr "Stroomverbruik"
 msgid "Power consumption draw"
 msgstr "Stroomverbruik"
 
+#, fuzzy
+msgid "Power state mapping"
+msgstr "BGP Peer State Mapping"
+
 msgid "Power state unknown"
 msgstr "Vermogenstoestand onbekend"
 
@@ -51557,10 +52133,6 @@ msgstr "Voorrang"
 
 msgid "Precedence of contact groups"
 msgstr "Voorrang van contactgroepen"
-
-#, fuzzy
-msgid "Precision"
-msgstr "Toestemming"
 
 msgid "Precision of float values"
 msgstr "Nauwkeurigheid van zwevende waarden"
@@ -51689,6 +52261,9 @@ msgstr "Presentaties"
 msgid "Preserve cache times configured by other rules"
 msgstr "Behoud cache tijden geconfigureerd door andere regels"
 
+msgid "Press Ctrl + K to trigger search"
+msgstr ""
+
 msgid "Pressure"
 msgstr "Druk"
 
@@ -51802,7 +52377,8 @@ msgstr "Niveau printercartridges"
 msgid "Printer queue length"
 msgstr "Lengte printerwachtrij"
 
-msgid "Printer sends <i>used</i> material instead of <i>remaining</i>"
+#, fuzzy
+msgid "Printer sends <i>used</i> supply instead of <i>remaining</i>"
 msgstr ""
 "Printer stuurt <i>gebruikt</i> materiaal in plaats van <i>restmateriaal</i>"
 
@@ -52904,6 +53480,9 @@ msgstr "Snelheid van bytes verzonden naar de RRD-verbinding"
 msgid "Rate of change"
 msgstr "Snelheid van verandering"
 
+msgid "Rate of disk backend bytes removed or overwritten"
+msgstr ""
+
 msgid "Rate of metrics received"
 msgstr "Percentage ontvangen metriek"
 
@@ -52945,10 +53524,6 @@ msgstr "Lees"
 
 msgid "Read / Write queue length"
 msgstr "Lees / Schrijf wachtrij lengte"
-
-#, fuzzy
-msgid "Read Checkmk user guide"
-msgstr "De officiële Checkmk gebruikershandleiding"
 
 msgid "Read IO operations per second"
 msgstr "Lees IO operaties per seconde"
@@ -53357,6 +53932,10 @@ msgstr "Fysieke poort toestanden om te ontdekken"
 msgid "Redirect URL (has to be https)"
 msgstr "Redirect URL (moet https zijn)"
 
+#, fuzzy
+msgid "Redis Caches"
+msgstr "Redis cliënten"
+
 msgid "Redis clients"
 msgstr "Redis cliënten"
 
@@ -53371,10 +53950,6 @@ msgstr "Redis is niet bereikbaar, beëindiging"
 
 msgid "Redis persistence"
 msgstr "Redis persistentie"
-
-#, fuzzy
-msgid "Redis server is not reachable."
-msgstr "Deze site is momenteel niet bereikbaar."
 
 msgid "Redis server name"
 msgstr "Redis server naam"
@@ -53608,6 +54183,10 @@ msgstr "Registersleutels om naar software te zoeken (Windows)"
 msgid "Regular Asserts"
 msgstr "Regelmatige hartslag"
 
+#, fuzzy
+msgid "Regular Expression"
+msgstr "Reguliere uitdrukking"
+
 msgid "Regular expression"
 msgstr "Reguliere uitdrukking"
 
@@ -53724,6 +54303,10 @@ msgid "Relative"
 msgstr "Relatief"
 
 #, fuzzy
+msgid "Relative Limit in %"
+msgstr "Relatieve vochtigheid"
+
+#, fuzzy
 msgid "Relative difference"
 msgstr "Tijdsverschil"
 
@@ -53760,8 +54343,35 @@ msgid "Relative time of alert"
 msgstr "Relatieve tijd van alarm"
 
 #, fuzzy
+msgid "Relay"
+msgstr "Vertraging:"
+
+msgid "Relay ID"
+msgstr ""
+
+#, fuzzy
+msgid "Relay configurations"
+msgstr "configuratie"
+
+#, fuzzy
+msgid "Relay display name"
+msgstr "Naam weergeven"
+
+#, fuzzy
 msgid "Relay log size"
 msgstr "Logboekgrootte relais"
+
+#, fuzzy
+msgid "Relay name"
+msgstr "Hernoemen"
+
+#, fuzzy
+msgid "Relay properties"
+msgstr "Regeleigenschappen"
+
+#, fuzzy
+msgid "Relays"
+msgstr "Vertraging:"
 
 msgid "Release"
 msgstr "Release"
@@ -53948,6 +54558,10 @@ msgid "Remove Windows Firewall configuration if present"
 msgstr "Verwijder Windows Firewall configuratie indien aanwezig"
 
 #, fuzzy
+msgid "Remove abandoned host files older than"
+msgstr "Opruimen van achtergelaten host bestanden ouder dan"
+
+#, fuzzy
 msgid "Remove acknowledgments"
 msgstr "Bevestiging verwijderen"
 
@@ -53982,6 +54596,18 @@ msgstr "Expliciete instelling verwijderen"
 
 msgid "Remove filter"
 msgstr "Verwijder filter"
+
+#, fuzzy
+msgid "Remove history entries older than"
+msgstr "Wis bestanden ouder dan"
+
+#, fuzzy
+msgid "Remove history entries right after"
+msgstr "Wis bestanden ouder dan"
+
+#, fuzzy
+msgid "Remove history entries which meet the following conditions"
+msgstr "Informatie opvragen over de volgende partities"
 
 #, fuzzy
 msgid "Remove name"
@@ -54309,6 +54935,10 @@ msgstr "Herhaal deze melding, verstuur het opnieuw!"
 msgid "Replayed notification number %d"
 msgstr "Nummer van herhaalde melding %d"
 
+#, fuzzy
+msgid "Replica aggregation method"
+msgstr "Aggregatienaam"
+
 msgid "Replica available state"
 msgstr "Replica beschikbare staat"
 
@@ -54460,6 +55090,10 @@ msgstr "Melding"
 
 msgid "Reports"
 msgstr "Verslagen"
+
+#, fuzzy
+msgid "Repository"
+msgstr "Repository/Tag"
 
 msgid "Repository/Tag"
 msgstr "Repository/Tag"
@@ -54898,6 +55532,10 @@ msgstr "Herstart"
 msgid "Restarts per hour"
 msgstr "Herstart per uur"
 
+#, fuzzy
+msgid "Restarts within the last hour"
+msgstr "Herstart per uur"
+
 msgid "Restore"
 msgstr "Herstel"
 
@@ -55206,6 +55844,11 @@ msgid ""
 msgstr ""
 
 msgid ""
+"Returns the current state of DCD cycles and batches. Executes the commands "
+"cmk-dcd -Bv and cmk-dcd -Cv."
+msgstr ""
+
+msgid ""
 "Returns the latest crash dumps of each type as found in var/checkmk/crashes"
 msgstr ""
 
@@ -55349,6 +55992,14 @@ msgid "Root CA"
 msgstr ""
 
 #, fuzzy
+msgid "Root delay"
+msgstr "Willekeurige vertraging"
+
+#, fuzzy
+msgid "Root dispersion"
+msgstr "Redis persistentie"
+
+#, fuzzy
 msgid "Rotate every Monday at 00:00 local time"
 msgstr "Draaien elke maandag om 00:00 lokale tijd"
 
@@ -55377,10 +56028,6 @@ msgstr "%sRondreis minimum"
 
 msgid "Round trip time"
 msgstr "Tijd voor rondreis"
-
-#, fuzzy
-msgid "Rounding mode"
-msgstr "Lopende pods"
 
 msgid "Route53"
 msgstr "Route53"
@@ -56005,10 +56652,6 @@ msgstr "SHA-2 (SHA-384)"
 msgid "SHA-2 (SHA-512)"
 msgstr "SHA-2 (SHA-512)"
 
-#, fuzzy
-msgid "SI"
-msgstr "SID"
-
 #, python-format
 msgid "SI with symbol %s"
 msgstr ""
@@ -56432,6 +57075,10 @@ msgstr "Zaterdag"
 msgid "Save"
 msgstr "Save"
 
+#, fuzzy
+msgid "Save & edit"
+msgstr "Opslaan en testen"
+
 #, python-format
 msgid "Save & go to %s"
 msgstr "Opslaan en naar %s gaan"
@@ -56472,6 +57119,10 @@ msgstr "Sla deze host op en ga naar"
 msgid "Save your progress and go to the Activate Changes page to enable it."
 msgstr ""
 
+#, fuzzy
+msgid "Saved"
+msgstr "Save"
+
 #, python-format
 msgid "Saved check configuration of host '%s' with %d services"
 msgstr "Opgeslagen controleconfiguratie van host '%s' met %d diensten"
@@ -56483,9 +57134,6 @@ msgid "Saved space"
 msgstr "Gereserveerde ruimte"
 
 msgid "Saving the result..."
-msgstr ""
-
-msgid "Scalar"
 msgstr ""
 
 msgid "Scale to width of page"
@@ -56615,6 +57263,9 @@ msgstr "Score"
 msgid "Scrape interval"
 msgstr "Scan interval"
 
+msgid "Scratch Pool"
+msgstr ""
+
 msgid "Script (Limited support, see inline help)"
 msgstr "Script (beperkte ondersteuning, zie inline help)"
 
@@ -56720,10 +57371,6 @@ msgstr ""
 "Zoeken naar ineffectieve regels (die niet overeenkomen met een host of "
 "service)"
 
-#, fuzzy
-msgid "Search for menu entries, settings, hosts and rule sets."
-msgstr "Zoek naar menu-items, instellingen, hosts en regelsets."
-
 msgid "Search for not deprecated rulesets"
 msgstr "Zoeken naar niet afgeschreven regelsets"
 
@@ -56745,12 +57392,6 @@ msgstr "Zoekgeschiedenis"
 
 msgid "Search hosts"
 msgstr "Zoek hosts"
-
-msgid "Search in Monitoring"
-msgstr "Zoeken in Toezicht"
-
-msgid "Search in Setup"
-msgstr "Zoeken in Setup"
 
 #, fuzzy
 msgid "Search in body"
@@ -56805,41 +57446,6 @@ msgstr "Zoektijd grafieken"
 
 msgid "Search whole subtree below the base DN"
 msgstr "Zoek in de hele subtree onder de DN van de basis"
-
-#, fuzzy
-msgid ""
-"Search with regular expressions for menu entries, \n"
-"hosts, services or host and service groups.\n"
-"\n"
-"You can use the following filters:\n"
-"h: Host\n"
-"s: Service\n"
-"hg: Host group\n"
-"sg: Service group\n"
-"ad: Address\n"
-"al: Alias\n"
-"tg: Host tag\n"
-"hl: Host label (e.g. hl: cmk/os_family:linux)\n"
-"sl: Service label (e.g. sl: cmk/os_family:linux)\n"
-"st: Service state (e.g. st: crit [ok|warn|crit|unkn|pend])\n"
-"\n"
-"Note that for simplicity '*' will be substituted with '.*'."
-msgstr ""
-"Zoeken met reguliere expressies naar menu-items,\n"
-"hosts, services of host- en servicegroepen.\n"
-"\n"
-"U kunt de volgende filters gebruiken:\n"
-"h: Host\n"
-"s: Service\n"
-"hg: Hostgroep\n"
-"sg: Servicegroep\n"
-"ad: Adres\n"
-"al: Alias\n"
-"tg: Host label\n"
-"hl: Hostlabel (bijv. hl: cmk/os_family:linux)\n"
-"sl: Dienstlabel (b.v. sl: cmk/os_family:linux)\n"
-"\n"
-"Merk op dat voor de eenvoud '*' zal worden vervangen door '.*'."
 
 msgid "Search<nobr> </nobr>in"
 msgstr "Zoeken<nobr> </nobr>in"
@@ -57018,6 +57624,9 @@ msgstr ""
 "geluiden</a> voor meer informatie en het uitproberen van de beschikbare "
 "geluiden."
 
+msgid "See SaaS onboarding"
+msgstr ""
+
 msgid "See all events"
 msgstr "Bekijk alle evenementen"
 
@@ -57111,10 +57720,6 @@ msgid ""
 msgstr "Te controleren Azure diensten"
 
 #, fuzzy
-msgid "Select at least one graph line to edit"
-msgstr "Selecteer ten minste één element"
-
-#, fuzzy
 msgid "Select contact group"
 msgstr "Regel contactgroepen"
 
@@ -57124,9 +57729,6 @@ msgstr "Selecteer gegevensbron"
 
 msgid "Select device type"
 msgstr "Selecteer type apparaat"
-
-msgid "Select exactly one graph line to edit"
-msgstr ""
 
 msgid "Select file"
 msgstr "Selecteer bestand"
@@ -57138,6 +57740,16 @@ msgid "Select from a list of metrics known to Checkmk"
 msgstr ""
 
 msgid "Select from a list of service names known to Checkmk"
+msgstr ""
+
+msgid ""
+"Select how multiple data points from replicas of the same service should be "
+"aggregated. By default, the latest value independent of replica is taken. "
+"With this setting, you can choose alternative aggregation methods (min, max, "
+"sum, average) to apply over all the latest samples of differing replicas for "
+"the same host (e.g. same service.name, different service.instance.id)."
+"<br><br>Aggregations occur only over the set of most recent data points per "
+"replica since the last check"
 msgstr ""
 
 #, fuzzy
@@ -57351,6 +57963,9 @@ msgstr ""
 "Selecteer de software waarop de LDAP-directory is gebaseerd. Afhankelijk van "
 "de selectie worden bijv. de attribuutnamen die in LDAP-query's worden "
 "gebruikt, gewijzigd."
+
+msgid "Select the subscriptions you want to monitor."
+msgstr ""
 
 msgid "Select the type of content element"
 msgstr "Selecteer het type inhoudselement"
@@ -57688,6 +58303,22 @@ msgstr "Serververbindingen"
 msgid "Server latency"
 msgstr "Serververtraging"
 
+#, fuzzy
+msgid "Server load"
+msgstr "Belasting Citrix Server"
+
+#, fuzzy
+msgid "Server load %"
+msgstr "Belasting Citrix Server"
+
+#, fuzzy
+msgid "Server load (average)"
+msgstr "Serverlogboekopslag"
+
+#, fuzzy
+msgid "Server load levels"
+msgstr "Dienstverleningsniveau"
+
 msgid "Server log storage"
 msgstr "Serverlogboekopslag"
 
@@ -57696,6 +58327,10 @@ msgstr "Server log opslag gebruikt"
 
 msgid "Server performance"
 msgstr "Serverprestaties"
+
+#, fuzzy
+msgid "Server side command latency"
+msgstr "Serververtraging"
 
 msgid "Server side handling of unencrypted data"
 msgstr "Serverzijde behandeling van niet-gecodeerde gegevens"
@@ -57707,6 +58342,10 @@ msgstr "Server tijd"
 #, python-format
 msgid "Server time (currently: %s)"
 msgstr ""
+
+#, fuzzy
+msgid "Server-side command latency"
+msgstr "Serververtraging"
 
 msgid "Service"
 msgstr "Dienst"
@@ -58218,6 +58857,10 @@ msgstr "Dienstverleningsstatus"
 msgid "Service status grouping"
 msgstr "Groepering van dienstverleningsstatussen"
 
+#, fuzzy
+msgid "Service status when geo-replication link is unhealthy"
+msgstr "Staat wanneer replicatietoestand actief is"
+
 msgid "Service tags"
 msgstr "Dienstmarkeringen"
 
@@ -58347,6 +58990,10 @@ msgstr "Sessie timeout:"
 
 msgid "Session type"
 msgstr "Sessie type"
+
+#, fuzzy, python-format
+msgid "Set '%s' to '%s' on site %s"
+msgstr "Verander '%s' naar '%s'"
 
 msgid "Set IPv4 address"
 msgstr "IPv4-adres instellen"
@@ -59203,14 +59850,8 @@ msgstr "Toon alle gastheren"
 msgid "Show all phases of notifications"
 msgstr "Toon alle fasen van meldingen"
 
-msgid "Show all results"
-msgstr "Toon alle resultaten"
-
 msgid "Show all rules"
 msgstr "Toon alle regels"
-
-msgid "Show all topics"
-msgstr "Toon alle onderwerpen"
 
 #, fuzzy
 msgid "Show bar visualization"
@@ -59602,21 +60243,6 @@ msgstr "Verticale as tonen"
 
 msgid "Show volume name in service output"
 msgstr "Toon volumenaam in dienstuitvoer"
-
-#, fuzzy
-msgid ""
-"Show/hide community translated languages in the \"Language\" dropdown (User "
-"> Edit profile). Note that these translations are contributed by the Checkmk "
-"community and thus no liability is assumed for their validity.<br>If this "
-"setting is turned from 'on' to 'off' while a user has set a community "
-"translated language, the user's language is changed to 'English'."
-msgstr ""
-"Toon/verberg door de gemeenschap vertaalde talen in de \"Language\" dropdown "
-"(User > Edit profile). Merk op dat deze vertalingen zijn bijgedragen door de "
-"Checkmk gemeenschap en dus geen aansprakelijkheid wordt aanvaard voor hun "
-"geldigheid.<br>Als deze instelling van 'on' naar 'off' wordt gezet terwijl "
-"een gebruiker een door de gemeenschap vertaalde taal heeft ingesteld, wordt "
-"de taal van de gebruiker'veranderd in 'English'."
 
 #, fuzzy
 msgid "Show/hide password"
@@ -60095,6 +60721,10 @@ msgid "Size growth per minute"
 msgstr "Grootte groei per minuut"
 
 #, fuzzy
+msgid "Size of OTel Collector"
+msgstr "Grootte van de logbestanden"
+
+#, fuzzy
 msgid "Size of PNP4Nagios"
 msgstr "Spool bestanden van PNP4Nagios"
 
@@ -60110,6 +60740,10 @@ msgstr "Omvang van de licentie"
 
 #, fuzzy
 msgid "Size of core"
+msgstr "Grootte van de logbestanden"
+
+#, fuzzy
+msgid "Size of crashes"
 msgstr "Grootte van de logbestanden"
 
 msgid "Size of deferred mail queue"
@@ -60330,6 +60964,10 @@ msgstr "Netwerkbewaking"
 msgid "SnapVaults"
 msgstr "Kluisjes"
 
+#, fuzzy
+msgid "Snapshot Age"
+msgstr "Momentopnamen beheren"
+
 msgid "Snapshot build currently in progress"
 msgstr "Snapshot build is bezig"
 
@@ -60342,6 +60980,10 @@ msgstr "Momentopnamen beheren"
 
 msgid "Socket"
 msgstr "Stopcontact"
+
+#, fuzzy
+msgid "Socket detection method"
+msgstr "Rookdetectie"
 
 msgid "Sockets"
 msgstr "Contactdozen"
@@ -60386,16 +61028,6 @@ msgstr ""
 
 #, fuzzy
 msgid ""
-"Some Printers (e.g. Konica for Drum Cartdiges) returning the available fuel "
-"instead of what is left. In this case it's possible to upturn the levels to "
-"handle this behavior"
-msgstr ""
-"Sommige printers (b.v. Konica voor Drum Cartdiges) geven de beschikbare "
-"brandstof terug in plaats van wat er nog over is. In dit geval is het "
-"mogelijk om de niveaus te verhogen om dit gedrag te verwerken"
-
-#, fuzzy
-msgid ""
 "Some SNMPv2c/v3 capable devices do not properly support \"bulkwalk\" "
 "queries. For those you can disable \"bulkwalk\" queries with this ruleset. "
 "Please be aware that you should only do this if no other approach is "
@@ -60425,13 +61057,13 @@ msgstr ""
 #, fuzzy
 msgid ""
 "Some agents or agent plug-ins send data not only for the queried host but "
-"also for other hosts &quot;piggyback&quot; with their own data. This is the "
-"case for the vSphere special agent and the SAP R/3 plugin, for example. The "
-"host names that these agents send must match your host names in your "
-"monitoring configuration. If that is not the case, then with this rule you "
-"can define a host name translation. Note: This rule must be configured for "
-"the &quot;pig&quot; - i.e. the host that the agent is running on. It is not "
-"applied to the translated piggybacked hosts."
+"also for other hosts \"piggyback\" with their own data. This is the case for "
+"the vSphere special agent and the SAP R/3 plugin, for example. The host "
+"names that these agents send must match your host names in your monitoring "
+"configuration. If that is not the case, then with this rule you can define a "
+"host name translation. Note: This rule must be configured for the \"pig\" - "
+"i.e. the host that the agent is running on. It is not applied to the "
+"translated piggybacked hosts."
 msgstr ""
 "Sommige agents of agent plugins sturen niet alleen gegevens voor de "
 "opgevraagde host, maar ook voor andere hosts &quot;piggyback&quot; met hun "
@@ -60530,6 +61162,13 @@ msgid ""
 msgstr ""
 
 msgid ""
+"Some metrics are more meaningful when their rate is considered (such as "
+"dropped network packages, for example). The uptime, for example, would be "
+"reported as '1.0 s/s', which is not too useful. You can override the default "
+"behavior here."
+msgstr ""
+
+msgid ""
 "Some of the diagnostics data needs to be collected from the host that "
 "represents the Checkmk server of the related site. In case your Checkmk "
 "server is not monitored by itself, but from a different site (which is "
@@ -60545,6 +61184,17 @@ msgstr ""
 "kunnen tijdstempelkolommen absoluut, relatief of in een gemengde stijl "
 "worden weergegeven. Met deze toestemming kan de gebruiker de weergaveopties "
 "wijzigen"
+
+#, fuzzy
+msgid ""
+"Some printers (e.g. Konica for drum cartridges) return<ul><li>in case of a "
+"container: The used instead of the available supply</li><li>in case of a "
+"receptacle: The available instead of the used space</li><ul>Enable this "
+"option to handle this behavior."
+msgstr ""
+"Sommige printers (b.v. Konica voor Drum Cartdiges) geven de beschikbare "
+"brandstof terug in plaats van wat er nog over is. In dit geval is het "
+"mogelijk om de niveaus te verhogen om dit gedrag te verwerken"
 
 #, fuzzy
 msgid ""
@@ -60594,6 +61244,10 @@ msgstr ""
 
 msgid "Someone before 1.6"
 msgstr "Iemand voor 1.6"
+
+#, python-format
+msgid "Something went wrong: %s"
+msgstr ""
 
 msgid "Sometime before 1.6"
 msgstr "Ergens voor 1.6"
@@ -60803,6 +61457,10 @@ msgid "Special Agent"
 msgstr "Speciaal Agent"
 
 #, fuzzy
+msgid "Special cases for specific services"
+msgstr "Geeft de status van een specifieke dienst weer."
+
+#, fuzzy
 msgid "Specific Mappings"
 msgstr "Specifieke sites"
 
@@ -60840,6 +61498,9 @@ msgstr ""
 "Specificeert hoe de <a href='wato.py?"
 "mode=edit_ruleset&varname=filesystem_groups'>Filesystem grouping patterns</"
 "a> eigenschap dit bestandssysteem verwerkt."
+
+msgid "Specifies the database privilege role used when connecting to Oracle."
+msgstr ""
 
 #, fuzzy
 msgid ""
@@ -61153,6 +61814,11 @@ msgstr "De rollen van een knooppunt van het besturingsvlak specificeren"
 
 #, fuzzy
 msgid "Specify sites this OpenTelemetry collector should run on."
+msgstr ""
+"Specificeer één, meerdere of alle sites waarop deze verbinding moet lopen."
+
+#, fuzzy
+msgid "Specify sites this OpenTelemetry collector should run on. "
 msgstr ""
 "Specificeer één, meerdere of alle sites waarop deze verbinding moet lopen."
 
@@ -61546,6 +62212,10 @@ msgstr "Snelheid"
 msgid "Speed of interface groups (Netapp only)"
 msgstr "Snelheid van interfacegroepen (alleen Netapp)"
 
+#, fuzzy
+msgid "Spike Limit"
+msgstr "Dienstbeperkingen"
+
 msgid "Spin retries (id 10)"
 msgstr ""
 
@@ -61641,10 +62311,6 @@ msgstr "Sproc latentie"
 msgid "Sqlnet Send timeout"
 msgstr "Sqlnet Verzend timeout"
 
-#, fuzzy
-msgid "Stack"
-msgstr "Stapels"
-
 msgid "Stacked"
 msgstr "Stacked"
 
@@ -61665,6 +62331,9 @@ msgstr ""
 
 msgid "Stale"
 msgstr "Stale"
+
+msgid "Stale data received from time provider"
+msgstr ""
 
 msgid "Stale hosts"
 msgstr "Stale gastheren"
@@ -61694,10 +62363,6 @@ msgstr "Standaardafwijking van de rondreistijd in ms"
 
 msgid "Standard deviation of roundtrip times in ms"
 msgstr "Standaardafwijking van de rondreistijd in ms"
-
-#, fuzzy
-msgid "Standard scientific"
-msgstr "Standaard onderwerpen"
 
 msgid ""
 "Standard settings are used for all endpoints unless overwritten by the "
@@ -61809,6 +62474,10 @@ msgstr "Begonnen op %s"
 #, python-format
 msgid "Started at: %s."
 msgstr "Begonnen op: %s."
+
+#, fuzzy
+msgid "Starting"
+msgstr "Opstarten"
 
 #, fuzzy
 msgid "Starting Quick setup action..."
@@ -61927,6 +62596,10 @@ msgstr "Staat en aantal processen"
 
 msgid "State and count of processes (only SNMP)"
 msgstr "Staat en aantal processen (alleen SNMP)"
+
+#, fuzzy
+msgid "State based on status of last sync attempt"
+msgstr "Toestand in geval van onbekende status van replicatiescript"
 
 #, fuzzy
 msgid "State change"
@@ -62144,6 +62817,14 @@ msgstr "Geeft aan of het knooppunt een mem-alarm heeft"
 msgid "State if node is not in state running"
 msgstr "Staat indien knooppunt niet in staat is te draaien"
 
+#, fuzzy
+msgid "State if not default"
+msgstr "Staat als geen enkele invoer overeenkomt"
+
+#, fuzzy
+msgid "State if not expected"
+msgstr "Staat als geen enkele invoer overeenkomt"
+
 msgid "State if probe state not OK"
 msgstr "Staat indien sondestaat niet OK"
 
@@ -62260,6 +62941,10 @@ msgstr "Toestand van %s indien herstel is ingesteld"
 #, python-format
 msgid "State of %s if recovery is set (as integer)"
 msgstr "Toestand van %s indien herstel is ingesteld (als geheel getal)"
+
+#, fuzzy
+msgid "State of Juniper Alarms"
+msgstr "Begin volgend jaar"
 
 msgid "State of NTP peer"
 msgstr "Toestand van NTP peer"
@@ -62772,6 +63457,11 @@ msgstr "Status: rood"
 msgid "Status: yellow"
 msgstr "Status: geel"
 
+msgid ""
+"Stay on track with a quick overview of your setup progress. The sidebar "
+"keeps everything in view, right where you need it."
+msgstr ""
+
 msgid "Steal"
 msgstr "Steel"
 
@@ -62962,6 +63652,10 @@ msgstr "Recht"
 msgid "StrategyType"
 msgstr "StrategyType"
 
+#, fuzzy
+msgid "Stratum"
+msgstr "Recht"
+
 msgid "Stream rules"
 msgstr "Stream regels"
 
@@ -62979,10 +63673,6 @@ msgstr "Straat nummer"
 
 msgid "Strength:"
 msgstr "Sterkte:"
-
-#, fuzzy
-msgid "Strict"
-msgstr "Metrisch"
 
 msgid "Strict - Visible if all members are visible"
 msgstr "Strikt - Zichtbaar als alle leden zichtbaar zijn"
@@ -63107,12 +63797,17 @@ msgstr "Subnet per DB subnet groepen"
 msgid "Subscription"
 msgstr "Abonnement"
 
-msgid "Subscription ID"
-msgstr "Abonnement ID"
-
 #, fuzzy
 msgid "Subscription Status (off: ignore subscription status)"
 msgstr "Activeer Controle (uit: abonnementsstatus negeren)"
+
+#, fuzzy
+msgid "Subscriptions matching tag based criteria"
+msgstr "bronnen die overeenkomen met op tags gebaseerde criteria"
+
+#, fuzzy
+msgid "Subscriptions to monitor"
+msgstr "Te controleren regio's"
 
 msgid "Substitution"
 msgstr "Substitutie"
@@ -63398,9 +64093,6 @@ msgstr "Symantec Anti Virus (Linux)"
 
 msgid "Symantec Brightmail Queues"
 msgstr "Symantec Brightmail wachtrijen"
-
-msgid "Symbol"
-msgstr ""
 
 #, fuzzy
 msgid "Symmetric encryption (Linux, Solaris, Windows)"
@@ -63962,6 +64654,10 @@ msgstr "Tag groepen"
 msgid "Tag groups with only one choice must have a tag ID."
 msgstr "Taggroepen met slechts één keuze moeten een tag ID hebben."
 
+#, fuzzy
+msgid "Tag matching subscriptions"
+msgstr "Abonnementen op evenementen"
+
 msgid "Tag usage"
 msgstr "Tag gebruik"
 
@@ -64292,10 +64988,6 @@ msgid "Test"
 msgstr "Test"
 
 #, fuzzy
-msgid "Test Checkmk agent connection"
-msgstr "Checkmk agent verbindingsmodus"
-
-#, fuzzy
 msgid "Test a self defined notification against your ruleset."
 msgstr "Maak een kopie van deze notificatieregel"
 
@@ -64365,6 +65057,10 @@ msgstr "Test"
 
 msgid "Text"
 msgstr "Tekst"
+
+#, fuzzy
+msgid "Text field can not be empty"
+msgstr "Geheime sleutel"
 
 msgid "Text groups from regular expression match, separated by spaces"
 msgstr "Tekstgroepen van reguliere expressie-match, gescheiden door spaties"
@@ -64489,6 +65185,12 @@ msgstr "De %s is gestopt met wapperen"
 #, python-format
 msgid "The %s you are trying to delete does not exist."
 msgstr "De %s die u probeert te verwijderen bestaat niet."
+
+msgid ""
+"The 'Manage All Scheduled Reports' permission is required to send scheduled "
+"reports via email to other users. Without this permission, only the report "
+"owner will receive the report."
+msgstr ""
 
 #, fuzzy
 msgid "The 'notification number' value must be greater than 0."
@@ -65458,6 +66160,25 @@ msgstr ""
 "moet deze optie aanpassen aan het controle-interval van de Checkmk service "
 "van deze host, als je het controle-interval hebt veranderd."
 
+#, python-brace-format
+msgid ""
+"The agent will automatically discover Podman sockets on the system. This "
+"includes the root socket (/run/podman/podman.sock) and all user sockets "
+"matching the pattern /run/user/{user_id}/podman/podman.sock"
+msgstr ""
+
+msgid ""
+"The agent will automatically discover root Podman socket on the system. This "
+"includes the root socket (/run/podman/podman.sock)"
+msgstr ""
+
+#, python-brace-format
+msgid ""
+"The agent will automatically discover user Podman sockets on the system. "
+"This includes all user sockets matching the pattern /run/user/{user_id}/"
+"podman/podman.sock"
+msgstr ""
+
 #, fuzzy, python-format
 msgid ""
 "The agent will update itself only with packages that are signed by one of "
@@ -65592,9 +66313,6 @@ msgstr ""
 
 msgid "The backup has been deleted."
 msgstr "De backup is verwijderd."
-
-msgid "The backup has been started."
-msgstr "De back-up is gestart."
 
 msgid "The backup has been stopped."
 msgstr "De back-up is gestopt."
@@ -66132,6 +66850,17 @@ msgid ""
 "same."
 msgstr ""
 
+#, python-format
+msgid "The dashboard '%s' does not contain an embedded view with the ID '%s'."
+msgstr ""
+
+#, fuzzy, python-format
+msgid ""
+"The dashboard '%s' does not exist or you do not have permission to view it."
+msgstr ""
+"De %s is alleen voor jou zichtbaar omdat je'geen toestemming hebt om hem te "
+"delen."
+
 msgid "The dashboard element does not exist."
 msgstr "Het dashboard element bestaat niet."
 
@@ -66414,6 +67143,11 @@ msgid ""
 msgstr ""
 "Het bestand %s moet handmatig worden aangemaakt en onderhouden.<br>Bij deze "
 "regel verstrekte configuratie-items worden genegeerd."
+
+msgid ""
+"The file age of files with creation time from the future will be set to 0 if "
+"the creation time is within the tolerance period."
+msgstr ""
 
 msgid "The file does not contain XML text"
 msgstr "Het bestand bevat geen XML-tekst"
@@ -66780,26 +67514,26 @@ msgstr ""
 msgid "The host name attribute needs to be assigned to a column."
 msgstr "Het hostnaam-attribuut moet aan een kolom worden toegewezen."
 
-#, python-brace-format
+#, python-format
 msgid ""
 "The host name computation computes the name of the host that should have the "
 "corresponding Checkmk services. The computation is done by the OpenTelemetry "
-"collector and the result is stored in the \"{attr}\" attribute. For every "
-"rule configured here, the provided fields are concatenated in the order they "
-"are listed. The first rule that results in a non-empty value is used. For "
+"collector and the result is stored in the \"%s\" attribute. For every rule "
+"configured here, the provided fields are concatenated in the order they are "
+"listed. The first rule that results in a non-empty value is used. For "
 "example:\n"
-"{startol}A first rule consisting of one field \"Value of attribute: "
-"service.name\" will set \"{attr}\" to the value of that attribute, if it is "
+"<ol><li>A first rule consisting of one field \"Value of attribute: "
+"service.name\" will set \"%s\" to the value of that attribute, if it is "
 "present. This attribute will be set to the prometheus scrape jobs name, for "
-"example.{newli}A second rule consisting of one field \"Value of attribute: "
-"container.name\" will set \"{attr}\" to the value of that attribute, if it "
-"is present and \"{attr}\" has not been set by the previous rule.{newli}A "
-"third rule consisting of two fields \"Resource attribute value: "
-"custom_attr\" and \"Literal string: some_suffix\" will set \"{attr}\" to "
-"\"VALUEsome_suffix\", if the attribute is present and \"{attr}\" has not "
-"been set by the previous rules.{newli}A last rule consisting of one field "
-"\"Literal string: fallback_host\" will set all \"{attr}\" attributes that "
-"are not yet filled to \"fallback_host\".{endol}"
+"example.</li><li>A second rule consisting of one field \"Value of attribute: "
+"container.name\" will set \"%s\" to the value of that attribute, if it is "
+"present and \"%s\" has not been set by the previous rule.</li><li>A third "
+"rule consisting of two fields \"Resource attribute value: custom_attr\" and "
+"\"Literal string: some_suffix\" will set \"%s\" to \"VALUEsome_suffix\", if "
+"the attribute is present and \"%s\" has not been set by the previous rules.</"
+"li><li>A last rule consisting of one field \"Literal string: fallback_host\" "
+"will set all \"%s\" attributes that are not yet filled to \"fallback_host\"."
+"</li></ol>"
 msgstr ""
 
 #, fuzzy
@@ -67127,6 +67861,10 @@ msgid "The limit for the transport lag in <tt>v$dataguard_stats</tt>"
 msgstr "De limiet voor de transportvertraging in <tt>v$dataguard_stats</tt>"
 
 #, fuzzy
+msgid "The limit has to be bigger than the spike limit."
+msgstr "Het cluster moet ten minste één knooppunt hebben"
+
+#, fuzzy
 msgid "The list needs to have at least one element"
 msgstr "Het cluster moet ten minste één knooppunt hebben"
 
@@ -67390,6 +68128,14 @@ msgstr ""
 "De geheugenniveaus voor een specifieke module van deze host. Dit is relevant "
 "voor hosts die verschillende geheugengebieden hebben, b.v. pluggable kaarten"
 
+msgid ""
+"The memory limiter processor is used to prevent out of memory situations on "
+"the collector. Given that the amount and type of data the collector "
+"processes is environment-specific and resource utilization of the collector "
+"is also dependent on the configured processors, it is important to put "
+"checks in place regarding memory usage."
+msgstr ""
+
 #, no-python-format
 msgid ""
 "The memory utilization of components of a device (e.g. memory utilizationof "
@@ -67462,15 +68208,6 @@ msgid ""
 "please apply a valid license or reduce the number of services and restart "
 "the monitoring core"
 msgstr ""
-
-#, python-format
-msgid ""
-"The monitoring core of the target site '%s' has the version '%s'. That does "
-"not support fetching logfile information. Please upgrade to a newer version."
-msgstr ""
-"De monitoring core van de doelsite '%s' heeft de versie '%s'. Die "
-"ondersteunt het ophalen van logfile informatie niet. Gelieve te upgraden "
-"naar een nieuwere versie."
 
 msgid ""
 "The monitoring state in case the version of a local check is unparsable."
@@ -67962,8 +68699,14 @@ msgstr ""
 "componenten van een rekserver als apparaat) in het laatste controle-"
 "interval. Het mogelijke bereik is van 0% tot 100%"
 
-#, python-format
-msgid "The package is now enabled, but could not be installed on this site: %s"
+#, fuzzy, python-format
+msgid "The package is now enabled, but could not be activated on this site: %s"
+msgstr ""
+"Het pakket is nu ingeschakeld, maar kon niet worden geïnstalleerd op deze "
+"site: %s"
+
+#, fuzzy
+msgid "The package is now enabled, but not active on this site:"
 msgstr ""
 "Het pakket is nu ingeschakeld, maar kon niet worden geïnstalleerd op deze "
 "site: %s"
@@ -68299,6 +69042,16 @@ msgstr ""
 "niet gelijk is aan uw Checkmk gebruikersnaam, kunt u uw ntopng "
 "gebruikersnaam definiëren als 'ntopng Gebruikersnaam' in uw "
 "gebruikersinstellingen onder 'Identiteit'."
+
+#, python-format
+msgid ""
+"The relay '%s' is used by the following host(s): %s. Only relays that are "
+"not being used by a host can be deleted."
+msgstr ""
+
+#, fuzzy, python-format
+msgid "The relay with ID '%s' does not exist."
+msgstr "De regelset \"%s\" bestaat niet."
 
 msgid ""
 "The renaming of hosts is a complex operation since a host's name is being "
@@ -68827,6 +69580,14 @@ msgstr "De site is gemarkeerd als dood. Ik probeer niet te repliceren."
 msgid "The site of the status host does not exist."
 msgstr "De site van de status host bestaat niet."
 
+#, python-format
+msgid "The site version is %s, but this package requires a version below %s."
+msgstr ""
+
+#, python-format
+msgid "The site version is %s, but this package requires at least %s."
+msgstr ""
+
 #, fuzzy, python-format
 msgid ""
 "The sites %s are not using the Checkmk Micro Core. You will not be able to "
@@ -68935,6 +69696,10 @@ msgid ""
 msgstr ""
 "De submap <i>%s</i> heeft de expliciete site <i>%s</i> ingesteld, die "
 "toebehoort aan klant <i>%s</i>. Dit is in strijd met de CME map hiërarchie."
+
+#, fuzzy
+msgid "The subscription tag"
+msgstr "Abonnementen op evenementen"
 
 #, fuzzy, python-format
 msgid "The suffix '%s' is already in use by another LDAP connection."
@@ -69099,6 +69864,10 @@ msgstr ""
 #, python-format
 msgid "The time must not be greater than %02d:%02d."
 msgstr "De tijd mag niet groter zijn dan %02d:%02d."
+
+#, fuzzy
+msgid "The time service was shutting down"
+msgstr "De host of dienst bevond zich in een geplande downtime"
 
 #, python-format
 msgid "The timeout %s is not a valid integer number."
@@ -70481,6 +71250,11 @@ msgid ""
 msgstr ""
 "Deze controle controleert de grootte van en de toegang tot een PostgreSQL "
 "database."
+
+#, fuzzy
+msgid ""
+"This check monitors the status of time synchronization for Windows hosts."
+msgstr "Deze plugin controleert de status van Hyper-V VM's op Window hosts."
 
 msgid "This check returns CRIT if the connection to the remote site failed."
 msgstr ""
@@ -72242,13 +73016,6 @@ msgstr "Dit probleem is erkend"
 msgid "This problem has been acknowledged."
 msgstr "Dit probleem is erkend."
 
-#, fuzzy
-msgid ""
-"This problem might be caused by a missing agent or the firewall settings."
-msgstr ""
-"De bovenstaande problemen kunnen worden veroorzaakt door ontbrekende caches. "
-"Gelieve een rescan uit te voeren."
-
 msgid "This process may take several minutes, please wait..."
 msgstr ""
 
@@ -73287,6 +74054,69 @@ msgstr ""
 "prestatiegegevens van de PING naar sommige hosts wilt bijhouden."
 
 #, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis CPU utilization "
+"monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis Cache "
+"effectiveness monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis connections "
+"monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis latency "
+"monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis memory monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis replication "
+"monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis server load "
+"monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
+msgid ""
+"This ruleset allows you to configure levels for Azure Redis throughput "
+"monitoring"
+msgstr ""
+"Deze regel staat je toe om bloat levels te configureren voor een databases "
+"tablespace en indexspace."
+
+#, fuzzy
 msgid "This ruleset allows you to configure levels for the Storage data flows"
 msgstr ""
 "Deze regel staat je toe om bloat levels te configureren voor een databases "
@@ -74294,6 +75124,11 @@ msgstr ""
 
 #, fuzzy
 msgid ""
+"This will deploy the agent plug-in <tt>mk_oracle</tt> on your target system."
+msgstr "Implementeer de agent plugin <tt>zorp</tt> op uw doelsysteem."
+
+#, fuzzy
+msgid ""
 "This will deploy the agent plug-in <tt>mk_oracle</tt> on your target system. "
 "Currently not all options are available in all operating systems."
 msgstr ""
@@ -74467,6 +75302,10 @@ msgstr "Drempels"
 msgid "Threshold for slow views"
 msgstr "Drempel voor langzame weergave"
 
+#, fuzzy
+msgid "Threshold on number of connections"
+msgstr "Absoluut aantal verbindingen"
+
 msgid "Thresholds"
 msgstr "Drempels"
 
@@ -74475,6 +75314,18 @@ msgstr "Drempels voor Kennisgevingen per Contact"
 
 msgid "Thresholds for quality of time"
 msgstr "Drempels voor de kwaliteit van de tijd"
+
+#, fuzzy
+msgid "Thresholds for the podman containers service."
+msgstr "Storingen van de join launcher service"
+
+#, fuzzy
+msgid "Thresholds for the podman disk usage services."
+msgstr "Bovenste niveaus voor de loggebruiksgrootte"
+
+#, fuzzy
+msgid "Thresholds for the podman pods service."
+msgstr "Storingen van de join launcher service"
 
 #, fuzzy
 msgid "Thresholds on lower message count"
@@ -74565,6 +75416,13 @@ msgstr "Seconden voordat verbinding verbroken wordt"
 msgid "Time before the expiration date of the certificate"
 msgstr "De tijd sinds de laatste controle van de dienst"
 
+msgid ""
+"Time between measurements of memory usage. The recommended value is 1 "
+"second. If the expected traffic to the Collector is very spiky then decrease "
+"the check interval or increase spike limit to avoid memory usage going over "
+"the hard limit."
+msgstr ""
+
 #, fuzzy
 msgid "Time between new checks of type Check_MK"
 msgstr "Tijd tussen nieuwe controles van het type Checkmk"
@@ -74633,6 +75491,13 @@ msgid "Time interval"
 msgstr "Tijdsinterval"
 
 msgid "Time left on Battery at and below which a warning state is triggered"
+msgstr ""
+"Resterende tijd op Batterij bij en onder welke een waarschuwingstoestand "
+"wordt geactiveerd"
+
+#, fuzzy
+msgid ""
+"Time left on Battery at and below which a warning/critical state is triggered"
 msgstr ""
 "Resterende tijd op Batterij bij en onder welke een waarschuwingstoestand "
 "wordt geactiveerd"
@@ -74900,6 +75765,15 @@ msgstr "Tijd besteed aan het wachten op speciale agent"
 
 msgid "Time stamp format"
 msgstr "Tijdstempelformaat"
+
+msgid ""
+"Time syncs especially against public NTP servers can fail in various ways "
+"throughout the course of the NTP lifecycle and therefore we do not alert by "
+"default when a sync fails (preferring instead to alert when too much time "
+"has elapsed before a successful sync). However, in some environments, it "
+"might be useful to know right away when a sync fails. The state of various "
+"kinds of failures can therefore be configured here."
+msgstr ""
 
 msgid "Time to alert when PVC status is in pending state"
 msgstr "Tijd om te waarschuwen wanneer de PVC-status in de wachtstand staat"
@@ -75231,6 +76105,12 @@ msgid ""
 "or always use <i>Bake and sign</i>.<br>Only activate this option when "
 "actually running into the mentioned downgrading problem. This should not be "
 "the case for automatic updates via agent updater."
+msgstr ""
+
+msgid ""
+"To enable the package anyway, use the `mkp` command on the command line. Its "
+"`enable` option provides you with a flag to disable all version checks. This "
+"might result in crashes or other unexpected behavior."
 msgstr ""
 
 msgid ""
@@ -75679,6 +76559,14 @@ msgstr "Totaal aantal berichten bovenste niveaus"
 msgid "Total non-compliant devices"
 msgstr "Totaal niet-conforme apparaten"
 
+#, fuzzy
+msgid "Total number of Podman containers"
+msgstr "Totaal aantal gevallen"
+
+#, fuzzy
+msgid "Total number of Podman pods"
+msgstr "Totaal aantal gevallen"
+
 msgid "Total number of Sessions"
 msgstr "Totaal aantal sessies"
 
@@ -75692,6 +76580,10 @@ msgid "Total number of active shards lower level"
 msgstr "Totaal aantal actieve scherven lager niveau"
 
 msgid "Total number of active shards upper level"
+msgstr "Totaal aantal actieve scherven bovenste niveau"
+
+#, fuzzy, python-brace-format
+msgid "Total number of active {property} upper levels"
 msgstr "Totaal aantal actieve scherven bovenste niveau"
 
 msgid "Total number of collections lower level"
@@ -75839,6 +76731,10 @@ msgstr "Totaal aantal gebruikers bovenste niveau"
 msgid "Total number of zombie jobs"
 msgstr "Totaal aantal zombiebanen"
 
+#, fuzzy, python-brace-format
+msgid "Total number of {property} upper levels"
+msgstr "Totaal aantal gebruikers bovenste niveau"
+
 #, fuzzy
 msgid "Total packets maximum"
 msgstr "Totaal aantal pakketten Maximum"
@@ -75860,6 +76756,18 @@ msgstr "Totale query timeout"
 #, fuzzy
 msgid "Total read latency"
 msgstr "Schijf lees latentie"
+
+#, fuzzy
+msgid "Total reclaimable size of Podman containers"
+msgstr "Hostnaam gebruikt voor containers"
+
+#, fuzzy
+msgid "Total reclaimable size of Podman volumes"
+msgstr "Hostnaam gebruikt voor containers"
+
+#, fuzzy
+msgid "Total reclaimable size upper levels"
+msgstr "Totale grootte logbestand: Absolute bovenste niveaus"
 
 #, fuzzy
 msgid "Total reservation utilization"
@@ -77894,6 +78802,18 @@ msgstr "Totaal aantal sessies"
 msgid "Total size"
 msgstr "Totale omvang"
 
+#, fuzzy
+msgid "Total size of Podman containers"
+msgstr "Totale grootte van logbestanden"
+
+#, fuzzy
+msgid "Total size of Podman images"
+msgstr "Totale grootte van logbestanden"
+
+#, fuzzy
+msgid "Total size of Podman volumes"
+msgstr "Totale grootte van logbestanden"
+
 msgid "Total size of all indexes for the collection"
 msgstr "De totale grootte van alle indexen voor de verzameling"
 
@@ -77908,6 +78828,10 @@ msgstr "Totale omvang van het terrein"
 
 msgid "Total size of the oplog"
 msgstr "Totale grootte van het oplog"
+
+#, fuzzy
+msgid "Total size upper levels"
+msgstr "Containers bovenste niveaus"
 
 msgid "Total slots"
 msgstr "Totaal aantal slots"
@@ -78010,10 +78934,6 @@ msgstr "Overdracht: %d nieuwe, %d gewijzigde en %d verdwenen bestanden"
 msgid "Transform status output"
 msgstr "Transformeer status uitgang"
 
-#, fuzzy
-msgid "Transformation"
-msgstr "Thermische informatie"
-
 #, fuzzy, python-format
 msgid "Transformed the user tag group \"%s\" to built-in."
 msgstr "Heeft de gebruiker tag groep \"%s\" getransformeerd naar builtin."
@@ -78031,9 +78951,9 @@ msgstr "Vertalen UCS Bladecenter status naar monitoring status"
 msgid "Translate host names"
 msgstr "Hostnamen vertalen"
 
-#, python-format
-msgid "Translated %s"
-msgstr "Vertaald %s"
+#, fuzzy
+msgid "Translated name"
+msgstr "Hostnamen vertalen"
 
 msgid "Translation of HAProxy state to monitoring state"
 msgstr "Vertaling van HAProxy status naar monitoring status"
@@ -78067,6 +78987,10 @@ msgstr "Transportvertraging"
 #, fuzzy
 msgid "Transport lag"
 msgstr "Transportvertraging"
+
+#, fuzzy
+msgid "Treat failed units that are disabled as critical"
+msgstr "Als kritiek beschouwde staten"
 
 #, fuzzy
 msgid "Treat host down as"
@@ -78680,10 +79604,6 @@ msgstr ""
 msgid "Unable to match connection"
 msgstr "Kan verbinding niet tot stand brengen"
 
-#, fuzzy
-msgid "Unable to migrate value"
-msgstr "Mislukt om waarde te renderen:"
-
 #, python-format
 msgid ""
 "Unable to modify host <i>%s</i>. Its site id <i>%s</i> conflicts with the "
@@ -78904,6 +79824,10 @@ msgstr "Kennisgevingsregel verwijderen #%d"
 msgid "Unexpected 'throttling' values passed to form."
 msgstr "Kennisgevingsregel verwijderen #%d"
 
+#, fuzzy, python-format
+msgid "Unexpected dictionary type: %s"
+msgstr "Verwacht clustertype."
+
 #, python-format
 msgid ""
 "Unfortunately, using a proxy and a virtual host is not supported (try '%s')."
@@ -78926,11 +79850,18 @@ msgstr "Onbehandelde p."
 msgid "Unhandled service problems"
 msgstr "Onbehandelde dienst problemen"
 
+#, fuzzy
+msgid "Unhealthy"
+msgstr "Gezondheid"
+
 msgid "Unicast packet rates"
 msgstr "Unicast pakketsnelheden"
 
 msgid "Unidirectional UDP Traffic"
 msgstr "Unidirectioneel UDP-verkeer"
+
+msgid "Unified Oracle Plugin (Beta)"
+msgstr ""
 
 msgid ""
 "Uninstall the legacy (pre 1.6) agent after installation of the new Windows "
@@ -78945,6 +79876,10 @@ msgstr "Unieke ID"
 
 msgid "Unique ID"
 msgstr "Unieke ID"
+
+#, fuzzy, python-format
+msgid "Unique ID %s already exists."
+msgstr "Een regelpakket met deze ID bestaat al."
 
 msgid "Unique ID used to identify the instance on the host within Checkmk."
 msgstr ""
@@ -80083,6 +81018,10 @@ msgstr "Bovengrenzen in procenten"
 msgid "Upper percentage levels"
 msgstr "Bovenste percentages"
 
+#, fuzzy
+msgid "Upper percentage threshold for GPU utilization"
+msgstr "Bovenste niveaus voor schijfgebruik"
+
 msgid "Upper percentual levels for DELETE requests"
 msgstr "Maximale percentuele niveaus voor DELETE-verzoeken"
 
@@ -80124,6 +81063,14 @@ msgstr "Maximale percentuele niveaus voor de omvang van het loggebruik"
 msgid "Upper threshold on open files and sockets"
 msgstr "Bovenste niveaus voor open netwerk sockets"
 
+#, fuzzy, python-brace-format
+msgid "Upper threshold on {property} number of Podman containers"
+msgstr "Bovenste niveaus voor open netwerk sockets"
+
+#, fuzzy, python-brace-format
+msgid "Upper threshold on {property} number of Podman pods"
+msgstr "Bovenste niveaus voor open netwerk sockets"
+
 #, fuzzy
 msgid "Upper thresholds"
 msgstr "over de drempel"
@@ -80140,7 +81087,8 @@ msgstr "Uptime sinds laatste reboot"
 msgid "Uptime since last reboot of devices with modules"
 msgstr "Uptime sinds laatste reboot van apparaten met modules"
 
-msgid "Upturn toner levels"
+#, fuzzy
+msgid "Upturn supply levels"
 msgstr "Tonerniveaus verhogen"
 
 msgid "Urgency"
@@ -80457,9 +81405,6 @@ msgstr "Gebruik expliciete AWS service tags en overrul algemene AWS tags"
 msgid "Use explicit names"
 msgstr "Gebruik expliciete namen"
 
-msgid "Use explicit proxy settings"
-msgstr "Gebruik expliciete proxy-instellingen"
-
 msgid "Use explicit service names and ignore overall AWS tags"
 msgstr "Gebruik expliciete dienstnamen en negeer algemene AWS-tags"
 
@@ -80469,17 +81414,11 @@ msgstr "Gebruik vaste breedte (ten opzichte van lettergrootte)"
 msgid "Use for all connections"
 msgstr "Gebruik voor alle verbindingen"
 
-msgid "Use from environment"
-msgstr "Gebruik van omgeving"
-
 msgid "Use global connection parameters"
 msgstr "Globale verbindingsparameters gebruiken"
 
 msgid "Use global rule limit"
 msgstr "Globale regel limiet gebruiken"
-
-msgid "Use globally configured proxy"
-msgstr "Gebruik globaal geconfigureerde proxy"
 
 msgid "Use graph title"
 msgstr "Grafiektitel gebruiken"
@@ -80683,9 +81622,6 @@ msgstr "Gebruik de standaard taal (%s)"
 msgid "Use the default show mode"
 msgstr "Gebruik de standaard show mode"
 
-msgid "Use the default start URL"
-msgstr "Gebruik de standaard start URL"
-
 msgid "Use the default temperature unit"
 msgstr "Gebruik de standaardtemperatuureenheid"
 
@@ -80700,6 +81636,10 @@ msgstr "Gebruik de volgende kleur"
 
 msgid "Use the following credentials"
 msgstr "Gebruik de volgende inloggegevens"
+
+#, fuzzy
+msgid "Use the following defaults"
+msgstr "Gebruik de volgende niveaus"
 
 msgid "Use the following levels"
 msgstr "Gebruik de volgende niveaus"
@@ -80780,9 +81720,6 @@ msgid ""
 msgstr ""
 "Gebruik deze voorwaarde om services te selecteren op basis van de "
 "geconfigureerde servicelabels."
-
-msgid "Use this custom start URL"
-msgstr "Gebruik deze aangepaste start URL"
 
 msgid ""
 "Use this field to search for rules which have their explicit host condition "
@@ -81079,10 +82016,6 @@ msgstr ""
 "nodig en je zou alleen zoveel apache processen moeten instellen als je "
 "systeem aan kan in situaties met hoge belasting."
 
-#, fuzzy
-msgid "Use unit of first entry"
-msgstr "Invoer voorgeschiedenis"
-
 msgid "Use unverified TLS encryption, fall back to plain text"
 msgstr "Gebruik ongeverifieerde TLS encryptie, val terug op platte tekst"
 
@@ -81174,6 +82107,14 @@ msgstr "Gebruikte logbestanden: Absolute of relatieve bovenste niveaus"
 msgid "Used logical space"
 msgstr "Gebruikte logische ruimte"
 
+#, fuzzy
+msgid "Used memory"
+msgstr "Gebruikt CPU-geheugen"
+
+#, fuzzy
+msgid "Used memory RSS"
+msgstr "Gebruikt CPU-geheugen"
+
 msgid "Used meta data"
 msgstr "Gebruikte metagegevens"
 
@@ -81237,6 +82178,10 @@ msgstr "Gebruiker"
 msgid "User %s of DCD connection was modified"
 msgstr "Gebruiker %s van DCD-verbinding is gewijzigd"
 
+#, fuzzy
+msgid "User & Password"
+msgstr "Wachtwoord gebruiker"
+
 msgid "User / Group Key"
 msgstr "Gebruiker / Groep Sleutel"
 
@@ -81265,6 +82210,10 @@ msgstr "Gebruikers-ID voor web login"
 
 msgid "User ID for web login (if login required)"
 msgstr "Gebruikers-ID voor web login (indien login vereist is)"
+
+#, fuzzy
+msgid "User ID must not be None"
+msgstr "De waarde moet een string zijn"
 
 #, fuzzy
 msgid "User Label"
@@ -81390,6 +82339,10 @@ msgid "Username / Password"
 msgstr "Gebruikersnaam/Wachtwoord"
 
 #, fuzzy
+msgid "Username and Password"
+msgstr "Gebruikersnaam/Wachtwoord"
+
+#, fuzzy
 msgid "Username cannot be empty"
 msgstr "Geheime sleutel"
 
@@ -81486,6 +82439,14 @@ msgstr ""
 "14261). We schakelen het inloggen via deze methode standaard uit. Gebruik "
 "deze eigenschap om inloggen via de GET-methode voor alle gebruikers in te "
 "schakelen."
+
+msgid ""
+"Using this option will let Checkmk create safe host names for piggyback "
+"hosts to avoid conflicts in entity names from Azure. This option will "
+"prepend 'azr-' and append the last part of the subscription ID to host "
+"names. Example: 'azr-my-vm-1a2b3c4d'. Enable this option if you have "
+"resources or resource groups with the same name."
+msgstr ""
 
 msgid ""
 "Using this option you can define an optional LDAP filter which is used "
@@ -82148,6 +83109,10 @@ msgstr "Gebruik de globale configuratie"
 #, fuzzy
 msgid "VM"
 msgstr "VM's"
+
+#, fuzzy
+msgid "VM Generation"
+msgstr "Algemene opties"
 
 msgid "VM distribution"
 msgstr "VM distributie"
@@ -83338,9 +84303,8 @@ msgid ""
 "<b>Check_MK</b> and <b>Check_MK Discovery</b> services of the piggybacked "
 "hosts report <b>Got no information from host</b> resp. <b>vanished services</"
 "b> if the piggybacked data is missing within a check interval. This rule "
-"helps you to get more control over the piggybacked host data handling. The "
-"source host names have to be set in the condition field <i>Explicit hosts</"
-"i>."
+"helps you to get more control over the piggybacked host data handling. This "
+"rules condition is applied to the <b>source</b> hosts."
 msgstr ""
 "We nemen aan dat een source host standaard iedere check interval piggyback "
 "data verstuurt. Als dit niet het geval is voor sommige source hosts dan "
@@ -83448,6 +84412,14 @@ msgstr "Wekelijks verslag"
 
 msgid "Weekly rate"
 msgstr "Wekelijks tarief"
+
+#, fuzzy
+msgid "Welcome page"
+msgstr "Zie handleiding pagina"
+
+#, fuzzy
+msgid "Welcome to Checkmk"
+msgstr "Welkom bij Checkmk Mobile."
 
 msgid "Welcome to Checkmk Mobile."
 msgstr "Welkom bij Checkmk Mobile."
@@ -84115,6 +85087,17 @@ msgstr ""
 "kritisch is als <b>alle</b> pakketten verloren gaan."
 
 msgid ""
+"When the reference ID and state machine value are both 0, it usually means "
+"that the service has not synced since starting. The reported state in this "
+"scenario can be configured here."
+msgstr ""
+
+msgid ""
+"When the time offset on the last sync was worse (in either direction) than "
+"the specified parameters, go into WARN or CRIT status."
+msgstr ""
+
+msgid ""
 "When the total size of spooled messages exceeds this number, the oldest "
 "messages of the currently spooled messages is thrown away until the left "
 "messages have the half of the maximum size."
@@ -84423,11 +85406,12 @@ msgstr ""
 "getoond in het hoofdframe (rechts). Je kunt dit vervangen door elke andere "
 "URL die je wilt."
 
+#, fuzzy
 msgid ""
-"When you reschedule a check by clicking on the &quot;arrow&quot;-icon then "
-"Multisite will use this number of seconds as a timeout. If the monitoring "
-"core has not executed the check within this time, an error will be displayed "
-"and the page not reloaded."
+"When you reschedule a check by clicking on the \"arrow\"-icon then Multisite "
+"will use this number of seconds as a timeout. If the monitoring core has not "
+"executed the check within this time, an error will be displayed and the page "
+"not reloaded."
 msgstr ""
 "Wanneer u een controle opnieuw plant door op het &quot;arrow&quot;-icoontje "
 "te klikken, zal Multisite dit aantal seconden als time-out gebruiken. Als de "
@@ -84700,6 +85684,10 @@ msgstr "Windows printers: aantal openstaande opdrachten"
 
 msgid "Windows service discovery"
 msgstr "Windows service ontdekking"
+
+#, fuzzy
+msgid "Windows time service status"
+msgstr "Windows Diensten"
 
 msgid "Windows, Linux, Solaris, AIX"
 msgstr "Windows, Linux, Solaris, AIX"
@@ -85488,8 +86476,17 @@ msgid "You are not allowed to activate changes of other users."
 msgstr ""
 "Het is u niet toegestaan wijzigingen van andere gebruikers te activeren."
 
+#, fuzzy
+msgid ""
+"You are not allowed to change the command line of a custom check plug-in."
+msgstr "U mag de zijbalk niet veranderen."
+
 msgid "You are not allowed to change the sidebar."
 msgstr "U mag de zijbalk niet veranderen."
+
+#, fuzzy
+msgid "You are not allowed to create dashboards."
+msgstr "U mag dashboards niet bewerken."
 
 #, python-format
 msgid "You are not allowed to delete this %s."
@@ -85615,15 +86612,15 @@ msgstr ""
 "U kunt het aanmaken van diensten activeren voor DHCP pools, die geen IP "
 "adressen bevatten."
 
-#, python-format
+#, fuzzy
 msgid ""
 "You can add any number of expressions here which are executed succesively "
 "until the first match. Please specify a regular expression in the first "
 "field. This expression should at least contain one subexpression exclosed in "
 "brackets - for example <tt>vm_(.*)_prod</tt>. In the second field you "
-"specify the translated %s and can refer to the first matched group with "
-"<tt>\\1</tt>, the second with <tt>\\2</tt> and so on, for example "
-"<tt>\\1.example.org</tt>. "
+"specify the desired outcome of the translation. You can refer to the first "
+"matched group with <tt>\\1</tt>, the second with <tt>\\2</tt> and so on, for "
+"example <tt>\\1.example.org</tt>. "
 msgstr ""
 "U kunt hier een willekeurig aantal expressies toevoegen die succesvol worden "
 "uitgevoerd tot de eerste overeenkomst. Geef een reguliere expressie op in "
@@ -85665,12 +86662,6 @@ msgstr "U kunt pictogrammen of acties aan hosts toewijzen voor de status-GUI."
 msgid "You can assign icons or actions to services for the status GUI."
 msgstr ""
 "U kunt pictogrammen of acties aan services toewijzen voor de status-GUI."
-
-msgid ""
-"You can assign icons or actions to the found services in the status GUI."
-msgstr ""
-"U kunt pictogrammen of acties toewijzen aan de gevonden diensten in de "
-"status GUI."
 
 #, python-format
 msgid ""
@@ -86820,6 +87811,10 @@ msgstr ""
 "U hebt %d gebruikers geconfigureerd. Controleer het aantal gebruikers dat u "
 "hebt geconfigureerd in Checkmk."
 
+#, python-format
+msgid "You have a grace period of %d days before your site is deleted. "
+msgstr ""
+
 msgid ""
 "You have an agent updater rule configured that enables use of plain text "
 "HTTP. Consider enabling HTTPS."
@@ -86983,6 +87978,10 @@ msgstr "U hebt enkele of alle agentpakketten ondertekend"
 msgid "You have to provide a role ID."
 msgstr "Je moet een rol ID opgeven."
 
+#, fuzzy
+msgid "You have to select a valid host name computation method."
+msgstr "Je moet minstens één element selecteren."
+
 msgid "You have to select at least one element."
 msgstr "Je moet minstens één element selecteren."
 
@@ -86991,11 +87990,6 @@ msgstr "U moet ten minste één gebruiker selecteren."
 
 msgid "You have to specify a connector to migrate to."
 msgstr "U moet een connector opgeven waarnaar u wilt migreren."
-
-msgid ""
-"You have to specify at least one authenticated user to use Basic "
-"Authentication on an endpoint"
-msgstr ""
 
 #, fuzzy, python-format
 msgid "You have to specify at least one receiver: %s"
@@ -87230,9 +88224,6 @@ msgstr ""
 msgid "You need to provide a key file."
 msgstr "U moet een sleutelbestand opgeven."
 
-msgid "You need to provide a text."
-msgstr "Je moet een tekst geven."
-
 #, fuzzy
 msgid ""
 "You need to provide a valid \"host name\". Only letters, digits, dash, "
@@ -87400,9 +88391,6 @@ msgstr "Uw extensies hebben een grootte van %s."
 msgid "Your filename must not end with a slash."
 msgstr "Uw bestandsnaam mag niet eindigen met een schuine streep."
 
-msgid "Your free trial is active! "
-msgstr ""
-
 #, fuzzy
 msgid "Your host name has an invalid format."
 msgstr "Uw hostnaam heeft een ongeldig formaat."
@@ -87452,6 +88440,10 @@ msgstr ""
 "Uw zoekopdracht is ongeldig. U moet een reguliere expressie (regex) opgeven. "
 "U moet bijvoorbeeld <tt></tt> gebruiken in plaats van <tt></tt> als u naar "
 "een enkele backslash wilt zoeken."
+
+#, fuzzy, python-format
+msgid "Your license expires on %s. "
+msgstr "Uw %s is opgeslagen."
 
 #, python-format
 msgid ""
@@ -87770,10 +88762,6 @@ msgstr "alle logbestanden van host %s"
 msgid "all logfiles on all hosts"
 msgstr "alle logbestanden op alle hosts"
 
-#, fuzzy
-msgid "all metrics"
-msgstr "Ongeldig onderwerp"
-
 msgid "all special agents"
 msgstr "alle speciale agenten"
 
@@ -87853,6 +88841,10 @@ msgstr "Authenticatie"
 msgid "auto"
 msgstr "auto"
 
+#, fuzzy
+msgid "average"
+msgstr "Gemiddeld"
+
 msgid "avg. duration"
 msgstr "gemiddelde duur"
 
@@ -87930,6 +88922,10 @@ msgid "busy workers"
 msgstr "drukke werknemers"
 
 msgid "bytes/s"
+msgstr "bytes/s"
+
+#, fuzzy
+msgid "bytes/sec"
 msgstr "bytes/s"
 
 msgid "cAdvisor"
@@ -88269,6 +89265,10 @@ msgstr "inzendingen"
 
 msgid "entries (max. 50)"
 msgstr ""
+
+#, fuzzy
+msgid "entry number"
+msgstr "Serienummer"
 
 msgid "estimated duration"
 msgstr "geschatte looptijd"
@@ -88754,6 +89754,10 @@ msgstr "laserFout"
 msgid "last notification"
 msgstr "laatste mededeling"
 
+#, fuzzy
+msgid "latest"
+msgstr "testen"
+
 msgid "latin1"
 msgstr "latin1"
 
@@ -88841,6 +89845,10 @@ msgstr "overeenkomt met een van regex"
 
 msgid "matches regex"
 msgstr "komt overeen met regex"
+
+#, fuzzy
+msgid "max"
+msgstr "maximum"
 
 msgid "max. duration"
 msgstr "max. duur"
@@ -89099,10 +90107,6 @@ msgstr "Aantal processen"
 msgid "objects"
 msgstr "objecten"
 
-#, fuzzy
-msgid "of"
-msgstr "van"
-
 msgid "of Service"
 msgstr "van Dienst"
 
@@ -89219,6 +90223,10 @@ msgstr "over de drempel"
 msgid "packets/s"
 msgstr "pakketten/s"
 
+#, fuzzy
+msgid "packets/sec"
+msgstr "pakketten/s"
+
 msgid "pages/s"
 msgstr "pagina's/s"
 
@@ -89230,6 +90238,10 @@ msgstr "wachtwoord:"
 
 msgid "path echo"
 msgstr "pad-echo"
+
+#, fuzzy
+msgid "paused"
+msgstr "Pauzeer"
 
 msgid "pending"
 msgstr "in afwachting van"
@@ -89381,10 +90393,6 @@ msgstr "interface nodig die laagste alfabetisch sorteert"
 msgid "require primary interface to be active"
 msgstr "vereisen dat de primaire interface actief is"
 
-#, fuzzy
-msgid "required"
-msgstr "Vereiste poort"
-
 msgid "reset"
 msgstr "reset"
 
@@ -89531,6 +90539,10 @@ msgid_plural "sites"
 msgstr[0] "website"
 msgstr[1] "website"
 
+#, fuzzy, python-format
+msgid "site must be a list. Current type is: %s "
+msgstr "Het type moet lijst zijn, maar is %s"
+
 msgid "slots"
 msgstr "slots"
 
@@ -89541,10 +90553,6 @@ msgid "socket is waiting after closing for any packets left on the network"
 msgstr ""
 "socket wacht na het sluiten op alle pakketten die op het netwerk "
 "achterblijven"
-
-#, fuzzy
-msgid "specific metrics"
-msgstr "Specifieke sites"
 
 msgid "specify manually ->"
 msgstr "handmatig opgeven ->"
@@ -89561,6 +90569,10 @@ msgstr "Beperk alle"
 
 msgid "sub categories"
 msgstr "subcategorieën"
+
+#, fuzzy
+msgid "sum"
+msgstr "Som"
 
 msgid "synchronization"
 msgstr "synchronisatie"
@@ -89883,6 +90895,10 @@ msgstr "gisteren"
 msgid "you have a connection overflow rate of %.2f/s"
 msgstr "je hebt een verbinding overloopsnelheid van %.2f/s"
 
+#, fuzzy, python-format
+msgid "you need to set %s parameter to either %s."
+msgstr "Je moet de \"%s\" parameter instellen."
+
 msgid "z/OS"
 msgstr "z/OS"
 
@@ -89895,6 +90911,15 @@ msgid "{actual} is too low. The minimum allowed value is {bound}."
 msgstr "{actual} is te laag. De minimaal toegestane waarde is {bound}."
 
 msgid "{checkname} - {check['title']}"
+msgstr ""
+
+msgid "{property.capitalize()} "
+msgstr ""
+
+msgid "{property.capitalize()} Podman containers"
+msgstr ""
+
+msgid "{property.capitalize()} Podman pods"
 msgstr ""
 
 #, python-brace-format
@@ -89916,6 +90941,1889 @@ msgid ""
 "‘Activate changes' is blocked until you go below your service limit. In case "
 "you want to increase your service limit, "
 msgstr ""
+
+msgid "This string was translated outside of a vue component."
+msgstr ""
+
+#, fuzzy
+msgid "German"
+msgstr "slapend"
+
+msgid "French"
+msgstr ""
+
+#, fuzzy
+msgid "Loading translations..."
+msgstr "%d vertalingen"
+
+#, fuzzy
+msgid "Translations loaded"
+msgstr "Vertalingen"
+
+#, fuzzy
+msgid "Your name"
+msgstr "Naam van de bron"
+
+#, fuzzy
+msgid "Number of apples"
+msgstr "Aantal tabellen"
+
+#, fuzzy
+msgid "Hello %{name}!"
+msgstr "Volledige naam"
+
+msgid "There is %{ n } apple"
+msgid_plural "There are %{ n } apples"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Toggle accordion item %{item}"
+msgstr ""
+
+msgid "Copy to clipboard failed with error: "
+msgstr ""
+
+#, fuzzy
+msgid "Copied to clipboard"
+msgstr "Geheim gekopieerd naar klembord"
+
+#, fuzzy
+msgid "selected"
+msgstr "Geselecteerd"
+
+#, fuzzy
+msgid "No elements"
+msgstr "Schakel elementen"
+
+msgid "Drag to reorder"
+msgstr ""
+
+#, fuzzy
+msgid "Remove element"
+msgstr "Verwijder dit element"
+
+#, fuzzy
+msgid "Close"
+msgstr "Gesloten"
+
+#, fuzzy
+msgid "filter"
+msgstr "Filter"
+
+#, fuzzy
+msgid "Next step"
+msgstr "Samenvatting van de toestand van de gastheer"
+
+#, fuzzy
+msgid "Previous step"
+msgstr "Proces ontdekking"
+
+#, fuzzy
+msgid "Finish"
+msgstr "Afgewerkt"
+
+#, fuzzy
+msgid "Guided"
+msgstr "Open mode"
+
+#, fuzzy
+msgid "An unexpected error occurred"
+msgstr "Er is een uitzondering opgetreden: %s"
+
+#, fuzzy
+msgid ""
+"Refresh the page to try again. If the problem persists, reach out to the "
+"Checkmk support."
+msgstr ""
+"De verificatie van uw licentie was niet succesvol: %s, Checkmk is nu zonder "
+"licentie.<br> Om Checkmk te blijven gebruiken, neem contact op met uw "
+"Checkmk support."
+
+#, fuzzy
+msgid "required"
+msgstr "Vereiste poort"
+
+#, fuzzy
+msgid "Remove row"
+msgstr "Verwijderd: %s"
+
+#, fuzzy
+msgid "Dashboard filter"
+msgstr "Dashboard-element"
+
+#, fuzzy
+msgid "Close filter configuration"
+msgstr "Iptables filter configuratie"
+
+#, fuzzy
+msgid "Clear search"
+msgstr "Regel zoeken"
+
+msgid "Filters included by dashboard owner"
+msgstr ""
+
+#, fuzzy
+msgid "You can override these by adding a quick filter"
+msgstr "U kunt de ingebouwde tag groep \"%s\" niet overschrijven."
+
+#, fuzzy
+msgid "Host filter"
+msgstr "Logbestanden van hosts"
+
+#, fuzzy
+msgid "Select from list"
+msgstr "Selecteer individuele bestanden uit de lijst"
+
+#, fuzzy
+msgid "Service filter"
+msgstr "Service Filters"
+
+#, fuzzy
+msgid "Reset to saved filters"
+msgstr "Verwijder filter"
+
+#, fuzzy
+msgid "Success! Your new dashboard filters have been saved"
+msgstr "Uw wijzigingen zijn opgeslagen."
+
+msgid "Runtime filters are required to load data."
+msgstr ""
+
+msgid "Values apply across all widgets."
+msgstr ""
+
+#, fuzzy
+msgid "Apply to dashboard"
+msgstr "Link naar dashboard"
+
+#, fuzzy
+msgid "Edit required runtime filters"
+msgstr "Vereiste context filters"
+
+msgid "Success! Your runtime filters have been applied"
+msgstr ""
+
+#, fuzzy
+msgid "Settings Menu"
+msgstr "Instellingen"
+
+#, fuzzy
+msgid "Dashboard settings"
+msgstr "Eigenschappen van het dashboard"
+
+#, fuzzy
+msgid "Clone dashboard"
+msgstr "Kloon ingebouwd dashboard"
+
+#, fuzzy
+msgid "Dashboard user guide"
+msgstr "Dashboard van gebruiker %s"
+
+#, fuzzy
+msgid "Edit widgets"
+msgstr "Doel toevoegen"
+
+#, fuzzy
+msgid "Add widget"
+msgstr "Doel toevoegen"
+
+#, fuzzy
+msgid "Select dashboard"
+msgstr "Gerelateerde dashboards"
+
+#, fuzzy
+msgid "Loading Dashboards"
+msgstr "Hoofd dashboard"
+
+#, fuzzy
+msgid "No dashboards found"
+msgstr "dashboards"
+
+#, fuzzy
+msgid "Custom dashboards"
+msgstr "Aanpassen"
+
+#, fuzzy
+msgid "Built-in dashboards"
+msgstr "Kloon ingebouwd dashboard"
+
+#, fuzzy
+msgid "Unnamed Dashboard"
+msgstr "Dashboard"
+
+#, fuzzy
+msgid "No items selected"
+msgstr "Niet geselecteerd"
+
+msgid "Placeholder for unknown component type:"
+msgstr ""
+
+#, fuzzy
+msgid "No labels"
+msgstr "Knooppunt Labels"
+
+#, fuzzy
+msgid "not"
+msgstr "geen"
+
+#, fuzzy
+msgid "No labels selected"
+msgstr "Niet geselecteerd"
+
+#, fuzzy
+msgid "No tag filters configured"
+msgstr "Geen IP-bereik geconfigureerd"
+
+#, fuzzy
+msgid "Select an option..."
+msgstr "Afgewezen verbindingen"
+
+#, fuzzy
+msgid "Type to search..."
+msgstr "Indexen om te zoeken"
+
+#, fuzzy
+msgid "Operator"
+msgstr "Operatie"
+
+#, fuzzy
+msgid "Select label..."
+msgstr "Selecteer bestand"
+
+#, fuzzy
+msgid "Group Operator"
+msgstr "Groepspad"
+
+#, fuzzy
+msgid "Select group..."
+msgstr "Afgewezen verbindingen"
+
+#, fuzzy
+msgid "Select value..."
+msgstr "Weergave kiezen"
+
+#, fuzzy
+msgid "Search Filter"
+msgstr "Zoekfilter"
+
+#, fuzzy
+msgid "No filters found matching"
+msgstr "Procesnaam matching"
+
+#, fuzzy
+msgid "Expand all"
+msgstr "Uitbreiden"
+
+#, fuzzy
+msgid "Collapse all"
+msgstr "Kies alle"
+
+#, fuzzy
+msgid "of"
+msgstr "van"
+
+#, fuzzy
+msgid "No filter category available"
+msgstr "Geen informatie beschikbaar"
+
+#, fuzzy
+msgid "Add Widget"
+msgstr "Doel toevoegen"
+
+#, fuzzy
+msgid "Metrics & graphs"
+msgstr "Dienstgrafieken"
+
+msgid "Visualize key metrics using charts and graphs"
+msgstr ""
+
+msgid "Visualize built-in and preconfigured custom graphs"
+msgstr ""
+
+#, fuzzy
+msgid "Embed saved views"
+msgstr "Bestaande weergave insluiten"
+
+#, fuzzy
+msgid "Host & site overview"
+msgstr "Overzicht gastheren"
+
+msgid "Summarize key system components"
+msgstr ""
+
+#, fuzzy
+msgid "Service overview"
+msgstr "Overzicht van de site"
+
+#, fuzzy
+msgid "Summarize key services"
+msgstr "Oudbakken diensten"
+
+#, fuzzy
+msgid "HW/SW inventory"
+msgstr "HW/SW-inventaris"
+
+#, fuzzy
+msgid "Summarize key hardware and software components"
+msgstr "De volledige hardware- en software-inventaris van een host"
+
+#, fuzzy
+msgid "Alerts & notifications"
+msgstr "laatste mededeling"
+
+#, fuzzy
+msgid "Summarize alerts and notifications"
+msgstr "Samenvatting voor hostmeldingen"
+
+#, fuzzy
+msgid "Summarize events"
+msgstr "Dienstverleningsniveau"
+
+#, fuzzy
+msgid "Other elements"
+msgstr "Zijbalk elementen"
+
+msgid "Display user messages, sidebar elements, text or embed a URL"
+msgstr ""
+
+#, fuzzy
+msgid "Select graph"
+msgstr "Afgewezen verbindingen"
+
+#, fuzzy
+msgid "Filter by host name"
+msgstr "Filter %s selectie op hostnaam: "
+
+#, fuzzy
+msgid "Select service metric"
+msgstr "Dienst Metriek"
+
+#, fuzzy
+msgid "Filter by service"
+msgstr "Filter %s selectie op dienst: "
+
+#, fuzzy
+msgid "Choose how to display your data"
+msgstr "Geef geen datum weer"
+
+#, fuzzy
+msgid "Select option"
+msgstr "Afgewezen verbindingen"
+
+#, fuzzy
+msgid "Inherited"
+msgstr "Geërfd van "
+
+#, fuzzy
+msgid "Overriden"
+msgstr "Overzicht"
+
+#, fuzzy
+msgid "Quick filter"
+msgstr "Service Filters"
+
+msgid "% (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "% (Decimal, strict precision, 0 digits)"
+msgstr ""
+
+msgid "% (Decimal, strict precision, 2 digits)"
+msgstr ""
+
+msgid "%/m (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "/s (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "A (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "A (Decimal, strict precision, 3 digits)"
+msgstr ""
+
+msgid "B (IEC, auto precision, 2 digits)"
+msgstr ""
+
+msgid "B (IEC, strict precision, 2 digits)"
+msgstr ""
+
+msgid "B/d (IEC, auto precision, 2 digits)"
+msgstr ""
+
+msgid "B/op (IEC, auto precision, 2 digits)"
+msgstr ""
+
+msgid "B/req (SI, auto precision, 2 digits)"
+msgstr ""
+
+msgid "B/s (IEC, auto precision, 2 digits)"
+msgstr ""
+
+msgid "B/s (SI, auto precision, 2 digits)"
+msgstr ""
+
+msgid "Hz (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "Pa (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "Percent (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "RCU (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "V (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "VA (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "Volt (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "W (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "WCU (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "Watt (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "Wh (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "bar (Decimal, auto precision, 4 digits)"
+msgstr ""
+
+msgid "bits/d (IEC, auto precision, 2 digits)"
+msgstr ""
+
+msgid "bits/s (IEC, auto precision, 2 digits)"
+msgstr ""
+
+msgid "bits/s (SI, auto precision, 2 digits)"
+msgstr ""
+
+msgid "dB (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "dBm (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "dBmV (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "days (Decimal, strict precision, 2 digits)"
+msgstr ""
+
+msgid "l/s (Decimal, auto precision, 3 digits)"
+msgstr ""
+
+msgid "no symbol (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "no symbol (Decimal, strict precision, 0 digits)"
+msgstr ""
+
+msgid "no symbol (Decimal, strict precision, 2 digits)"
+msgstr ""
+
+msgid "no symbol (SI, strict precision, 2 digits)"
+msgstr ""
+
+msgid "ppm (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "req/s (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "rpm (Decimal, auto precision, 4 digits)"
+msgstr ""
+
+msgid "s (Time, auto precision, 0 digits)"
+msgstr ""
+
+msgid "s (Time, auto precision, 2 digits)"
+msgstr ""
+
+msgid "s/s (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "tasks (Decimal, strict precision, 0 digits)"
+msgstr ""
+
+msgid "°C (Decimal, auto precision, 2 digits)"
+msgstr ""
+
+msgid "€ (Decimal, strict precision, 2 digits)"
+msgstr ""
+
+#, fuzzy
+msgid "Specific host"
+msgstr "Specifieke sites"
+
+#, fuzzy
+msgid "Multiple hosts"
+msgstr "Meerdere locaties"
+
+#, fuzzy
+msgid "Applied host name filter"
+msgstr "Toegepaste filters:"
+
+#, fuzzy
+msgid "to be defined"
+msgstr "Geen verbindingen gedefinieerd"
+
+#, fuzzy
+msgid "Widget filter"
+msgstr "Filter toevoegen"
+
+#, fuzzy
+msgid "Select host name"
+msgstr "Hosts verwijderen"
+
+#, fuzzy
+msgid "No host name filter applied."
+msgstr "Ntop gastheer"
+
+msgid ""
+"A host name filter selected as a dashboard or quick filter in the filters "
+"slideout appears here and applies to this widget"
+msgstr ""
+
+#, fuzzy
+msgid "Applied host filters"
+msgstr "Toegepaste filters:"
+
+#, fuzzy
+msgid "No host filters applied."
+msgstr "Ntop gastheer"
+
+msgid ""
+"Dashboard or quick filters selected in the filters slideout appear here and "
+"apply to this widget"
+msgstr ""
+
+#, fuzzy
+msgid "Specific service"
+msgstr "Specifieke sites"
+
+#, fuzzy
+msgid "Applied service name filter"
+msgstr "Alternatieve hostnaam"
+
+#, fuzzy
+msgid "Select service name"
+msgstr "Gebruikers verwijderen"
+
+msgid "No service name filter applied."
+msgstr ""
+
+msgid ""
+"A service name filter selected as a dashboard or quick filter in the filters "
+"slideout appears here and applies to this widget"
+msgstr ""
+
+#, fuzzy
+msgid "Applied service filters"
+msgstr "Service Filters"
+
+msgid ""
+"Dashboard or quick filters selected in the filters slideout appears here and "
+"applies to this widget"
+msgstr ""
+
+#, fuzzy
+msgid "Value must be a valid URL"
+msgstr "De waarde moet een string zijn"
+
+#, fuzzy
+msgid "Link title to"
+msgstr "Link van titel"
+
+#, fuzzy
+msgid "Appearance"
+msgstr "Toestel"
+
+#, fuzzy
+msgid "Show title background"
+msgstr "Titel tonen zonder achtergrond"
+
+#, fuzzy
+msgid "Show widget background"
+msgstr "Titel tonen zonder achtergrond"
+
+#, fuzzy
+msgid "explicit password"
+msgstr "Nieuw wachtwoord"
+
+#, fuzzy
+msgid "Auto"
+msgstr "Automatisch"
+
+#, fuzzy
+msgid "Strict"
+msgstr "Metrisch"
+
+#, fuzzy
+msgid "Graph metrics with all zero values"
+msgstr "Metriek met alle nulwaarden"
+
+#, fuzzy
+msgid "Custom"
+msgstr "Klant"
+
+#, fuzzy
+msgid "Use unit of first entry"
+msgstr "Invoer voorgeschiedenis"
+
+#, fuzzy
+msgid "Decimal"
+msgstr "Decibel"
+
+#, fuzzy
+msgid "SI"
+msgstr "SID"
+
+msgid "IEC"
+msgstr ""
+
+#, fuzzy
+msgid "Standard scientific"
+msgstr "Standaard onderwerpen"
+
+msgid "Engineering scientific"
+msgstr ""
+
+#, fuzzy
+msgid "Notation"
+msgstr "Kennisgeving"
+
+#, fuzzy
+msgid "Precision"
+msgstr "Toestemming"
+
+#, fuzzy
+msgid "Rounding mode"
+msgstr "Lopende pods"
+
+msgid "Digits"
+msgstr ""
+
+msgid "Area"
+msgstr "Gebied"
+
+#, fuzzy
+msgid "Stack"
+msgstr "Stapels"
+
+#, fuzzy
+msgid "Graph lines"
+msgstr "Grafiek Opties"
+
+msgid "Scalar"
+msgstr ""
+
+#, fuzzy
+msgid "Constant"
+msgstr "Instantie"
+
+#, fuzzy
+msgid "Operations on selected graph lines"
+msgstr "Werking op geselecteerde metriek"
+
+#, fuzzy
+msgid "Transformation"
+msgstr "Thermische informatie"
+
+#, fuzzy
+msgid "Graph options"
+msgstr "Grafiek Opties"
+
+#, fuzzy
+msgid "Mirrored"
+msgstr "Gespiegeld gebied"
+
+msgid "Formula"
+msgstr "Formule"
+
+msgid "Dissolve operation"
+msgstr "Oplossen"
+
+#, fuzzy
+msgid "Clone this entry"
+msgstr "Kloon deze metriek"
+
+#, fuzzy
+msgid "Metric name"
+msgstr "Metrisch etiket"
+
+#, fuzzy
+msgid "Select at least two graph lines to edit"
+msgstr "Selecteer ten minste één element"
+
+#, fuzzy
+msgid "Select one graph line to edit"
+msgstr "Selecteer ten minste één element"
+
+#, fuzzy
+msgid "Open full view"
+msgstr "Open bestanden"
+
+msgid ""
+"Changes are saved in a temporary environment first, letting you review and "
+"adjust them safely.\n"
+"             Activate changes to apply them to live monitoring."
+msgstr ""
+
+msgid "Successfully activated %{numberOfChangesLastActivation} changes"
+msgstr ""
+
+#, fuzzy
+msgid "Everything is up to date"
+msgstr "Sync status ophalen"
+
+msgid "No pending changes"
+msgstr "Geen hangende wijzigingen"
+
+msgid "Problems detected during activation"
+msgstr ""
+
+msgid "Some things may not be monitored properly."
+msgstr ""
+
+#, fuzzy
+msgid "Activating changes on "
+msgstr "Activeerde de veranderingen"
+
+#, fuzzy
+msgid "Activating changes... "
+msgstr "Activeerde de veranderingen"
+
+msgid "You can safely navigate away - we'll keep working in the background"
+msgstr ""
+
+#, fuzzy
+msgid "Changes: (%{n})"
+msgstr "Wijzigingen"
+
+#, fuzzy
+msgid "Foreign changes: (%{n})"
+msgstr "Buitenlandse wijzigingen activeren"
+
+#, fuzzy
+msgid "You haven't selected any sites"
+msgstr "U moet ten minste één gebruiker selecteren."
+
+#, fuzzy
+msgid "Changes:"
+msgstr "Wijzigingen"
+
+#, fuzzy
+msgid "No changes"
+msgstr "%d aanpassingen"
+
+#, fuzzy
+msgid "Sites with changes: %{n}"
+msgstr "Begonnen met het activeren van veranderingen: %s"
+
+#, fuzzy
+msgid "Sites with errors: %{n}"
+msgstr "%d sites met fouten: %s"
+
+#, fuzzy
+msgid "Agent connection test running"
+msgstr "Time-out verbinding instellen"
+
+#, fuzzy
+msgid "Agent connection successful"
+msgstr "Agent %s succesvol"
+
+msgid ""
+"Connection failed, enter new hostname to check again or download and install "
+"the Checkmk agent."
+msgstr ""
+
+#, fuzzy
+msgid "Please enter a hostname to test Checkmk agent connection"
+msgstr ""
+"Gelieve een hostnaam in te stellen voor de herclassificatie van de hoststatus"
+
+#, fuzzy
+msgid "Test Checkmk agent connection"
+msgstr "Checkmk agent verbindingsmodus"
+
+#, fuzzy
+msgid "Register agent"
+msgstr "Geregistreerde agenten"
+
+#, fuzzy
+msgid "Install Checkmk agent"
+msgstr "Checkmk agent"
+
+#, fuzzy
+msgid "Re-test agent connection"
+msgstr "Aanvragen per verbinding"
+
+#, fuzzy
+msgid "Agent connection failed"
+msgstr "Checkmk agent verbindingsmodus"
+
+#, fuzzy
+msgid "Failed to connect to the Checkmk agent"
+msgstr "TCP poort voor verbinding met Checkmk agent"
+
+msgid ""
+"This may be because the agent is not installed or not running on the target "
+"system."
+msgstr ""
+
+#, fuzzy
+msgid "Download & install agent"
+msgstr "Gedownloade Agent"
+
+#, fuzzy
+msgid "Download Checkmk agent"
+msgstr "Download Checkmk agent Vanilla"
+
+#, fuzzy
+msgid "Agent not registered"
+msgstr "Niet-geregistreerd"
+
+#, fuzzy
+msgid ""
+"The agent has been installed on the target system but has not yet been "
+"registered."
+msgstr "De status van dit gebied is nog niet vastgesteld."
+
+#, fuzzy
+msgid "Register Checkmk agent"
+msgstr "Geregistreerde agenten"
+
+#, fuzzy
+msgid "TLS connection not provided"
+msgstr "Time-out verbinding instellen"
+
+msgid ""
+"The agent has been installed on the target system but is not providing a TLS "
+"connection."
+msgstr ""
+
+#, fuzzy
+msgid "Provide TLS connection"
+msgstr "Nieuwe TLS-verbindingen"
+
+#, fuzzy
+msgid "Test agent connection"
+msgstr "Checkmk agent verbindingsmodus"
+
+#, fuzzy
+msgid "Testing agent connection ..."
+msgstr "Checkmk agent verbindingsmodus"
+
+#, fuzzy
+msgid "Successfully connected to agent."
+msgstr "Wachtwoord succesvol gewijzigd."
+
+#, fuzzy
+msgid "Close slideout"
+msgstr "Time-out verbinden"
+
+#, fuzzy
+msgid "Close & test connection"
+msgstr "Deze verbinding"
+
+#, fuzzy
+msgid "View all agents"
+msgstr "alle functionarissen"
+
+#, fuzzy
+msgid "Select the type of system you want to monitor"
+msgstr "Selecteer het type inhoudselement"
+
+#, fuzzy
+msgid "Save host"
+msgstr "Stale gastheren"
+
+msgid ""
+"Agent registration is only possible for hosts that already exist in Checkmk "
+"(they don’t need to be activated yet)."
+msgstr ""
+
+msgid ""
+"Could not save host \"${hostName}\". Close the slideout and review your "
+"input."
+msgstr ""
+
+#, fuzzy
+msgid "Host \"${hostName}\" exists"
+msgstr "Host bestaat al"
+
+#, fuzzy
+msgid "Close and revise form"
+msgstr "Model en revsion"
+
+#, fuzzy
+msgid "Close & review"
+msgstr "Kloon uitzicht"
+
+#, fuzzy
+msgid "Save host & next step"
+msgstr "Opslaan en testen"
+
+#, fuzzy
+msgid "Download and install"
+msgstr "Gedownloade Agent"
+
+msgid "Run this command to download and install the Checkmk agent."
+msgstr ""
+
+#, fuzzy
+msgid "Next step: Register agent"
+msgstr "Ontvanger"
+
+msgid ""
+"Agent registration will establish trust between the Agent Controller\n"
+"                    on the host and the Agent Receiver on the Checkmk server."
+msgstr ""
+
+msgid "Run this command to register the Checkmk agent controller."
+msgstr ""
+
+msgid ""
+"Test if you have configured everything correctly with pasting the following\n"
+"                  command into the CLI of the target system."
+msgstr ""
+
+#, fuzzy
+msgid "Install the legacy Checkmk agent"
+msgstr "Neem ook contact op met Checkmk agent"
+
+msgid ""
+"Run this command on your Windows host to download and install the Checkmk "
+"agent."
+msgstr ""
+
+msgid ""
+"After you have downloaded the agent, run this command on your Windows host "
+"to register the Checkmk agent controller."
+msgstr ""
+
+msgid ""
+"Run this command on your Linux host to download and install the Checkmk "
+"agent."
+msgstr ""
+
+msgid ""
+"If you want to install the Checkmk agent on Linux, please read how to "
+"install the legacy agent"
+msgstr ""
+
+msgid ""
+"After you have downloaded the agent, run this command on your Linux host to "
+"register the Checkmk agent controller."
+msgstr ""
+
+msgid "Run this command on your Solaris host to download the Checkmk agent."
+msgstr ""
+
+msgid ""
+"If you want to install the Checkmk agent on Solaris, please read how to "
+"install the legacy agent"
+msgstr ""
+
+msgid ""
+"After you have downloaded the agent, run this command on your Solaris host "
+"to install the Checkmk agent."
+msgstr ""
+
+msgid ""
+"Run this command on your AIX host to download and install the Checkmk agent."
+msgstr ""
+
+msgid ""
+"If you want to install the Checkmk agent on AIX, please read how to install "
+"the legacy agent"
+msgstr ""
+
+msgid ""
+"After you have downloaded the agent, run this command on your AIX host to "
+"register the Checkmk agent controller."
+msgstr ""
+
+msgid ""
+"To monitor systems like Linux or Windows with Checkmk, you need to install "
+"an agent on these systems.\n"
+"           This agent acts as a small program that collects data about the "
+"systems state, such as how much storage is used or the CPU load."
+msgstr ""
+
+msgid ""
+"This is a placeholder for the relay setup wizard. The actual implementation "
+"is pending."
+msgstr ""
+
+msgid "Deploy the relay to your environment"
+msgstr ""
+
+msgid "Name the relay and register with your Checkmk site"
+msgstr ""
+
+#, fuzzy
+msgid "Connection check"
+msgstr "Naam verbinding"
+
+#, fuzzy
+msgid "Already installed the Checkmk agent?"
+msgstr "Installeer Python altijd met agent"
+
+#, fuzzy
+msgid ""
+"This problem might be caused by a missing agent or the firewall settings."
+msgstr ""
+"De bovenstaande problemen kunnen worden veroorzaakt door ontbrekende caches. "
+"Gelieve een rescan uit te voeren."
+
+#, fuzzy
+msgid "Already registered the Checkmk agent?"
+msgstr "Installeer Python altijd met agent"
+
+#, fuzzy
+msgid "This problem might be caused by a missing agent registration."
+msgstr ""
+"De bovenstaande problemen kunnen worden veroorzaakt door ontbrekende caches. "
+"Gelieve een rescan uit te voeren."
+
+#, fuzzy
+msgid "Read Checkmk user guide"
+msgstr "De officiële Checkmk gebruikershandleiding"
+
+#, fuzzy
+msgid "Close & run service discovery"
+msgstr "Save & run service discovery"
+
+msgid "No filters can be applied to your current search query."
+msgstr ""
+
+#, fuzzy
+msgid ""
+"Search with regular expressions for menu entries, hosts, services or host "
+"and service groups."
+msgstr ""
+"Zoekveld dat reguliere expressies en gedeeltelijke overeenkomsten op de "
+"namen van hostgroepen toestaat"
+
+msgid "Note that for simplicity '*' will be substituted with '.*'."
+msgstr ""
+
+msgid "Search across Checkmk – Type '/' for search operators"
+msgstr ""
+
+msgid "Search in monitoring – Type '/' for search operators"
+msgstr ""
+
+#, fuzzy
+msgid "Search in customize"
+msgstr "%d bewerkte iconen"
+
+#, fuzzy
+msgid "Search in setup"
+msgstr "Zoeken in Setup"
+
+#, fuzzy
+msgid "Press"
+msgstr "Druk"
+
+#, fuzzy
+msgid "to trigger host/service search"
+msgstr "Geen overeenkomende hosts/diensten."
+
+msgid "Only available for 'Monitoring' and 'All'"
+msgstr ""
+
+#, fuzzy
+msgid "Search operators"
+msgstr "Zoekpatroon"
+
+msgid "Type \"/\" to use search operator"
+msgstr ""
+
+#, fuzzy
+msgid "Search in"
+msgstr "Zoek index"
+
+msgid "¯\\_(ツ)_/¯"
+msgstr ""
+
+#, fuzzy
+msgid "No results found for your search"
+msgstr "Geen logs gevonden voor deze host."
+
+#, fuzzy
+msgid "Reset search"
+msgstr "Zoekopdracht verfijnen"
+
+msgid "Find rules, hosts, dashboards, settings ..."
+msgstr ""
+
+msgid "Tip: Press"
+msgstr ""
+
+msgid ""
+"to view all search operator and, e.g., find all hosts with the same host "
+"label (hl:)"
+msgstr ""
+
+#, fuzzy
+msgid "Recently viewed"
+msgstr "Weergave kiezen"
+
+#, fuzzy
+msgid "Clear all"
+msgstr "Logboek wissen"
+
+#, fuzzy
+msgid "Recently searched"
+msgstr "Onlangs gewijzigde diensten"
+
+msgid "What's next?"
+msgstr ""
+
+#, fuzzy
+msgid "Set up backup"
+msgstr "Plaats back-up"
+
+msgid ""
+"No backup, no mercy! Protect your configuration and data with automated "
+"backups."
+msgstr ""
+
+#, fuzzy
+msgid "Learn how to scale your monitoring"
+msgstr "Netwerkbewaking"
+
+msgid "Add more hosts, sites, or distributed setups as your environment grows."
+msgstr ""
+
+#, fuzzy
+msgid "Fine-tune your monitoring"
+msgstr "Windows procesbewaking verfijnen"
+
+msgid ""
+"Dive deep into the details and learn how to optimize checks, thresholds, and "
+"notifications."
+msgstr ""
+
+#, fuzzy
+msgid "License your site"
+msgstr "Licentie staat"
+
+msgid ""
+"It’s time to enjoy the full experience! Set up automated licensing for a "
+"smooth experience."
+msgstr ""
+
+#, fuzzy
+msgid "First steps with Checkmk"
+msgstr "MIB's geleverd met Checkmk"
+
+#, fuzzy
+msgid "Resources"
+msgstr "Bronnen"
+
+msgid ""
+"Your assistant for Checkmk - ask anything from setup to troubleshooting."
+msgstr ""
+
+#, fuzzy
+msgid "Read the Beginner’s Guide"
+msgstr "Beginner's gids"
+
+msgid ""
+"A step-by-step introduction to help you get started quickly and confidently."
+msgstr ""
+
+#, fuzzy
+msgid "Join the community"
+msgstr "Mededeling in gewone tekst"
+
+msgid "Connect with other users and ask questions in our active forum."
+msgstr ""
+
+#, fuzzy
+msgid "All steps completed"
+msgstr "Alle hosts van de site"
+
+#, fuzzy
+msgid "Continue setup"
+msgstr "Zoek verder"
+
+#, fuzzy
+msgid "What's next"
+msgstr "De volgende "
+
+#, fuzzy
+msgid "Next steps with Checkmk"
+msgstr "MIB's geleverd met Checkmk"
+
+#, fuzzy
+msgid "Add your first host"
+msgstr "Regel toevoegen voor huidige host"
+
+#, fuzzy
+msgid "2-5 min"
+msgstr "5 minuten"
+
+msgid ""
+"Each host includes a number of services that represent what you want to "
+"monitor, for example,\n"
+"  CPU usage, disk space, running processes, or hardware sensors. Checkmk "
+"makes this easy with the\n"
+"  Service Discovery, which automatically detects relevant services on your "
+"host, so you can start\n"
+"  monitoring with minimal setup."
+msgstr ""
+
+#, fuzzy
+msgid "On-premises hosts"
+msgstr "Niveaus Gastheren"
+
+#, fuzzy
+msgid "Server (Linux, Windows, Solaris, ...)"
+msgstr "Hardware/Software-Inventarisatie (Linux, Windows, Solaris, AIX)"
+
+#, fuzzy
+msgid "Network devices and SNMP"
+msgstr "Netwerk scan"
+
+#, fuzzy
+msgid "Application monitoring"
+msgstr "Zoeken in Toezicht"
+
+#, fuzzy
+msgid "OpenTelemetry (Beta)"
+msgstr "Configuratie toestand toevoegen"
+
+#, fuzzy
+msgid "Adjust services"
+msgstr "Alle diensten"
+
+#, fuzzy
+msgid "5-7 min"
+msgstr "5 minuten"
+
+msgid ""
+"Each service in Checkmk comes with default parameter values.\n"
+"            You can customize these to match your monitoring needs,\n"
+"            most commonly by setting thresholds for WARN and CRIT states "
+"using rules.\n"
+"            To find the right ruleset for a service,\n"
+"            start with the Service discovery page of a host."
+msgstr ""
+
+#, fuzzy
+msgid "Run a service discovery"
+msgstr "Service discovery uitvoeren"
+
+msgid "To adjust parameters for a host, start by running a service discovery."
+msgstr ""
+
+#, fuzzy
+msgid "In the host table, click on the"
+msgstr "Open het actiemenu van de host"
+
+#, fuzzy
+msgid "-icon next to the host to open the service discovery."
+msgstr "Save & run service discovery"
+
+#, fuzzy
+msgid "View host table"
+msgstr "Tabel bekijken"
+
+#, fuzzy
+msgid "Open the ruleset for a check parameter"
+msgstr "Edit parameter rule set voor dit check type"
+
+msgid "In the Service Discovery view, find the service you want to configure."
+msgstr ""
+
+#, fuzzy
+msgid "Click the"
+msgstr "Controleer de URL"
+
+msgid "-icon next to it to open the corresponding ruleset."
+msgstr ""
+
+#, fuzzy
+msgid "Create a check parameter rule"
+msgstr "Toon controleparameters"
+
+msgid ""
+"In the ruleset view, click Add rule for current host to create a rule that "
+"applies specifically to the selected host."
+msgstr ""
+
+msgid ""
+"You can now define custom parameters like thresholds or other check settings."
+msgstr ""
+
+msgid ""
+"Changes are saved in a temporary environment first,\n"
+"                letting you review and adjust them safely."
+msgstr ""
+
+#, fuzzy
+msgid "Activate changes to apply them to live monitoring."
+msgstr "Activeer wijzigingen voor gebeurtenissenconsole"
+
+#, fuzzy
+msgid "Mark as complete"
+msgstr "volledig"
+
+#, fuzzy
+msgid "Assign responsibilities"
+msgstr "Service Filters"
+
+msgid ""
+"The recommended way to manage responsibilities in Checkmk is by using "
+"contact groups.\n"
+"            Contact groups can be assigned to users, hosts, and services, "
+"making them a flexible\n"
+"            and scalable tool for defining who is responsible for what."
+msgstr ""
+
+#, fuzzy
+msgid "Create a contact group"
+msgstr "Overeenkomen met contactgroepen"
+
+msgid ""
+"By default, there is one contact group available, called \"Everything\"."
+msgstr ""
+
+#, fuzzy
+msgid "Go to Setup > Users > Contact groups to create or edit contact groups."
+msgstr "Contactgroepen effectief (host- of regelcontactgroepen)"
+
+#, fuzzy
+msgid "Assign users to a contact group"
+msgstr "Toewijzing van diensten aan contactgroepen"
+
+msgid ""
+"Each user can belong to multiple contact groups. You can assign them to "
+"contact groups in the \"Contact groups\" section when editing or creating a "
+"user."
+msgstr ""
+
+#, fuzzy
+msgid "Assign the contact group to hosts"
+msgstr "Voeg deze contactgroepen toe aan de host"
+
+msgid ""
+"There are two options available for assigning hosts to contact groups. "
+"Either make a direct assignment when creating or editing hosts, or use a "
+"rule."
+msgstr ""
+
+msgid ""
+"We recommend using the latter, as rules can adapt more easily to changes in "
+"your environment."
+msgstr ""
+
+#, fuzzy
+msgid "Create a dashboard"
+msgstr "Gerelateerde dashboards"
+
+msgid ""
+"Tailor your monitoring experience by creating a custom dashboard\n"
+"            that highlights what matters most to you.\n"
+"            Whether you want to track specific hosts, services, or metrics,\n"
+"            dashboards help you stay focused and efficient.\n"
+"            You can create your own or explore the list of all dashboards to "
+"find useful presets."
+msgstr ""
+
+#, fuzzy
+msgid "Add custom dashboard"
+msgstr "Link naar dashboard"
+
+#, fuzzy
+msgid "List of all dashboards"
+msgstr "Links naar alle dashboards"
+
+#, fuzzy
+msgid "Enable notifications"
+msgstr "meldingen inschakelen"
+
+msgid ""
+"Notifications help you to stay on top of problems without having to "
+"constantly check the interface.\n"
+"            In Checkmk, they are rule-based, enabling you to create a "
+"notification system that evolves alongside\n"
+"            your environment."
+msgstr ""
+
+#, fuzzy
+msgid "Create a notification rule"
+msgstr "Nieuwe meldingsregel maken"
+
+msgid ""
+"Follow the step-by-step guide in Setup > Notifications to set up "
+"notification rules."
+msgstr ""
+
+#, fuzzy
+msgid "Send a test notification"
+msgstr "Aangepaste kennisgeving verzenden"
+
+msgid ""
+"After creation, test your notification rule to make sure alerts reach you "
+"the way you expect."
+msgstr ""
+
+#, fuzzy
+msgid "Your progress"
+msgstr "In uitvoering"
+
+#, fuzzy
+msgid "Steps complete"
+msgstr "volledig"
+
+#, fuzzy
+msgid "Welcome to Checkmk!"
+msgstr "Welkom bij Checkmk Mobile."
+
+msgid "Get started with Checkmk in 5 easy steps."
+msgstr ""
+
+msgid "Show welcome page on start"
+msgstr ""
+
+msgid ""
+"You can still access it later via Help > Learning Checkmk > Welcome page"
+msgstr ""
+
+#~ msgid "Auto - adjust to actual values"
+#~ msgstr "Auto - aanpassen aan werkelijke waarden"
+
+#~ msgid "Explicit vertical range"
+#~ msgstr "Expliciet verticaal bereik"
+
+#~ msgid "The backup has been started."
+#~ msgstr "De back-up is gestart."
+
+#, fuzzy
+#~ msgid "Customize dashboard"
+#~ msgstr "Aanpassen"
+
+#, fuzzy
+#~ msgid "Main dashboard (PEV)"
+#~ msgstr "Hoofd dashboard"
+
+#, fuzzy
+#~ msgid ""
+#~ "No permission for fallback topic 'Other'. Please contact your "
+#~ "administrator."
+#~ msgstr "Neem contact op met uw beheerder."
+
+#~ msgid "Currently indexing, please try again shortly."
+#~ msgstr "Wordt momenteel geïndexeerd, probeer het binnenkort opnieuw."
+
+#, python-format
+#~ msgid "More than %d results available, please refine your search."
+#~ msgstr "Meer dan %d resultaten beschikbaar, verfijn uw zoekopdracht."
+
+#, fuzzy
+#~ msgid "Redis server is not reachable."
+#~ msgstr "Deze site is momenteel niet bereikbaar."
+
+#, fuzzy
+#~ msgid "Search for menu entries, settings, hosts and rule sets."
+#~ msgstr "Zoek naar menu-items, instellingen, hosts en regelsets."
+
+#~ msgid "Search in Monitoring"
+#~ msgstr "Zoeken in Toezicht"
+
+#~ msgid "Search in Setup"
+#~ msgstr "Zoeken in Setup"
+
+#, fuzzy
+#~ msgid ""
+#~ "Search with regular expressions for menu entries, \n"
+#~ "hosts, services or host and service groups.\n"
+#~ "\n"
+#~ "You can use the following filters:\n"
+#~ "h: Host\n"
+#~ "s: Service\n"
+#~ "hg: Host group\n"
+#~ "sg: Service group\n"
+#~ "ad: Address\n"
+#~ "al: Alias\n"
+#~ "tg: Host tag\n"
+#~ "hl: Host label (e.g. hl: cmk/os_family:linux)\n"
+#~ "sl: Service label (e.g. sl: cmk/os_family:linux)\n"
+#~ "st: Service state (e.g. st: crit [ok|warn|crit|unkn|pend])\n"
+#~ "\n"
+#~ "Note that for simplicity '*' will be substituted with '.*'."
+#~ msgstr ""
+#~ "Zoeken met reguliere expressies naar menu-items,\n"
+#~ "hosts, services of host- en servicegroepen.\n"
+#~ "\n"
+#~ "U kunt de volgende filters gebruiken:\n"
+#~ "h: Host\n"
+#~ "s: Service\n"
+#~ "hg: Hostgroep\n"
+#~ "sg: Servicegroep\n"
+#~ "ad: Adres\n"
+#~ "al: Alias\n"
+#~ "tg: Host label\n"
+#~ "hl: Hostlabel (bijv. hl: cmk/os_family:linux)\n"
+#~ "sl: Dienstlabel (b.v. sl: cmk/os_family:linux)\n"
+#~ "\n"
+#~ "Merk op dat voor de eenvoud '*' zal worden vervangen door '.*'."
+
+#~ msgid "Show all results"
+#~ msgstr "Toon alle resultaten"
+
+#~ msgid "Show all topics"
+#~ msgstr "Toon alle onderwerpen"
+
+#, fuzzy
+#~ msgid "Empty dashboard app"
+#~ msgstr "dashboards bewerken"
+
+#, fuzzy
+#~ msgid "Default State"
+#~ msgstr "Standaardstatus"
+
+#, fuzzy
+#~ msgid "Special States"
+#~ msgstr "Operationele status"
+
+#, fuzzy
+#~ msgid ""
+#~ "By default, data relating to a VM is sent to the group host corresponding "
+#~ "to the resource group of the VM, the same way as for any other resource. "
+#~ "If the VM is present in your monitoring as a separate host, you can "
+#~ "choose to send the data to the VM itself."
+#~ msgstr ""
+#~ "Standaard worden gegevens met betrekking tot een VM verzonden naar de "
+#~ "groep host die overeenkomt met de resource groep van de VM, op dezelfde "
+#~ "manier als voor elke andere resource. Als de VM als een afzonderlijke "
+#~ "host in uw monitoring aanwezig is, kunt u ervoor kiezen om de gegevens "
+#~ "naar de VM zelf te sturen."
+
+#, fuzzy
+#~ msgid "GUI extensions (deprecated)"
+#~ msgstr "GUI-uitbreidingen"
+
+#, fuzzy
+#~ msgid "Legacy GUI extensions (deprecated)"
+#~ msgstr "Verouderde GUI-uitbreidingen"
+
+#, fuzzy
+#~ msgid "Legacy check plug-ins (deprecated)"
+#~ msgstr "Plugins voor oudere controles"
+
+#, fuzzy
+#~ msgid "Map data"
+#~ msgstr "In kaart gebrachte gegevens"
+
+#~ msgid "Map data relating to VMs"
+#~ msgstr "Kaartgegevens met betrekking tot VM's"
+
+#~ msgid "Map data to group host"
+#~ msgstr "Map gegevens naar groep host"
+
+#~ msgid "Map data to the VM itself"
+#~ msgstr "Map gegevens naar de VM zelf"
+
+#, fuzzy
+#~ msgid "Name of group2"
+#~ msgstr "Naam van de groep"
+
+#, fuzzy, python-brace-format
+#~ msgid "The pattern {value} is not a valid regular expression: {err_msg}"
+#~ msgstr ""
+#~ "De hier ingevoerde tekst wordt behandeld als een regulier "
+#~ "expressiepatroon."
+
+#~ msgid "Connect without proxy"
+#~ msgstr "Verbinden zonder proxy"
+
+#~ msgid "Use explicit proxy settings"
+#~ msgstr "Gebruik expliciete proxy-instellingen"
+
+#~ msgid "Use from environment"
+#~ msgstr "Gebruik van omgeving"
+
+#, python-format
+#~ msgid "A user with the id \"%s\" does not exist."
+#~ msgstr "Een gebruiker met het id \"%s\" bestaat niet."
+
+#~ msgid "Disabled "
+#~ msgstr "Uitgeschakeld "
+
+#~ msgid "Invalid messaging method selected."
+#~ msgstr "Ongeldige berichtmethode geselecteerd."
+
+#~ msgid "Please select at least one messaging method."
+#~ msgstr "Kies ten minste één berichtmethode."
+
+#~ msgid "You need to provide a text."
+#~ msgstr "Je moet een tekst geven."
+
+#, fuzzy
+#~ msgid "License expired: Renew license now to reactivate change activation."
+#~ msgstr "Licentie verlopen: Licentie nu vernieuwen"
+
+#~ msgid "Add custom icon or action"
+#~ msgstr "Aangepast pictogram of actie toevoegen"
+
+#~ msgid ""
+#~ "You can assign icons or actions to the found services in the status GUI."
+#~ msgstr ""
+#~ "U kunt pictogrammen of acties toewijzen aan de gevonden diensten in de "
+#~ "status GUI."
+
+#, python-format
+#~ msgid "Changed LDAP connection %s"
+#~ msgstr "Gewijzigde LDAP-verbinding %s"
+
+#~ msgid "Created new LDAP connection"
+#~ msgstr "Nieuwe LDAP-verbinding gemaakt"
+
+#, python-format
+#~ msgid "Deleted connection %s"
+#~ msgstr "Verwijderde verbinding %s"
+
+#, fuzzy
+#~ msgid "Active calls"
+#~ msgstr "Actieve paden"
+
+#, fuzzy
+#~ msgid "Calls in"
+#~ msgstr "Beller ID"
+
+#, fuzzy
+#~ msgid "Calls in/out"
+#~ msgstr "Noem een regel"
+
+#, fuzzy
+#~ msgid "Calls out"
+#~ msgstr "Noem een regel"
+
+#, fuzzy
+#~ msgid "Calls per second"
+#~ msgstr "Pagina's per seconde"
+
+#, python-format
+#~ msgid "Failed to process your MIB file (%s): %s"
+#~ msgstr "Verwerking van uw MIB-bestand mislukt (%s): %s"
+
+#, fuzzy
+#~ msgid "HW/SW Inventory housekeeping"
+#~ msgstr "Afgeschreven HW/SW inventaris plugins"
+
+#~ msgid "foo.bar"
+#~ msgstr "Joerg's test string"
+
+#, fuzzy
+#~ msgid "Agent Download"
+#~ msgstr "Laatste download"
+
+#, fuzzy, python-format
+#~ msgid ""
+#~ "Cannot load HW/SW Inventory tree %s. Please remove the corrupted file."
+#~ msgstr ""
+#~ "Kan HW/SW inventarisboom %s niet laden. Verwijder het beschadigde bestand."
+
+#, fuzzy, python-format
+#~ msgid ""
+#~ "Cannot load HW/SW Inventory trees %s. Please remove the corrupted files."
+#~ msgstr ""
+#~ "Kan HW/SW inventarisbomen %s niet laden. Verwijder alstublieft de "
+#~ "beschadigde bestanden."
+
+#, fuzzy
+#~ msgid "Define levels for"
+#~ msgstr "Definieer niveaus voor in afwachting van pods"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the Podman disk usage of containers"
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the Podman disk usage of images"
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the Podman disk usage of volumes"
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total number of active containers."
+#~ msgstr "Bovenste niveau voor totaal aantal verbindingen"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total number of active images."
+#~ msgstr "Bovenste niveau voor het totale aantal afgeleverde berichten"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total number of active volumes."
+#~ msgstr "Bovenste niveau voor het totale aantal afgeleverde berichten"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total number of containers."
+#~ msgstr "Bovenste niveau voor totaal aantal verbindingen"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total number of images."
+#~ msgstr "Bovenste niveau voor totaal aantal berichten"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total number of volumes."
+#~ msgstr "Bovenste niveau voor totaal aantal berichten"
+
+#, fuzzy
+#~ msgid ""
+#~ "Sets the upper levels for the total reclaimable size of Podman containers."
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid ""
+#~ "Sets the upper levels for the total reclaimable size of Podman volumes."
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total size of Podman containers."
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total size of Podman images."
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Sets the upper levels for the total size of Podman volumes."
+#~ msgstr "Definieer bovengrenzen voor aantal totale containers"
+
+#, fuzzy
+#~ msgid "Total number of active containers upper levels"
+#~ msgstr "Totaal aantal actieve scherven bovenste niveau"
+
+#, fuzzy
+#~ msgid "Total number of active images upper levels"
+#~ msgstr "Totaal aantal actieve scherven bovenste niveau"
+
+#, fuzzy
+#~ msgid "Total number of containers upper levels"
+#~ msgstr "Totaal aantal collecties bovenste niveau"
+
+#, fuzzy
+#~ msgid "Total number of images upper levels"
+#~ msgstr "Totaal aantal uitgiften op hoger niveau"
+
+#, fuzzy
+#~ msgid "Total number of volumes upper levels"
+#~ msgstr "Totaal aantal uitgiften op hoger niveau"
+
+#, fuzzy
+#~ msgid "all metrics"
+#~ msgstr "Ongeldig onderwerp"
+
+#, fuzzy
+#~ msgid "Get started (Welcome)"
+#~ msgstr "Resulterende staat"
+
+#, fuzzy
+#~ msgid "th entry"
+#~ msgstr "Per item"
+
+#, python-format
+#~ msgid "Original %s"
+#~ msgstr "Origineel %s"
+
+#, python-format
+#~ msgid "Translated %s"
+#~ msgstr "Vertaald %s"
+
+#~ msgid "Do not check"
+#~ msgstr "Niet controleren"
+
+#, fuzzy
+#~ msgid "Migrated Parents"
+#~ msgstr "Gebruikers migreren"
+
+#, fuzzy
+#~ msgid "Community translated languages"
+#~ msgstr "Maak vertaalde gemeenschapstalen mogelijk"
+
+#, fuzzy
+#~ msgid "Community translated languages (not supported)"
+#~ msgstr "Inschakelen van vertaalde gemeenschapstalen (niet ondersteund)"
+
+#, fuzzy
+#~ msgid "Fail over partner"
+#~ msgstr "Failover staten"
+
+#, fuzzy
+#~ msgid "Name or IP address of the host where MS SQL runs if host name fails"
+#~ msgstr "Hostnaam of IPv4 adres voor luisteraar"
+
+#, fuzzy
+#~ msgid ""
+#~ "Show/hide community translated languages in the \"Language\" dropdown "
+#~ "(User > Edit profile). Note that these translations are contributed by "
+#~ "the Checkmk community and thus no liability is assumed for their validity."
+#~ "<br>If this setting is turned from 'on' to 'off' while a user has set a "
+#~ "community translated language, the user's language is changed to "
+#~ "'English'."
+#~ msgstr ""
+#~ "Toon/verberg door de gemeenschap vertaalde talen in de \"Language\" "
+#~ "dropdown (User > Edit profile). Merk op dat deze vertalingen zijn "
+#~ "bijgedragen door de Checkmk gemeenschap en dus geen aansprakelijkheid "
+#~ "wordt aanvaard voor hun geldigheid.<br>Als deze instelling van 'on' naar "
+#~ "'off' wordt gezet terwijl een gebruiker een door de gemeenschap vertaalde "
+#~ "taal heeft ingesteld, wordt de taal van de gebruiker'veranderd in "
+#~ "'English'."
+
+#, fuzzy
+#~ msgid "Unable to migrate value"
+#~ msgstr "Mislukt om waarde te renderen:"
+
+#~ msgid "Do you really want to move the selected aggregations?"
+#~ msgstr "Wilt u echt de geselecteerde aggregaten verplaatsen?"
+
+#, python-format
+#~ msgid ""
+#~ "The monitoring core of the target site '%s' has the version '%s'. That "
+#~ "does not support fetching logfile information. Please upgrade to a newer "
+#~ "version."
+#~ msgstr ""
+#~ "De monitoring core van de doelsite '%s' heeft de versie '%s'. Die "
+#~ "ondersteunt het ophalen van logfile informatie niet. Gelieve te upgraden "
+#~ "naar een nieuwere versie."
+
+#~ msgid "Subscription ID"
+#~ msgstr "Abonnement ID"
+
+#, fuzzy
+#~ msgid "At least one selection is missing."
+#~ msgstr "Staat wanneer bestand ontbreekt"
+
+#~ msgid "Use the default start URL"
+#~ msgstr "Gebruik de standaard start URL"
+
+#~ msgid "Use this custom start URL"
+#~ msgstr "Gebruik deze aangepaste start URL"
+
+#, fuzzy
+#~ msgid "Labels need to be unique."
+#~ msgstr "De ID moet uniek zijn."
 
 #, fuzzy
 #~ msgid ""
@@ -90353,9 +93261,6 @@ msgstr ""
 #~ msgid "State of host"
 #~ msgstr "Staat van gastheer"
 
-#~ msgid "Subscription Status"
-#~ msgstr "Abonnementsstatus"
-
 #~ msgid "The Checkmk Micro Core"
 #~ msgstr "De Checkmk Micro Kern"
 
@@ -90764,10 +93669,6 @@ msgstr ""
 #~ msgid "Skip monitoring non discovered hosts"
 #~ msgstr "OMD bewakingskernen"
 
-#, fuzzy
-#~ msgid "The first value must be lower than the second value."
-#~ msgstr "Het cluster moet ten minste één knooppunt hebben"
-
 #, fuzzy, python-format
 #~ msgid "The following files are missing in the archive: %s"
 #~ msgstr "De volgende %s kon niet worden gevonden: %s"
@@ -90977,10 +93878,6 @@ msgstr ""
 #~ msgid "Collect performance data for disk latency"
 #~ msgstr "Verzamel prestatiegegevens voor schijflatentie"
 
-#, fuzzy
-#~ msgid "Next step: Summary"
-#~ msgstr "Samenvatting van de toestand van de gastheer"
-
 #~ msgid ""
 #~ "Note: enabling performance data for the latency might cause "
 #~ "incompatibilities with existing historical data if you are running "
@@ -91163,10 +94060,6 @@ msgstr ""
 #~ "site\".In distributed setups zult u de REST API van de centrale Setup "
 #~ "site moeten configureren vanuit de visie van de remote site."
 
-#, fuzzy
-#~ msgid "Assignee filters"
-#~ msgstr "Service Filters"
-
 #~ msgid "Host & service events"
 #~ msgstr "Host & service evenementen"
 
@@ -91281,10 +94174,6 @@ msgstr ""
 #, fuzzy
 #~ msgid "Some value"
 #~ msgstr "Verwijder alle"
-
-#, python-format
-#~ msgid "Started activate changes: %s"
-#~ msgstr "Begonnen met het activeren van veranderingen: %s"
 
 #, fuzzy
 #~ msgid "State of the host manager"
@@ -91489,10 +94378,6 @@ msgstr ""
 #, fuzzy
 #~ msgid "Recipients"
 #~ msgstr "Ontvanger"
-
-#, fuzzy
-#~ msgid "Save & go to service discovery"
-#~ msgstr "Save & run service discovery"
 
 #, fuzzy
 #~ msgid "TBD"
@@ -91935,9 +94820,6 @@ msgstr ""
 
 #~ msgid "File Size Levels"
 #~ msgstr "Niveaus bestandsgrootte"
-
-#~ msgid "Applied Filters:"
-#~ msgstr "Toegepaste filters:"
 
 #~ msgid "Edit metric"
 #~ msgstr "Bewerk metriek"
@@ -92465,9 +95347,6 @@ msgstr ""
 
 #~ msgid "Node Name"
 #~ msgstr "Knooppuntnaam"
-
-#~ msgid "Operational Status"
-#~ msgstr "Operationele status"
 
 #~ msgid "Oracle Instance"
 #~ msgstr "Oracle-instance"

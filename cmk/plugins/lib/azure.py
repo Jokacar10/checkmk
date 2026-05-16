@@ -4,24 +4,32 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import json
-from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+import time
+from collections.abc import Callable, Generator, Iterable, Mapping, MutableMapping, Sequence
 from datetime import datetime
+from enum import auto, Enum
 from typing import Any, NamedTuple
 
 from pydantic import BaseModel, Field
 
 from cmk.agent_based.v1 import check_levels as check_levels_v1
 from cmk.agent_based.v1 import Metric, Result
+from cmk.agent_based.v2 import check_levels as check_levels_v2
 from cmk.agent_based.v2 import (
     CheckResult,
     DiscoveryResult,
+    get_average,
+    get_value_store,
     IgnoreResultsError,
+    InventoryResult,
+    LevelsT,
     render,
     Service,
     ServiceLabel,
     StringTable,
+    TableRow,
 )
-from cmk.plugins.lib.labels import custom_tags_to_valid_labels
+from cmk.plugins.lib.labels import ensure_valid_labels
 
 AZURE_AGENT_SEPARATOR = "|"
 
@@ -45,6 +53,18 @@ class Resource(NamedTuple):
     specific_info: Mapping[Any, Any] = {}
     metrics: Mapping[str, AzureMetric] = {}
     subscription: str | None = None
+    subscription_name: str | None = None
+    tenant_id: str | None = None
+
+
+class SustainedLevelDirection(Enum):
+    """
+    When using sustained threshold checking, decides if the threshold is
+    an upper bound or a lower bound.
+    """
+
+    UPPER_BOUND = auto()
+    LOWER_BOUND = auto()
 
 
 class MetricData(NamedTuple):
@@ -55,6 +75,20 @@ class MetricData(NamedTuple):
     upper_levels_param: str = ""
     lower_levels_param: str = ""
     boundaries: tuple[float | None, float | None] | None = None
+
+    # Apply this function to the value before using it when yielding metrics
+    # This gives the opportunity to manipulate metrics before they are counted.
+    map_func: Callable[[float], float] | None = None
+    notice_only: bool = False
+    # Optionally, average the value over time
+    average_mins_param: str = ""
+    # Optionally, allow for monitoring a sustained threshold
+    # The Callable looks weird but allows for pulling params out of deeply nested rulespecs
+    # e.g. sustained_threshold_param=lambda params: params.get("time_based", {}).get("threshold")
+    sustained_threshold_param: str | Callable[[Mapping[str, Any]], str] = ""
+    sustained_levels_time_param: str | Callable[[Mapping[str, Any]], str] = ""
+    sustained_level_direction: SustainedLevelDirection = SustainedLevelDirection.UPPER_BOUND
+    sustained_label: str | None = None
 
 
 class PublicIP(BaseModel):
@@ -146,6 +180,8 @@ def _get_resource(
         resource.get("specific_info", {}),
         metrics or {},
         resource.get("subscription"),
+        resource.get("subscription_name"),
+        resource.get("tenant_id"),
     )
 
 
@@ -201,7 +237,7 @@ def parse_resources(string_table: StringTable) -> Mapping[str, Resource]:
 
 
 def get_service_labels_from_resource_tags(tags: Mapping[str, str]) -> Sequence[ServiceLabel]:
-    labels = custom_tags_to_valid_labels(tags)
+    labels = ensure_valid_labels(tags)
     return [ServiceLabel(f"cmk/azure/tag/{key}", value) for key, value in labels.items()]
 
 
@@ -281,18 +317,63 @@ def check_resource_metrics(
     if not any(metrics) and not suppress_error:
         raise IgnoreResultsError("Data not present at the moment")
 
+    now = time.time()
+
     for metric, metric_data in zip(metrics, metrics_data):
         if not metric:
             continue
 
+        if isinstance(metric_data.sustained_threshold_param, str):
+            threshold = params.get(metric_data.sustained_threshold_param)
+        else:
+            threshold = metric_data.sustained_threshold_param(params)
+
+        if isinstance(metric_data.sustained_levels_time_param, str):
+            threshold_levels = params.get(metric_data.sustained_levels_time_param)
+        else:
+            threshold_levels = metric_data.sustained_levels_time_param(params)
+
+        if threshold and threshold_levels:
+            yield from _threshold_hit_for_time(
+                current_value=(
+                    metric_data.map_func(metric.value) if metric_data.map_func else metric.value
+                ),
+                threshold=threshold,
+                limits=threshold_levels,
+                now=now,
+                value_store=get_value_store(),
+                value_store_key=f"{metric_data.metric_name}_sustained_threshold",
+                direction=metric_data.sustained_level_direction,
+                label=metric_data.sustained_label,
+            )
+
+        if (
+            metric_data.average_mins_param is not None
+            and (average_mins := params.get(metric_data.average_mins_param)) is not None
+        ):
+            # Even if we alert on the average, we still emit the instantaneous value as a metric.
+            yield Metric(metric_data.metric_name, metric.value)
+            metric_name = f"{metric_data.metric_name}_average"
+            metric_value = get_average(
+                get_value_store(),
+                metric_name,  # value_store key, we just use the metric name
+                now,
+                metric.value,
+                average_mins,
+            )
+        else:
+            metric_name = metric_data.metric_name
+            metric_value = metric.value
+
         yield from check_levels(
-            metric.value,
+            metric_data.map_func(metric_value) if metric_data.map_func else metric_value,
             levels_upper=params.get(metric_data.upper_levels_param),
             levels_lower=params.get(metric_data.lower_levels_param),
-            metric_name=metric_data.metric_name,
+            metric_name=metric_name,
             label=metric_data.metric_label,
             render_func=metric_data.render_func,
             boundaries=metric_data.boundaries,
+            notice_only=metric_data.notice_only,
         )
 
 
@@ -316,7 +397,9 @@ def create_check_metrics_function(
 
 
 def create_check_metrics_function_single(
-    metrics_data: Sequence[MetricData], suppress_error: bool = False
+    metrics_data: Sequence[MetricData],
+    suppress_error: bool = False,
+    check_levels: Callable[..., Iterable[Result | Metric]] = check_levels_v1,
 ) -> Callable[[Mapping[str, Any], Section], CheckResult]:
     def check_metric(params: Mapping[str, Any], section: Section) -> CheckResult:
         if len(section) != 1:
@@ -325,7 +408,9 @@ def create_check_metrics_function_single(
             raise IgnoreResultsError("Only one resource expected")
 
         resource = list(section.values())[0]
-        yield from check_resource_metrics(resource, params, metrics_data, suppress_error)
+        yield from check_resource_metrics(
+            resource, params, metrics_data, suppress_error, check_levels
+        )
 
     return check_metric
 
@@ -435,3 +520,104 @@ def check_storage() -> CheckFunction:
             ),
         ]
     )
+
+
+def inventory_common_azure(section: Section) -> InventoryResult:
+    resource = list(section.values())[0]
+    path = ["software", "applications", "azure"]
+
+    # Table label -> resource dict key
+    mapping = {
+        "Object": "type",
+        "Name": "name",
+        "Tenant ID": "tenant_id",
+        "Subscription ID": "subscription",
+        "Subscription name": "subscription_name",
+        "Resource group": "group",
+        "Region": "location",
+    }
+
+    hardcoded_values = {
+        "Cloud provider": "Azure",
+        "Entity": "Resource",
+    }
+
+    for label, value in mapping.items() | hardcoded_values.items():
+        if label in mapping:
+            row_value = getattr(resource, value, None)
+        else:
+            row_value = value
+
+        if row_value is not None:
+            yield TableRow(
+                path=path + ["metadata"],
+                key_columns={"information": label},
+                inventory_columns={"value": row_value},
+            )
+
+    for tag_key, tag_value in (resource.tags or {}).items():
+        yield TableRow(
+            path=path + ["tags"],
+            key_columns={"name": tag_key},
+            inventory_columns={"value": tag_value},
+        )
+
+
+def _threshold_hit_for_time[NumberT: (int, float)](
+    current_value: float,
+    threshold: float,
+    # We assume v2-style limits
+    limits: LevelsT[NumberT],
+    now: float,
+    value_store: MutableMapping[str, Any],
+    value_store_key: str,
+    direction: SustainedLevelDirection = SustainedLevelDirection.UPPER_BOUND,
+    label: str | None = None,
+) -> CheckResult:
+    """
+    Alert if the threshold has been hit or exceeded for longer than 'limits'
+    amount of time.
+
+    To accomplish this, when the threshold is hit, the timestamp is stored in the
+    value store. Later, if the threshold is NOT met, the timestamp is removed from
+    the value store. Otherwise if the threshold is still hit, the time since the
+    original hit is compared to the current time, and if more seconds have
+    elapsed than 'limits' allows, an alert is raised.
+
+    The 'value_store_key' is required so that this can be used multiple times
+    in one check plugin (to check different kinds of values).
+
+    If 'direction' is LOWER_BOUND, then the alerting happens when the
+    value dips and stays _below_ the threshold.
+    """
+    if direction == SustainedLevelDirection.LOWER_BOUND:
+        drop_from_value_store = current_value > threshold
+        if label is None:
+            label = "Below the threshold for"
+    else:
+        drop_from_value_store = current_value < threshold
+        if label is None:
+            label = "Above the threshold for"
+
+    if drop_from_value_store:
+        # If we are under the threshold, clear out any previous record of
+        # being over it, because now it doesn't matter anymore, we're not
+        # going to alert.
+        value_store[value_store_key] = None
+    else:
+        # Otherwise we're at or over the threshold.
+        threshold_hit_time = value_store.get(value_store_key)
+        if threshold_hit_time is None:
+            # This is the first time we're over the threshold in this "series"
+            # Don't alert here, just store the value in case we need to alert next time
+            value_store[value_store_key] = now
+        else:
+            # We already had a value stored from before, compare it to see
+            # if it's time to alert.
+            yield from check_levels_v2(
+                now - threshold_hit_time,
+                levels_upper=limits,
+                render_func=render.timespan,
+                label=label,
+                notice_only=True,
+            )

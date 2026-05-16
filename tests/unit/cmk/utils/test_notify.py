@@ -8,11 +8,11 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
-from cmk.ccc.hostaddress import HostName
-
 import cmk.utils.notify
-from cmk.utils.config_path import VersionedConfigPath
+from cmk.ccc.config_path import VersionedConfigPath
+from cmk.ccc.hostaddress import HostName
 from cmk.utils.notify import NotificationHostConfig, read_notify_host_file, write_notify_host_file
+from cmk.utils.paths import omd_root
 from cmk.utils.tags import TagGroupID, TagID
 
 
@@ -20,7 +20,7 @@ from cmk.utils.tags import TagGroupID, TagID
     "versioned_config_path, host_name, config, expected",
     [
         pytest.param(
-            Path(VersionedConfigPath(1)),
+            Path(VersionedConfigPath(omd_root, 1)),
             "horsthost",
             NotificationHostConfig(
                 host_labels={"owe": "owe"},

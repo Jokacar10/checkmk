@@ -7,12 +7,10 @@
 import pytest
 
 import cmk.ccc.version as cmk_version
-
-from cmk.utils import paths
-
-from cmk.gui.type_defs import TopicMenuItem, TopicMenuTopic
+from cmk.gui.search import MatchItem
+from cmk.gui.type_defs import MainMenuItem, MainMenuTopic
 from cmk.gui.wato._snapins import get_wato_menu_items, MatchItemGeneratorSetupMenu
-from cmk.gui.watolib.search import MatchItem
+from cmk.utils import paths
 
 
 def expected_items() -> dict[str, list[str]]:
@@ -85,6 +83,7 @@ def expected_items() -> dict[str, list[str]]:
         cmk_version.Edition.CME,
     ]:
         hosts_items.append("otel_collectors")
+        hosts_items.append("relays")
 
     users_items = []
     if cmk_version.edition(paths.omd_root) is cmk_version.Edition.CME:
@@ -161,8 +160,8 @@ def test_get_wato_menu_items() -> None:
 def test_unique_wato_menu_item_titels() -> None:
     titles = [
         entry.title
-        for topic_menu_topic in get_wato_menu_items()
-        for entry in topic_menu_topic.entries
+        for main_menu_topic in get_wato_menu_items()
+        for entry in main_menu_topic.entries
     ]
     assert len(titles) == len(set(titles))
 
@@ -172,12 +171,12 @@ def test_match_item_generator_setup_menu() -> None:
         MatchItemGeneratorSetupMenu(
             "setup",
             lambda: [
-                TopicMenuTopic(
+                MainMenuTopic(
                     name="topic",
                     title="Topic",
                     entries=[
-                        TopicMenuItem(name="item 1", title="Item 1", sort_index=0, url="url 1"),
-                        TopicMenuItem(name="item 2", title="Item 2", sort_index=1, url="url 2"),
+                        MainMenuItem(name="item 1", title="Item 1", sort_index=0, url="url 1"),
+                        MainMenuItem(name="item 2", title="Item 2", sort_index=1, url="url 2"),
                     ],
                 )
             ],

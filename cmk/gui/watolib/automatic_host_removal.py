@@ -6,43 +6,44 @@
 import itertools
 import json
 import time
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from logging import FileHandler, Formatter
-from typing import Literal, TypedDict
+from typing import Literal, NamedTuple, override, TypedDict
 
 from redis import ConnectionError as RedisConnectionError
 
-from livestatus import LocalConnection, MKLivestatusSocketError
-
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.site import SiteId
-
-from cmk.utils.paths import log_dir
-from cmk.utils.rulesets.ruleset_matcher import RuleSpec
+from livestatus import LocalConnection, MKLivestatusSocketError, SiteConfigurations
 
 import cmk.gui.log
-from cmk.gui.config import active_config
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.site import SiteId
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKUserError
+from cmk.gui.http import Request
 from cmk.gui.i18n import _
 from cmk.gui.session import SuperUserContext
-from cmk.gui.site_config import is_wato_slave_site, site_is_local, wato_site_ids
+from cmk.gui.site_config import is_distributed_setup_remote_site, wato_site_ids
 from cmk.gui.watolib.activate_changes import ActivateChangesManager
 from cmk.gui.watolib.automation_commands import AutomationCommand
 from cmk.gui.watolib.automations import (
     do_remote_automation,
+    LocalAutomationConfig,
+    make_automation_config,
     MKAutomationException,
     RemoteAutomationConfig,
 )
 from cmk.gui.watolib.check_mk_automations import analyze_host_rule_matches, delete_hosts
 from cmk.gui.watolib.hosts_and_folders import Folder, folder_tree, Host
 from cmk.gui.watolib.rulesets import SingleRulesetRecursively, UseHostFolder
+from cmk.utils.paths import log_dir
+from cmk.utils.rulesets.ruleset_matcher import RuleSpec
 
 _LOGGER = cmk.gui.log.logger.getChild("automatic_host_removal")
 _LOGGER_BACKGROUND_JOB = _LOGGER.getChild("background_job")
 
 
-def execute_host_removal_job() -> None:
-    if is_wato_slave_site():
+def execute_host_removal_job(config: Config) -> None:
+    if is_distributed_setup_remote_site(config.sites):
         return
 
     if not _load_automatic_host_removal_ruleset():
@@ -62,7 +63,15 @@ def execute_host_removal_job() -> None:
         if not (
             hosts_to_be_removed := {
                 site_id: hosts
-                for site_id, hosts in _hosts_to_be_removed(debug=active_config.debug)
+                for site_id, hosts in _hosts_to_be_removed(
+                    automation_configs={
+                        site_id: make_automation_config(
+                            config.sites[site_id],
+                        )
+                        for site_id in wato_site_ids(config.sites)
+                    },
+                    debug=config.debug,
+                )
                 if hosts
             }
         ):
@@ -83,12 +92,19 @@ def execute_host_removal_job() -> None:
                 folder.delete_hosts(
                     hostnames,
                     automation=delete_hosts,
-                    pprint_value=active_config.wato_pprint_config,
-                    debug=active_config.debug,
+                    pprint_value=config.wato_pprint_config,
+                    debug=config.debug,
+                    use_git=config.wato_use_git,
                 )
 
         _LOGGER.info("Hosts removed, starting activation of changes")
-        _activate_changes(hosts_to_be_removed)
+        _activate_changes(
+            config.sites,
+            hosts_to_be_removed,
+            max_snapshots=config.wato_max_snapshots,
+            use_git=config.wato_use_git,
+            debug=config.debug,
+        )
 
         _LOGGER.info("Host removal background job finished")
     except RedisConnectionError as e:
@@ -106,16 +122,25 @@ def _init_logging() -> None:
     _LOGGER.propagate = False
 
 
-def _hosts_to_be_removed(*, debug: bool) -> list[tuple[SiteId, list[Host]]]:
+def _hosts_to_be_removed(
+    *,
+    automation_configs: Mapping[SiteId, LocalAutomationConfig | RemoteAutomationConfig],
+    debug: bool,
+) -> list[tuple[SiteId, list[Host]]]:
     _LOGGER_BACKGROUND_JOB.info("Gathering hosts to be removed")
     return [
-        (site_id, _hosts_to_be_removed_for_site(site_id, debug=debug))
-        for site_id in wato_site_ids()
+        (site_id, _hosts_to_be_removed_for_site(site_id, automation_config, debug=debug))
+        for site_id, automation_config in automation_configs.items()
     ]
 
 
-def _hosts_to_be_removed_for_site(site_id: SiteId, *, debug: bool) -> list[Host]:
-    if site_is_local(site_config := active_config.sites[site_id], site_id):
+def _hosts_to_be_removed_for_site(
+    site_id: SiteId,
+    automation_config: LocalAutomationConfig | RemoteAutomationConfig,
+    *,
+    debug: bool,
+) -> list[Host]:
+    if isinstance(automation_config, LocalAutomationConfig):
         try:
             # evaluate the generator here to potentially catch the exception below
             hostnames = list(_hosts_to_be_removed_local(debug=debug))
@@ -130,7 +155,7 @@ def _hosts_to_be_removed_for_site(site_id: SiteId, *, debug: bool) -> list[Host]
         try:
             hostnames_serialized = str(
                 do_remote_automation(
-                    RemoteAutomationConfig.from_site_config(site_config),
+                    automation_config,
                     "hosts-for-auto-removal",
                     [],
                     debug=debug,
@@ -225,18 +250,29 @@ def _should_delete_host(
     return False
 
 
-def _activate_changes(sites: Collection[SiteId]) -> None:
+def _activate_changes(
+    all_site_configs: SiteConfigurations,
+    sites: Collection[SiteId],
+    *,
+    max_snapshots: int,
+    use_git: bool,
+    debug: bool,
+) -> None:
     _LOGGER_BACKGROUND_JOB.debug("Activating changes for %d site(s)", len(sites))
 
     # workaround until CMK-13093 is fixed
     folder_tree().invalidate_caches()
     manager = ActivateChangesManager()
-    manager.load()
+    manager.changes.load(list(all_site_configs))
     with SuperUserContext():
         activation_id = manager.start(
-            list(sites),
+            sites=list(sites),
             source="INTERNAL",
+            all_site_configs=all_site_configs,
+            max_snapshots=max_snapshots,
             activate_foreign=True,
+            use_git=use_git,
+            debug=debug,
         )
         _LOGGER_BACKGROUND_JOB.info("Activation %s started", activation_id)
 
@@ -256,12 +292,22 @@ def _activate_changes(sites: Collection[SiteId]) -> None:
         _LOGGER_BACKGROUND_JOB.info("Activation finished")
 
 
-class AutomationHostsForAutoRemoval(AutomationCommand[None]):
+class HostsForAutoRemovalRequest(NamedTuple):
+    debug: bool
+
+
+class AutomationHostsForAutoRemoval(AutomationCommand[HostsForAutoRemovalRequest]):
+    @override
     def command_name(self) -> str:
         return "hosts-for-auto-removal"
 
-    def execute(self, api_request: None) -> str:
-        return json.dumps(list(_hosts_to_be_removed_local(debug=active_config.debug)))
+    @override
+    def get_request(self, config: Config, request: Request) -> HostsForAutoRemovalRequest:
+        return HostsForAutoRemovalRequest(
+            #  default is needed for 2.4 central site compability in 2.5
+            debug=request.get_str_input_mandatory("debug", deflt="") == "1"
+        )
 
-    def get_request(self) -> None:
-        pass
+    @override
+    def execute(self, api_request: HostsForAutoRemovalRequest) -> str:
+        return json.dumps(list(_hosts_to_be_removed_local(debug=api_request.debug)))

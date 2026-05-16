@@ -4,13 +4,15 @@
  * conditions defined in the file COPYING, which is part of this source code package.
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
-import FormCatalog from '@/form/components/forms/form_catalog/FormCatalog.vue'
 import type {
-  String as StringSpec,
-  Dictionary as DictionarySpec,
+  Catalog,
   DictionaryElement,
-  Catalog
+  Dictionary as DictionarySpec,
+  String as StringSpec
 } from 'cmk-shared-typing/typescript/vue_formspec_components'
+
+import FormCatalog from '@/form/components/forms/form_catalog/FormCatalog.vue'
+
 import { renderFormWithData } from '../cmk-form-helper'
 
 type PartialExcept<T, K extends keyof T> = Pick<T, K> & Partial<Omit<T, K>>
@@ -24,7 +26,6 @@ function getStringFormspec(
     title: title,
     label: null,
     help: `ut help ${title}`,
-    i18n_base: { required: 'required' },
     validators: [],
     input_hint: `ut input hint ${title}`,
     field_size: 'SMALL',
@@ -41,9 +42,7 @@ function getDictionaryFormspec(
     type: 'dictionary',
     title: 'dictionary title',
     help: 'dictionary help',
-    i18n_base: { required: 'required' },
     groups: [],
-    layout: 'one_column',
     validators: [],
     no_elements_text: 'ut no elements text',
     additional_static_elements: null,
@@ -52,7 +51,6 @@ function getDictionaryFormspec(
         required: false,
         render_only: false,
         default_value: '',
-        layout: 'one_column',
         group: null,
         ...element
       }
@@ -69,7 +67,6 @@ function renderSimpleCatalog() {
         title: 'catalog title',
         help: 'catalog help',
         validators: [],
-        i18n_base: { required: 'required' },
         elements: [
           {
             name: 'main_topic',
@@ -114,16 +111,13 @@ test('FormCatalog open/close topic', async () => {
   // TODO: we should really change our code to make the following possible:
   // it should be quite easy to use v-show for that...
   // expect(title).not.toBeVisible()
-  expect(img).toHaveClass('open')
-  expect(img).not.toHaveClass('closed')
+  expect(img).toHaveClass('form-catalog__icon--open')
 
   await fireEvent.click(headline)
-  expect(img).not.toHaveClass('open')
-  expect(img).toHaveClass('closed')
+  expect(img).not.toHaveClass('form-catalog__icon--open')
 
   await fireEvent.click(headline)
-  expect(img).toHaveClass('open')
-  expect(img).not.toHaveClass('closed')
+  expect(img).toHaveClass('form-catalog__icon--open')
 })
 
 test.skip('FormCatalog collapse/open all - skipped until the toggle gets a better implementation', async () => {
@@ -151,7 +145,6 @@ test('FormCatalog default value', async () => {
         type: 'catalog',
         title: 'catalog title',
         help: 'catalog help',
-        i18n_base: { required: 'required' },
         validators: [],
         elements: [
           {
@@ -208,7 +201,6 @@ test('FormCatalog backend validation', async () => {
       type: 'catalog',
       title: 'catalog title',
       help: 'catalog help',
-      i18n_base: { required: 'required' },
       validators: [],
       elements: [
         {

@@ -4,19 +4,18 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 """Mode for showing the certificates."""
 
+import urllib.parse
 from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from cmk.utils.paths import (
-    agent_cas_dir,
-    root_cert_file,
-    site_cert_file,
-)
-
+from cmk.crypto.certificate import Certificate, CertificatePEM
+from cmk.crypto.hash import HashAlgorithm
+from cmk.crypto.x509 import X509Name
 from cmk.gui.breadcrumb import Breadcrumb
 from cmk.gui.cert_info import cert_info_registry, CertificateInfo
+from cmk.gui.config import Config
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
 from cmk.gui.i18n import _
@@ -31,11 +30,12 @@ from cmk.gui.table import table_element
 from cmk.gui.type_defs import PermissionName
 from cmk.gui.utils.html import HTML
 from cmk.gui.watolib.mode import ModeRegistry, WatoMode
-
-from cmk.crypto.certificate import Certificate, CertificatePEM
-from cmk.crypto.hash import HashAlgorithm
-from cmk.crypto.x509 import X509Name
 from cmk.messaging import get_cert_info
+from cmk.utils.paths import (
+    agent_cas_dir,
+    root_cert_file,
+    site_cert_file,
+)
 
 
 @dataclass
@@ -50,6 +50,7 @@ class CertificateView:
     key_type_length: str
     stored_location: Path
     purpose: str | None
+    certificate_dump: str
 
     def get_fields(self) -> dict[str, str | HTML]:
         """Get title and value of fields."""
@@ -62,6 +63,14 @@ class CertificateView:
             _("Key type and length"): self.key_type_length,
             _("Stored location"): str(self.stored_location),
             _("Purpose"): self.purpose or _("None"),
+            _("Download"): html.render_icon_button(
+                url=f"data:text/plain;charset=utf-8,{urllib.parse.quote(self.certificate_dump)}",
+                title="download",
+                icon="download",
+                download=str(self.stored_location).rsplit("/", maxsplit=1)[-1]
+                if self.stored_location.exists()
+                else "certificate.pem",
+            ),
         }
 
     @classmethod
@@ -76,6 +85,7 @@ class CertificateView:
             key_type_length=cert.public_key.show_type(),
             stored_location=path,
             purpose=purpose,
+            certificate_dump=cert.dump_pem().bytes.decode("utf-8"),
         )
 
 
@@ -112,7 +122,7 @@ class ModeCertificateOverview(WatoMode):
         # Todo: should change to "certificate.view" once we have a permission for this
         return []
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         html.div(
             HTML.without_escaping(
                 _(
@@ -141,7 +151,7 @@ class ModeCertificateOverview(WatoMode):
             if path.exists()
         ]
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return PageMenu(
             dropdowns=[
                 PageMenuDropdown(

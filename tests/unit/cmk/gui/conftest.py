@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import threading
 import typing
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,12 +18,18 @@ from flask import Flask
 from pytest_mock import MockerFixture
 from werkzeug.test import create_environ
 
-from tests.testlib.unit.rest_api_client import (
-    ClientRegistry,
-    get_client_registry,
-    RestApiClient,
-)
-
+import cmk.gui.config as config_module
+import cmk.gui.watolib.password_store
+import cmk.utils.log
+from cmk.automations.results import DeleteHostsResult
+from cmk.ccc.hostaddress import HostName
+from cmk.ccc.user import UserId
+from cmk.gui import http, login
+from cmk.gui.config import active_config, Config
+from cmk.gui.livestatus_utils.testing import mock_livestatus
+from cmk.gui.watolib.hosts_and_folders import folder_tree
+from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
+from tests.testlib.unit.rest_api_client import ClientRegistry, get_client_registry
 from tests.unit.cmk.gui.common_fixtures import (
     create_aut_user_auth_wsgi_app,
     create_flask_app,
@@ -36,36 +41,11 @@ from tests.unit.cmk.gui.common_fixtures import (
 )
 from tests.unit.cmk.web_test_app import (
     SetConfig,
-    SingleRequest,
     WebTestAppForCMK,
     WebTestAppRequestHandler,
 )
 
-from cmk.ccc.hostaddress import HostName
-from cmk.ccc.user import UserId
-
-import cmk.utils.log
-from cmk.utils.livestatus_helpers.testing import MockLiveStatusConnection
-
-from cmk.automations.results import DeleteHostsResult
-
-import cmk.gui.config as config_module
-import cmk.gui.mkeventd.wato as mkeventd
-import cmk.gui.watolib.password_store
-from cmk.gui import http, login, userdb
-from cmk.gui.config import active_config
-from cmk.gui.livestatus_utils.testing import mock_livestatus
-from cmk.gui.session import session
-from cmk.gui.type_defs import SessionInfo
-from cmk.gui.userdb.session import load_session_infos
-from cmk.gui.utils.script_helpers import session_wsgi_app
-from cmk.gui.watolib import activate_changes, groups
-from cmk.gui.watolib.hosts_and_folders import folder_tree
-from cmk.gui.wsgi.blueprints import checkmk, rest_api
-
 from .users import create_and_destroy_user
-
-SPEC_LOCK = threading.Lock()
 
 
 class RemoteAutomation(NamedTuple):
@@ -143,7 +123,7 @@ def fixture_mock_livestatus() -> Iterator[MockLiveStatusConnection]:
 
 
 @pytest.fixture()
-def load_config(request_context: None) -> Iterator[None]:
+def load_config(request_context: None) -> Iterator[Config]:
     yield from perform_load_config()
 
 
@@ -160,9 +140,9 @@ def set_config(**kwargs: Any) -> Iterator[None]:
     through the registered callback.
     """
 
-    def _set_config():
+    def _set_config(config: Config) -> None:
         for key, val in kwargs.items():
-            setattr(active_config, key, val)
+            setattr(config, key, val)
 
     def fake_load_single_global_wato_setting(
         varname: str,
@@ -194,14 +174,14 @@ def load_plugins() -> None:
 
 
 @pytest.fixture()
-def ui_context(load_plugins: None, load_config: None) -> Iterator[None]:
+def ui_context(load_plugins: None, load_config: Config) -> Iterator[None]:
     """Some helper fixture to provide a initialized UI context to tests outside of tests/unit/cmk/gui"""
     yield
 
 
 @pytest.fixture()
-def with_user(load_config: None) -> Iterator[tuple[UserId, str]]:
-    with create_and_destroy_user(automation=False, role="user") as user:
+def with_user(load_config: Config) -> Iterator[tuple[UserId, str]]:
+    with create_and_destroy_user(automation=False, role="user", config=load_config) as user:
         yield user
 
 
@@ -213,8 +193,8 @@ def with_user_login(with_user: tuple[UserId, str]) -> Iterator[UserId]:
 
 
 @pytest.fixture()
-def with_admin(load_config: None) -> Iterator[tuple[UserId, str]]:
-    with create_and_destroy_user(automation=False, role="admin") as user:
+def with_admin(load_config: Config) -> Iterator[tuple[UserId, str]]:
+    with create_and_destroy_user(automation=False, role="admin", config=load_config) as user:
         yield user
 
 
@@ -236,15 +216,6 @@ def suppress_remote_automation_calls(mocker: MagicMock) -> Iterator[RemoteAutoma
         automation=remote_automation,
         responses=None,
     )
-
-
-@pytest.fixture()
-def make_html_object_explode(mocker: MagicMock) -> None:
-    class HtmlExploder:
-        def __init__(self, *args: object, **kw: object) -> None:
-            raise NotImplementedError("Tried to instantiate html")
-
-    mocker.patch("cmk.gui.htmllib.html", new=HtmlExploder)
 
 
 @pytest.fixture()
@@ -319,8 +290,8 @@ def suppress_spec_generation_in_background(mocker: MockerFixture) -> MagicMock:
 
 
 @pytest.fixture()
-def with_automation_user(load_config: None) -> Iterator[tuple[UserId, str]]:
-    with create_and_destroy_user(automation=True, role="admin") as user:
+def with_automation_user(load_config: Config) -> Iterator[tuple[UserId, str]]:
+    with create_and_destroy_user(automation=True, role="admin", config=load_config) as user:
         yield user
 
 
@@ -332,40 +303,6 @@ def auth_request(with_user: tuple[UserId, str]) -> typing.Generator[http.Request
     # not be touched.
     user_id, _ = with_user
     yield http.Request({**create_environ(path="/NO_SITE/"), "REMOTE_USER": str(user_id)})
-
-
-@pytest.fixture()
-def admin_auth_request(
-    with_admin: tuple[UserId, str],
-) -> typing.Generator[http.Request]:
-    # NOTE:
-    # REMOTE_USER will be omitted by `flask_app.test_client()` if only passed via an
-    # environment dict. When however a Request is passed in, the environment of the Request will
-    # not be touched.
-    user_id, _ = with_admin
-    yield http.Request({**create_environ(), "REMOTE_USER": str(user_id)})
-
-
-@pytest.fixture(scope="function")
-def single_auth_request(wsgi_app: WebTestAppForCMK, auth_request: http.Request) -> SingleRequest:
-    """Do a single authenticated request, thereby persisting the session to disk."""
-
-    def caller(*, in_the_past: int = 0) -> tuple[UserId, SessionInfo]:
-        wsgi_app.get(auth_request)
-        infos = load_session_infos(session.user.ident, lock=True)
-
-        # When `in_the_past` is a positive integer, the resulting session will have happened
-        # that many seconds in the past.
-        session.session_info.last_activity -= in_the_past
-        session.session_info.started_at -= in_the_past
-
-        session_id = session.session_info.session_id
-        user_id = auth_request.environ["REMOTE_USER"]
-        userdb.session.save_session_infos(user_id, session_infos={session_id: session.session_info})
-        assert session.user.id == user_id
-        return session.user.id, infos[session_id]
-
-    return caller
 
 
 @pytest.fixture()
@@ -398,37 +335,23 @@ def aut_user_auth_wsgi_app(
 
 
 @pytest.fixture()
-def with_groups(monkeypatch, request_context, with_admin_login, suppress_remote_automation_calls):
-    groups.add_group("windows", "host", {"alias": "windows"}, pprint_value=False)
-    groups.add_group("routers", "service", {"alias": "routers"}, pprint_value=False)
-    groups.add_group("admins", "contact", {"alias": "admins"}, pprint_value=False)
-    yield
-    groups.delete_group("windows", "host", pprint_value=False)
-    groups.delete_group("routers", "service", pprint_value=False)
-    monkeypatch.setattr(mkeventd, "_get_rule_stats_from_ec", lambda: {})
-    groups.delete_group("admins", "contact", pprint_value=False)
-
-
-@pytest.fixture()
 def with_host(
     request_context,
     with_admin_login,
 ):
     hostnames = [HostName("heute"), HostName("example.com")]
     root_folder = folder_tree().root_folder()
-    root_folder.create_hosts([(hostname, {}, None) for hostname in hostnames], pprint_value=False)
+    root_folder.create_hosts(
+        [(hostname, {}, None) for hostname in hostnames], pprint_value=False, use_git=False
+    )
     yield hostnames
     root_folder.delete_hosts(
         hostnames,
         automation=lambda *args, **kwargs: DeleteHostsResult(),
         pprint_value=False,
         debug=False,
+        use_git=False,
     )
-
-
-@pytest.fixture
-def mock__add_extensions_for_license_usage(monkeypatch):
-    monkeypatch.setattr(activate_changes, "_add_extensions_for_license_usage", lambda: None)
 
 
 @pytest.fixture()
@@ -440,23 +363,18 @@ def flask_app(
     yield from create_flask_app()
 
 
+@pytest.fixture(name="base_without_version")
+def fixture_base_without_version() -> str:
+    return "/NO_SITE/check_mk/api"
+
+
 @pytest.fixture(name="base")
-def fixture_base() -> str:
-    return "/NO_SITE/check_mk/api/1.0"
+def fixture_base(base_without_version: str) -> str:
+    return f"{base_without_version}/1.0"
 
 
 @pytest.fixture()
-def api_client(aut_user_auth_wsgi_app: WebTestAppForCMK, base: str) -> RestApiClient:
-    return RestApiClient(WebTestAppRequestHandler(aut_user_auth_wsgi_app), base)
-
-
-@pytest.fixture()
-def clients(aut_user_auth_wsgi_app: WebTestAppForCMK, base: str) -> ClientRegistry:
-    return get_client_registry(WebTestAppRequestHandler(aut_user_auth_wsgi_app), base)
-
-
-@pytest.fixture(name="fresh_app_instance", scope="function")
-def clear_caches_flask_app():
-    session_wsgi_app.cache_clear()
-    rest_api.app_instance.cache_clear()
-    checkmk.app_instance.cache_clear()
+def clients(aut_user_auth_wsgi_app: WebTestAppForCMK, base_without_version: str) -> ClientRegistry:
+    return get_client_registry(
+        WebTestAppRequestHandler(aut_user_auth_wsgi_app), base_without_version
+    )

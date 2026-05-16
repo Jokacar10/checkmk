@@ -4,28 +4,35 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { isWarningDismissed } from '@/lib/userConfig'
-import CmkIcon from '@/components/CmkIcon.vue'
-import CmkSpace from '@/components/CmkSpace.vue'
-import CmkButton, { type ButtonVariants } from '@/components/CmkButton.vue'
+import { onMounted, ref } from 'vue'
+
+import type { TranslatedString } from '@/lib/i18nString'
 import { persistWarningDismissal } from '@/lib/rest-api-client/userConfig'
 import usePersistentRef from '@/lib/usePersistentRef'
+import { isWarningDismissed } from '@/lib/userConfig'
+
+import CmkButton, { type ButtonVariants } from '@/components/CmkButton.vue'
+import CmkIcon from '@/components/CmkIcon.vue'
+import CmkSpace from '@/components/CmkSpace.vue'
 
 const props = defineProps<{
-  title?: string
-  message: string
-  buttons?: { title: string; variant: ButtonVariants['variant']; onclick: () => void }[]
-  dismissal_button?: { title: string; key: string }
+  title?: TranslatedString
+  message: TranslatedString
+  buttons?: { title: TranslatedString; variant: ButtonVariants['variant']; onclick: () => void }[]
+  dismissal_button?: { title: TranslatedString; key: string }
 }>()
 
 const dialogHidden = props.dismissal_button
   ? usePersistentRef(props.dismissal_button.key, false, 'session')
   : ref(false)
 
-async function hideContent() {
+async function hideContent(event?: Event) {
   if (props.dismissal_button) {
+    // Stop event propagation to prevent affecting parent components
+    event?.stopPropagation()
+
     dialogHidden.value = true
+
     await persistWarningDismissal(props.dismissal_button.key)
   }
 }
@@ -55,7 +62,7 @@ onMounted(() => {
           <CmkSpace />
         </template>
         <!-- eslint-enable vue/valid-v-for -->
-        <CmkButton v-if="props.dismissal_button" @click="hideContent">
+        <CmkButton v-if="props.dismissal_button" @click="hideContent($event)">
           {{ props.dismissal_button.title }}
         </CmkButton>
       </div>
@@ -66,14 +73,14 @@ onMounted(() => {
 <style scoped>
 div.cmk-dialog {
   display: flex;
-  margin-bottom: 24px;
 
   div.cmk-dialog__content {
-    background-color: var(--help-text-bg-color);
-    color: var(--help-text-font-color);
+    background-color: var(--default-dialog-bg-color);
+    color: var(--default-dialog-font-color);
     border-radius: 0 4px 4px 0;
     flex-grow: 1;
     padding: var(--spacing);
+    white-space: pre-line;
 
     & > .cmk-dialog__title {
       font-weight: var(--font-weight-bold);

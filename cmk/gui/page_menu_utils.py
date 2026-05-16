@@ -7,14 +7,10 @@ from collections.abc import Iterator
 
 import cmk.ccc.version as cmk_version
 from cmk.ccc.user import UserId
-
-from cmk.utils import paths
-
 from cmk.gui import pagetypes, visuals
 from cmk.gui.bi import is_part_of_aggregation
 from cmk.gui.config import active_config
 from cmk.gui.data_source import ABCDataSource
-from cmk.gui.exceptions import MKUserError
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.logged_in import user
@@ -27,15 +23,19 @@ from cmk.gui.page_menu import (
     PageMenuTopic,
 )
 from cmk.gui.type_defs import InfoName, Rows, SingleInfos, Visual
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri, makeuri_contextless
 from cmk.gui.view import View
 from cmk.gui.visual_link import get_linked_visual_request_vars, make_linked_visual_url
 from cmk.gui.visuals import view_title
 from cmk.gui.visuals.info import visual_info_registry, VisualInfo
 from cmk.gui.visuals.type import visual_type_registry, VisualType
+from cmk.utils import paths
 
 
-def get_context_page_menu_dropdowns(view: View, rows: Rows, mobile: bool) -> list[PageMenuDropdown]:
+def get_context_page_menu_dropdowns(
+    view: View, rows: Rows, user_permissions: UserPermissions
+) -> list[PageMenuDropdown]:
     """For the given visual find other visuals to link to
 
     Based on the (single_infos and infos of the data source) we have different categories,
@@ -49,7 +49,12 @@ def get_context_page_menu_dropdowns(view: View, rows: Rows, mobile: bool) -> lis
     """
     dropdowns = []
 
-    topics = {p.name(): p for p in pagetypes.PagetypeTopics.load().permitted_instances_sorted()}
+    topics = {
+        p.name(): p
+        for p in pagetypes.PagetypeTopics.load(user_permissions).permitted_instances_sorted(
+            user_permissions
+        )
+    }
 
     # First gather a flat list of all visuals to be linked to
     singlecontext_request_vars = visuals.get_singlecontext_vars(
@@ -58,7 +63,11 @@ def get_context_page_menu_dropdowns(view: View, rows: Rows, mobile: bool) -> lis
     # Reports are displayed by separate dropdown (Export > Report)
     linked_visuals = list(
         _collect_linked_visuals(
-            view, rows, singlecontext_request_vars, mobile, visual_types=["views", "dashboards"]
+            view,
+            rows,
+            singlecontext_request_vars,
+            mobile=False,
+            visual_types=["views", "dashboards"],
         )
     )
 
@@ -94,7 +103,7 @@ def get_context_page_menu_dropdowns(view: View, rows: Rows, mobile: bool) -> lis
                         topics,
                         dropdown_visuals,
                         singlecontext_request_vars,
-                        mobile,
+                        mobile=False,
                     )
                 ),
             )
@@ -137,13 +146,6 @@ def _get_context_page_menu_topics(
         try:
             topic = topics[visual["topic"]]
         except KeyError:
-            if "other" not in topics:
-                raise MKUserError(
-                    None,
-                    _(
-                        "No permission for fallback topic 'Other'. Please contact your administrator."
-                    ),
-                )
             topic = topics["other"]
 
         entry = _make_page_menu_entry_for_visual(

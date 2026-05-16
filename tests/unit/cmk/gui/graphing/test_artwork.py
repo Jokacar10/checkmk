@@ -13,11 +13,11 @@ import time_machine
 from cmk.gui.graphing._artwork import (
     _areastack,
     _compute_graph_t_axis,
+    _compute_labels_from_api,
     _compute_v_axis_min_max,
     _halfstep_interpolation,
     _t_axis_labels_seconds,
     _t_axis_labels_week,
-    _VAxisMinMax,
     Curve,
     LayoutedCurve,
     LayoutedCurveArea,
@@ -27,9 +27,13 @@ from cmk.gui.graphing._artwork import (
     TimeAxis,
     TimeAxisLabel,
 )
-from cmk.gui.graphing._graph_specification import FixedVerticalRange, MinimalVerticalRange
+from cmk.gui.graphing._graph_specification import (
+    FixedVerticalRange,
+    MinimalVerticalRange,
+)
 from cmk.gui.graphing._time_series import TimeSeries, TimeSeriesValue
 from cmk.gui.graphing._utils import SizeEx
+from cmk.gui.unit_formatter import AutoPrecision, DecimalFormatter, Label
 
 
 @pytest.mark.parametrize(
@@ -40,7 +44,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             False,
-            _VAxisMinMax(1.0, (0.0, 1.5)),
+            (0.0, 1.5),
             id="default",
         ),
         pytest.param(
@@ -48,7 +52,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             True,
-            _VAxisMinMax(2.0, (-2.0, 2.0)),
+            (-2.0, 2.0),
             id="default-mirrored",
         ),
         #
@@ -57,7 +61,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             False,
-            _VAxisMinMax(0.01, (0.005, 0.025)),
+            (0.005, 0.025),
             id="small-pos",
         ),
         pytest.param(
@@ -65,7 +69,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             True,
-            _VAxisMinMax(0.04, (-0.04, 0.04)),
+            (-0.04, 0.04),
             id="small-pos-mirrored",
         ),
         pytest.param(
@@ -73,7 +77,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             False,
-            _VAxisMinMax(0.03, (-0.025, 0.035)),
+            (-0.025, 0.035),
             id="small-neg",
         ),
         pytest.param(
@@ -81,7 +85,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             True,
-            _VAxisMinMax(0.04, (-0.04, 0.04)),
+            (-0.04, 0.04),
             id="small-neg-mirrored",
         ),
         #
@@ -90,7 +94,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             False,
-            _VAxisMinMax(15.0, (-12.5, 17.5)),
+            (-12.5, 17.5),
             id="explicit_vertical_range",
         ),
         pytest.param(
@@ -98,7 +102,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             None,
             True,
-            _VAxisMinMax(20.0, (-20.0, 20.0)),
+            (-20.0, 20.0),
             id="explicit_vertical_range-mirrored",
         ),
         pytest.param(
@@ -114,7 +118,7 @@ from cmk.gui.graphing._utils import SizeEx
             ],
             None,
             False,
-            _VAxisMinMax(15.0, (-12.5, 17.5)),
+            (-12.5, 17.5),
             id="layouted_curves",
         ),
         pytest.param(
@@ -130,7 +134,7 @@ from cmk.gui.graphing._utils import SizeEx
             ],
             None,
             True,
-            _VAxisMinMax(20.0, (-20.0, 20.0)),
+            (-20.0, 20.0),
             id="layouted_curves-mirrored",
         ),
         pytest.param(
@@ -138,7 +142,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             (-5.0, 10.0),
             False,
-            _VAxisMinMax(15.0, (-5.0, 10.0)),
+            (-5.0, 10.0),
             id="graph_data_vrange",
         ),
         pytest.param(
@@ -146,7 +150,7 @@ from cmk.gui.graphing._utils import SizeEx
             [],
             (-5.0, 10.0),
             True,
-            _VAxisMinMax(20.0, (-10.0, 10.0)),
+            (-10.0, 10.0),
             id="graph_data_vrange-mirrored",
         ),
     ],
@@ -156,7 +160,7 @@ def test__compute_v_axis_min_max(
     layouted_curves: Sequence[LayoutedCurve],
     graph_data_vrange: tuple[float, float] | None,
     mirrored: bool,
-    expected_v_axis_min_max: _VAxisMinMax,
+    expected_v_axis_min_max: tuple[float, float],
 ) -> None:
     assert (
         _compute_v_axis_min_max(
@@ -185,7 +189,7 @@ def test__compute_v_axis_min_max(
                 )
             ],
             None,
-            _VAxisMinMax(1500.0, (-1250.0, 1750.0)),
+            (-1250.0, 1750.0),
             id="explicit_vertical_range_fixed-and-layouted_curves",
         ),
         pytest.param(
@@ -200,7 +204,7 @@ def test__compute_v_axis_min_max(
                 )
             ],
             None,
-            _VAxisMinMax(1500.0, (-1250.0, 1750.0)),
+            (-1250.0, 1750.0),
             id="explicit_vertical_range_minimal-and-layouted_curves_smaller",
         ),
         pytest.param(
@@ -215,7 +219,7 @@ def test__compute_v_axis_min_max(
                 )
             ],
             None,
-            _VAxisMinMax(3000.0, (-2500.0, 3500.0)),
+            (-2500.0, 3500.0),
             id="explicit_vertical_range_minimal-and-layouted_curves_larger",
         ),
         pytest.param(
@@ -230,14 +234,14 @@ def test__compute_v_axis_min_max(
                 )
             ],
             None,
-            _VAxisMinMax(2000.0, (0, 3000.0)),
-            id="layouted_curves_at_least_zero",
+            (500.0, 2500.0),
+            id="layouted_curves_without_zero",
         ),
         pytest.param(
             FixedVerticalRange(min=-500.0, max=1000.0),
             [],
             (-5.0, 10.0),
-            _VAxisMinMax(15.0, (-5.0, 10.0)),
+            (-5.0, 10.0),
             id="graph_data_vrange-precedence-over-explicit_vertical_range",
         ),
         pytest.param(
@@ -252,7 +256,7 @@ def test__compute_v_axis_min_max(
                 )
             ],
             (-5.0, 10.0),
-            _VAxisMinMax(15.0, (-5.0, 10.0)),
+            (-5.0, 10.0),
             id="graph_data_vrange-precedence-over-layouted_curves",
         ),
     ],
@@ -261,7 +265,7 @@ def test__compute_v_axis_min_max_precedence(
     explicit_vertical_range: FixedVerticalRange | MinimalVerticalRange | None,
     layouted_curves: Sequence[LayoutedCurve],
     graph_data_vrange: tuple[float, float] | None,
-    expected_v_axis_min_max: _VAxisMinMax,
+    expected_v_axis_min_max: tuple[float, float],
 ) -> None:
     assert (
         _compute_v_axis_min_max(
@@ -939,3 +943,191 @@ def test_order_graph_curves_for_legend_and_mouse_hover_layouted_curves(
     curves: Sequence[LayoutedCurve], result: Sequence[LayoutedCurve]
 ) -> None:
     assert list(order_graph_curves_for_legend_and_mouse_hover(curves)) == result
+
+
+@pytest.mark.parametrize(
+    "min_y, max_y, mirrored, expected",
+    [
+        pytest.param(
+            1.34,
+            5.44,
+            False,
+            [
+                Label(
+                    position=1.0,
+                    text="1 s",
+                ),
+                Label(
+                    position=2.0,
+                    text="2 s",
+                ),
+                Label(
+                    position=3.0,
+                    text="3 s",
+                ),
+                Label(
+                    position=4.0,
+                    text="4 s",
+                ),
+                Label(
+                    position=5.0,
+                    text="5 s",
+                ),
+            ],
+            id="pos,pos",
+        ),
+        pytest.param(
+            -4.67,
+            5.44,
+            False,
+            [
+                Label(
+                    position=-2.0,
+                    text="-2 s",
+                ),
+                Label(
+                    position=-4.0,
+                    text="-4 s",
+                ),
+                Label(
+                    position=0,
+                    text="0",
+                ),
+                Label(
+                    position=2.0,
+                    text="2 s",
+                ),
+                Label(
+                    position=4.0,
+                    text="4 s",
+                ),
+            ],
+            id="neg,pos",
+        ),
+        pytest.param(
+            -5,
+            -1,
+            False,
+            [
+                Label(
+                    position=-1.0,
+                    text="-1 s",
+                ),
+                Label(
+                    position=-2.0,
+                    text="-2 s",
+                ),
+                Label(
+                    position=-3.0,
+                    text="-3 s",
+                ),
+                Label(
+                    position=-4.0,
+                    text="-4 s",
+                ),
+                Label(
+                    position=-5.0,
+                    text="-5 s",
+                ),
+            ],
+            id="neg,neg",
+        ),
+        pytest.param(
+            1.36,
+            5.333333333333333333333,
+            True,
+            [
+                Label(
+                    position=1.0,
+                    text="1 s",
+                ),
+                Label(
+                    position=2.0,
+                    text="2 s",
+                ),
+                Label(
+                    position=3.0,
+                    text="3 s",
+                ),
+                Label(
+                    position=4.0,
+                    text="4 s",
+                ),
+                Label(
+                    position=5.0,
+                    text="5 s",
+                ),
+            ],
+            id="mirrored,pos,pos",
+        ),
+        pytest.param(
+            -4.5,
+            5.44,
+            True,
+            [
+                Label(
+                    position=-2.0,
+                    text="2 s",
+                ),
+                Label(
+                    position=-4.0,
+                    text="4 s",
+                ),
+                Label(
+                    position=0,
+                    text="0",
+                ),
+                Label(
+                    position=2.0,
+                    text="2 s",
+                ),
+                Label(
+                    position=4.0,
+                    text="4 s",
+                ),
+            ],
+            id="mirrored,neg,pos",
+        ),
+        pytest.param(
+            -5,
+            -1,
+            True,
+            [
+                Label(
+                    position=-1.0,
+                    text="-1 s",
+                ),
+                Label(
+                    position=-2.0,
+                    text="-2 s",
+                ),
+                Label(
+                    position=-3.0,
+                    text="-3 s",
+                ),
+                Label(
+                    position=-4.0,
+                    text="-4 s",
+                ),
+                Label(
+                    position=-5.0,
+                    text="-5 s",
+                ),
+            ],
+            id="mirrored,neg,neg",
+        ),
+    ],
+)
+def test__compute_labels_from_api(
+    min_y: float, max_y: float, mirrored: bool, expected: Sequence[Label]
+) -> None:
+    assert (
+        _compute_labels_from_api(
+            DecimalFormatter("s", AutoPrecision(digits=2)),
+            SizeEx(10),
+            mirrored=mirrored,
+            min_y=min_y,
+            max_y=max_y,
+        )
+        == expected
+    )

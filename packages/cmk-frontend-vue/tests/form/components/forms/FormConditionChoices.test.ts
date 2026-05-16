@@ -5,6 +5,7 @@
  */
 import { fireEvent, render, screen } from '@testing-library/vue'
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
+
 import FormConditionChoices from '@/form/components/forms/FormConditionChoices'
 
 const validators: FormSpec.Validator[] = [
@@ -20,7 +21,6 @@ const spec: FormSpec.ConditionChoices = {
   type: 'condition_choices',
   title: 'fooTitle',
   help: 'fooHelp',
-  i18n_base: { required: 'required' },
   validators: validators,
   condition_groups: {
     group1: {
@@ -78,7 +78,7 @@ test('FormConditionChoices shows required', async () => {
   })
 
   const dropdown = screen.getByRole('combobox', { name: 'select group' })
-  expect(dropdown.textContent).toBe('select group (required)')
+  expect(dropdown.textContent).toBe('select group(required)')
 })
 
 test('FormConditionChoices does not show required without validator', async () => {
@@ -86,7 +86,6 @@ test('FormConditionChoices does not show required without validator', async () =
     type: 'condition_choices',
     title: 'fooTitle',
     help: 'fooHelp',
-    i18n_base: { required: 'required' },
     validators: [],
     condition_groups: {
       group1: {

@@ -8,7 +8,7 @@ from typing import override
 
 from cmk.gui.config import active_config
 from cmk.gui.watolib.sites import site_management_registry
-
+from cmk.update_config.lib import ExpiryVersion
 from cmk.update_config.registry import update_action_registry, UpdateAction
 
 
@@ -25,7 +25,10 @@ class CleanUpSiteAttributes(UpdateAction):
             site_spec["id"] = site_id
             site_spec.setdefault("message_broker_port", 5672)
             site_spec.setdefault("url_prefix", f"/{site_id}/")
+            site_spec.setdefault("user_sync", "all")
             site_spec.setdefault("proxy", None)
+            site_spec.setdefault("replicate_mkps", False)
+            site_spec.setdefault("status_host", None)
 
         site_mgmt.save_sites(
             configured_sites,
@@ -39,5 +42,6 @@ update_action_registry.register(
         name="clean_up_site_attributes",
         title="Clean up site connections",
         sort_index=30,
+        expiry_version=ExpiryVersion.CMK_260,
     )
 )

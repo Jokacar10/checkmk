@@ -6,15 +6,19 @@
 
 from collections.abc import Callable, Sequence
 
-from cmk.gui import hooks
-from cmk.gui.permissions import PermissionRegistry, PermissionSectionRegistry
+from cmk.ccc.user import UserId
+from cmk.gui import hooks, userdb
+from cmk.gui.permissions import permission_registry, PermissionRegistry, PermissionSectionRegistry
 from cmk.gui.sidebar._snapin._registry import SnapinRegistry
-from cmk.gui.watolib import auth_php
+from cmk.gui.type_defs import Users
+from cmk.gui.userdb import UserRolesConfigFile
+from cmk.gui.utils.roles import UserPermissions
+from cmk.gui.watolib.global_settings import load_configuration_settings
 from cmk.gui.watolib.groups import (
     ContactGroupUsageFinderRegistry as ContactGroupUsageFinderRegistry,
 )
 
-from . import _nagvis_auth
+from . import _auth_php, _hosttags, _nagvis_auth
 from ._nagvis_maps import NagVisMaps
 
 
@@ -28,14 +32,53 @@ def register(
     snapin_registry_.register(NagVisMaps)
 
 
+def _make_user_permissions(users: Users) -> UserPermissions:
+    return UserPermissions(
+        UserRolesConfigFile().load_for_reading(),
+        permission_registry,
+        user_roles={
+            UserId(user_id): user["roles"] for user_id, user in userdb.load_users().items()
+        },
+        default_user_profile_roles=load_configuration_settings().get(
+            "default_user_profile", {"roles": ["user"]}
+        )["roles"],
+    )
+
+
 def _register_hooks() -> None:
     # TODO: Should we not execute this hook also when folders are modified?
     args: Sequence[tuple[str, Callable]] = (
-        ("userdb-job", auth_php._on_userdb_job),
-        ("users-saved", lambda users: auth_php._create_auth_file("users-saved", users)),
-        ("roles-saved", lambda x: auth_php._create_auth_file("roles-saved")),
-        ("contactgroups-saved", lambda x: auth_php._create_auth_file("contactgroups-saved")),
-        ("activate-changes", lambda x: auth_php._create_auth_file("activate-changes")),
+        (
+            "userdb-job",
+            lambda: _auth_php._on_userdb_job(
+                (users := userdb.load_users()), _make_user_permissions(users)
+            ),
+        ),
+        (
+            "users-saved",
+            lambda users: _auth_php._create_auth_file(
+                "users-saved", users, _make_user_permissions(users)
+            ),
+        ),
+        (
+            "roles-saved",
+            lambda x: _auth_php._create_auth_file(
+                "roles-saved", (users := userdb.load_users()), _make_user_permissions(users)
+            ),
+        ),
+        (
+            "contactgroups-saved",
+            lambda x: _auth_php._create_auth_file(
+                "contactgroups-saved", (users := userdb.load_users()), _make_user_permissions(users)
+            ),
+        ),
+        (
+            "activate-changes",
+            lambda x: _auth_php._create_auth_file(
+                "activate-changes", (users := userdb.load_users()), _make_user_permissions(users)
+            ),
+        ),
+        ("tags-saved", lambda x: _hosttags._export_hosttags_to_php(x)),
     )
     for name, func in args:
         hooks.register_builtin(name, func)

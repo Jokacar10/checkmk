@@ -9,11 +9,10 @@
 #include <string>
 
 #include "livestatus/Table.h"
-class ICore;
 
 class TableCrashReports : public Table {
 public:
-    explicit TableCrashReports(ICore *mc);
+    TableCrashReports();
     [[nodiscard]] std::string name() const final;
     [[nodiscard]] std::string namePrefix() const final;
     void answerQuery(Query &query, const User &user,

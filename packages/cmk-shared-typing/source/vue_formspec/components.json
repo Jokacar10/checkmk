@@ -24,16 +24,6 @@
             },
             "required": ["type", "title", "help", "validators"]
         },
-        "i18n_base": {
-            "type": "object",
-            "title": "i18nFormSpecBase",
-            "properties": {
-                "required": {
-                    "type": "string"
-                }
-            },
-            "required": ["required"]
-        },
         "integer": {
             "type": "object",
             "allOf": [
@@ -55,18 +45,51 @@
                         },
                         "input_hint": {
                             "type": ["string", "null"]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
-                    "required": [
-                        "type",
-                        "label",
-                        "unit",
-                        "input_hint",
-                        "i18n_base"
-                    ]
+                    "required": ["type", "label", "unit", "input_hint"]
+                }
+            ]
+        },
+        "date_picker": {
+            "type": "object",
+            "allOf": [
+                {
+                    "$ref": "#/$defs/form_spec"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "date_picker",
+                            "default": "date_picker"
+                        },
+                        "label": {
+                            "type": ["string", "null"]
+                        }
+                    },
+                    "required": ["type", "label"]
+                }
+            ]
+        },
+        "time_picker": {
+            "type": "object",
+            "allOf": [
+                {
+                    "$ref": "#/$defs/form_spec"
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "type": {
+                            "const": "time_picker",
+                            "default": "time_picker"
+                        },
+                        "label": {
+                            "type": ["string", "null"]
+                        }
+                    },
+                    "required": ["type", "label"]
                 }
             ]
         },
@@ -91,18 +114,9 @@
                         },
                         "input_hint": {
                             "type": ["string", "null"]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
-                    "required": [
-                        "type",
-                        "label",
-                        "unit",
-                        "input_hint",
-                        "i18n_base"
-                    ]
+                    "required": ["type", "label", "unit", "input_hint"]
                 }
             ]
         },
@@ -161,9 +175,6 @@
                                     "$ref": "#/$defs/autocompleter"
                                 }
                             ]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
                     "required": [
@@ -171,8 +182,7 @@
                         "placeholder",
                         "input_hint",
                         "field_size",
-                        "autocompleter",
-                        "i18n_base"
+                        "autocompleter"
                     ]
                 }
             ],
@@ -237,17 +247,9 @@
                                 "no_password_store_choices",
                                 "password_choice_invalid"
                             ]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
-                    "required": [
-                        "type",
-                        "password_store_choices",
-                        "i18n",
-                        "i18n_base"
-                    ]
+                    "required": ["type", "password_store_choices", "i18n"]
                 }
             ]
         },
@@ -402,6 +404,12 @@
         },
         "dictionary": {
             "id": "dictionary",
+            "properties": {
+                "type": {
+                    "const": "dictionary",
+                    "default": "dictionary"
+                }
+            },
             "allOf": [
                 {
                     "$ref": "#/$defs/form_spec"
@@ -409,10 +417,6 @@
                 {
                     "type": "object",
                     "properties": {
-                        "type": {
-                            "const": "dictionary",
-                            "default": "dictionary"
-                        },
                         "elements": {
                             "type": "array",
                             "items": {
@@ -431,28 +435,34 @@
                         },
                         "additional_static_elements": {
                             "type": ["object", "null"]
-                        },
-                        "layout": {
-                            "title": "DictionaryLayout",
-                            "enum": ["one_column", "two_columns"],
-                            "default": "one_column"
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
                     "required": [
-                        "type",
                         "elements",
                         "static_elements_key",
                         "additional_static_elements",
                         "no_elements_text",
-                        "groups",
-                        "layout",
-                        "i18n_base"
+                        "groups"
                     ]
                 }
-            ]
+            ],
+            "required": ["type"]
+        },
+        "two_column_dictionary": {
+            "id": "two_column_dictionary",
+            "type": "object",
+            "properties": {
+                "type": {
+                    "const": "two_column_dictionary",
+                    "default": "two_column_dictionary"
+                }
+            },
+            "allOf": [
+                {
+                    "$ref": "#/$defs/dictionary"
+                }
+            ],
+            "required": ["type"]
         },
         "single_choice_element": {
             "type": "object",
@@ -497,9 +507,6 @@
                         },
                         "input_hint": {
                             "type": ["string", "null"]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
                     "required": [
@@ -508,8 +515,7 @@
                         "label",
                         "input_hint",
                         "frozen",
-                        "elements",
-                        "i18n_base"
+                        "elements"
                     ]
                 }
             ]
@@ -703,9 +709,6 @@
                             "title": "CascadingSingleChoiceLayout",
                             "enum": ["vertical", "horizontal", "button_group"],
                             "default": "vertical"
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
                     "required": [
@@ -714,8 +717,7 @@
                         "no_elements_text",
                         "label",
                         "input_hint",
-                        "layout",
-                        "i18n_base"
+                        "layout"
                     ]
                 }
             ]
@@ -1060,12 +1062,9 @@
                             "items": {
                                 "$ref": "#/$defs/topic"
                             }
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
-                    "required": ["type", "elements", "i18n_base"]
+                    "required": ["type", "elements"]
                 }
             ]
         },
@@ -1335,9 +1334,6 @@
                                 "permanent_change_warning",
                                 "permanent_change_warning_dismiss"
                             ]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
                     "required": [
@@ -1346,8 +1342,7 @@
                         "config_entity_type",
                         "config_entity_type_specifier",
                         "elements",
-                        "allow_editing_existing_elements",
-                        "i18n_base"
+                        "allow_editing_existing_elements"
                     ]
                 }
             ]
@@ -1356,7 +1351,7 @@
             "type": "object",
             "properties": {
                 "fetch_method": {
-                    "const": "ajax_vs_autocomplete",
+                    "enum": ["ajax_vs_autocomplete", "rest_autocomplete"],
                     "default": "ajax_vs_autocomplete"
                 },
                 "data": {
@@ -1513,17 +1508,9 @@
                                 "or_operator",
                                 "nor_operator"
                             ]
-                        },
-                        "i18n_base": {
-                            "$ref": "#/$defs/i18n_base"
                         }
                     },
-                    "required": [
-                        "type",
-                        "condition_groups",
-                        "i18n",
-                        "i18n_base"
-                    ]
+                    "required": ["type", "condition_groups", "i18n"]
                 }
             ]
         },
@@ -1650,9 +1637,6 @@
             ]
         },
         "components": {
-            "discriminator": {
-                "propertyName": "type"
-            },
             "oneOf": [
                 {
                     "$ref": "#/$defs/integer"
@@ -1665,6 +1649,9 @@
                 },
                 {
                     "$ref": "#/$defs/dictionary"
+                },
+                {
+                    "$ref": "#/$defs/two_column_dictionary"
                 },
                 {
                     "$ref": "#/$defs/list"
@@ -1740,9 +1727,14 @@
                 },
                 {
                     "$ref": "#/$defs/time_specific"
+                },
+                {
+                    "$ref": "#/$defs/date_picker"
+                },
+                {
+                    "$ref": "#/$defs/time_picker"
                 }
-            ],
-            "required": ["type"]
+            ]
         }
     }
 }

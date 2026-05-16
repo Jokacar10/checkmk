@@ -23,10 +23,7 @@ For a detailed list of columns, have a look at the [services table](#section/Tab
 from collections.abc import Mapping
 from typing import Any
 
-from cmk.utils.livestatus_helpers.expressions import And
-from cmk.utils.livestatus_helpers.queries import Query
-from cmk.utils.livestatus_helpers.tables import Services
-
+from cmk import fields
 from cmk.gui import fields as gui_fields
 from cmk.gui import sites
 from cmk.gui.fields import HostField
@@ -37,8 +34,9 @@ from cmk.gui.openapi.restful_objects.constructors import object_action_href
 from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.utils import problem, serve_json
 from cmk.gui.utils import permission_verification as permissions
-
-from cmk import fields
+from cmk.utils.livestatus_helpers.expressions import And
+from cmk.utils.livestatus_helpers.queries import Query
+from cmk.utils.livestatus_helpers.tables import Services
 
 
 class _BaseParameters(BaseSchema):
@@ -299,9 +297,9 @@ def _list_services(params: Mapping[str, Any]) -> Response:
     )
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(show_service)
-    endpoint_registry.register(_list_host_services_deprecated)
-    endpoint_registry.register(_list_host_services)
-    endpoint_registry.register(_list_all_services_deprecated)
-    endpoint_registry.register(_list_all_services)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(show_service, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(_list_host_services_deprecated, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(_list_host_services, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(_list_all_services_deprecated, ignore_duplicates=ignore_duplicates)
+    endpoint_registry.register(_list_all_services, ignore_duplicates=ignore_duplicates)

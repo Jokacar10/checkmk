@@ -3,9 +3,13 @@
  * This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
  * conditions defined in the file COPYING, which is part of this source code package.
  */
-import { defineCustomElement, type Component, h } from 'vue'
+import { type Component, defineCustomElement, h } from 'vue'
+
+import { createi18n } from './i18n'
 
 let appCount = 0
+
+const i18n = createi18n()
 
 export default function defineCmkComponent(componentName: string, component: Component) {
   if (componentName.startsWith('cmk-') === false) {
@@ -30,6 +34,7 @@ export default function defineCmkComponent(componentName: string, component: Com
       shadowRoot: false,
       configureApp: (app) => {
         app.config.idPrefix = `cmk-vue-app-${appCount++}`
+        app.use(i18n)
       }
     }
   )

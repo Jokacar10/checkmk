@@ -10,6 +10,7 @@ import pytest
 import time_machine
 from dateutil.relativedelta import relativedelta
 
+from cmk.ccc.site import SiteId
 from cmk.crypto.certificate import (
     CertificateSigningRequest,
     CertificateWithPrivateKey,
@@ -89,7 +90,7 @@ def test_subject_alternative_names(
     csr_sans = SubjectAlternativeNames(
         [
             SAN.dns_name("test.example.com"),
-            SAN.checkmk_site("test_site"),
+            SAN.checkmk_site(SiteId("test_site")),
         ]
     )
     csr = CertificateSigningRequest.create(

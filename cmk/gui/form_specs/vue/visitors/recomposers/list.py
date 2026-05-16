@@ -5,17 +5,14 @@
 from typing import Any
 
 from cmk.ccc.exceptions import MKGeneralException
-
 from cmk.gui.form_specs.private.list_extended import ListExtended
-
 from cmk.rulesets.v1.form_specs import DefaultValue, FormSpec, List
 
 
-# TODO: improve typing
 def recompose(form_spec: FormSpec[Any]) -> ListExtended[Any]:
     if not isinstance(form_spec, List):
         raise MKGeneralException(
-            f"Cannot  form spec. Expected a String form spec, got {type(form_spec)}"
+            f"Cannot recompose form spec. Expected a List form spec, got {type(form_spec)}"
         )
 
     return ListExtended(

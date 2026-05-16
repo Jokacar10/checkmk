@@ -13,16 +13,16 @@
 #include "livestatus/ColumnFilter.h"
 
 class Logger;
-enum class RelationalOperator;
 class Row;
+enum class RelationalOperator;
 
 class DoubleFilter : public ColumnFilter {
 public:
     DoubleFilter(Kind kind, std::string columnName, std::function<double(Row)>,
                  RelationalOperator relOp, const std::string &value, Logger *);
-    [[nodiscard]] bool accepts(
-        Row row, const User &user,
-        std::chrono::seconds timezone_offset) const override;
+    [[nodiscard]] bool accepts(Row row, const User &user,
+                               std::chrono::seconds timezone_offset,
+                               const ICore &core) const override;
     [[nodiscard]] std::unique_ptr<Filter> copy() const override;
     [[nodiscard]] std::unique_ptr<Filter> negate() const override;
     [[nodiscard]] Logger *logger() const;

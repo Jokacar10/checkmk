@@ -6,13 +6,8 @@ import urllib.parse
 from typing import Any, Literal
 
 from cmk.ccc.exceptions import MKGeneralException
-
-from cmk.utils.urls import is_allowed_url
-
 from cmk.gui.form_specs.converter import TransformDataForLegacyFormatOrRecomposeFunction
-from cmk.gui.form_specs.vue.visitors._type_defs import DefaultValue as FrontendDefaultValue
 from cmk.gui.watolib import config_domains
-
 from cmk.rulesets.v1 import Help, Label, Message, Title
 from cmk.rulesets.v1.form_specs import (
     CascadingSingleChoice,
@@ -27,6 +22,9 @@ from cmk.rulesets.v1.form_specs import (
     String,
 )
 from cmk.rulesets.v1.form_specs.validators import LengthInRange, ValidationError
+from cmk.utils.urls import is_allowed_url
+
+from ..._type_defs import DefaultValue as FrontendDefaultValue
 
 
 def _validate_proxy_scheme(allowed_schemes: frozenset[ProxySchema], value: str) -> None:
@@ -112,7 +110,7 @@ def recompose(
     elements: list[CascadingSingleChoiceElement[Any]] = [
         CascadingSingleChoiceElement(
             name="environment",
-            title=Title("Use from environment"),
+            title=Title("Auto-detect proxy settings for this network"),
             parameter_form=FixedValue(
                 value="environment",
                 help_text=Help(
@@ -129,7 +127,7 @@ def recompose(
         ),
         CascadingSingleChoiceElement(
             name="no_proxy",
-            title=Title("Connect without proxy"),
+            title=Title("No proxy"),
             parameter_form=FixedValue(
                 value=None,
                 label=Label("Connect directly to the destination instead of using a proxy."),
@@ -137,7 +135,7 @@ def recompose(
         ),
         CascadingSingleChoiceElement(
             name="global_",
-            title=Title("Use globally configured proxy"),
+            title=Title("Globally configured proxy"),
             parameter_form=SingleChoice(
                 elements=global_proxy_choices,
                 no_elements_text=Message("There are no elements defined for this selection yet."),
@@ -145,7 +143,7 @@ def recompose(
         ),
         CascadingSingleChoiceElement(
             name="url",
-            title=Title("Use explicit proxy settings"),
+            title=Title("Manual proxy configuration"),
             parameter_form=String(
                 custom_validate=[
                     LengthInRange(min_value=1),

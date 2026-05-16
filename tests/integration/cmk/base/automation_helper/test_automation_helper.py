@@ -5,22 +5,14 @@
 
 import logging
 import subprocess
-from collections.abc import Generator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
-from tests.integration.linux_test_host import create_linux_test_host
-
-from tests.testlib.common.utils import wait_until
-from tests.testlib.site import Site
-
-from cmk.utils.rulesets.definition import RuleGroup
-
 from cmk.automations.helper_api import AutomationPayload, AutomationResponse
 from cmk.automations.results import AnalyseServiceResult, SerializedResult
-
 from cmk.base.automation_helper._app import HealthCheckResponse
 from cmk.base.automation_helper._config import (
     Config,
@@ -29,57 +21,118 @@ from cmk.base.automation_helper._config import (
     ReloaderConfig,
     ServerConfig,
 )
+from cmk.utils.rulesets.definition import RuleGroup
+from tests.integration.linux_test_host import create_linux_test_host
+from tests.testlib.common.utils import wait_until
+from tests.testlib.site import Site
 
 from ._helper_query_automation_helper import AutomationMode, HealthMode
 
 
 def test_config_reloading_without_reloader(site: Site) -> None:
-    with _disable_automation_helper_reloader_and_set_worker_count_to_one(site):
-        current_last_reload_timestamp = HealthCheckResponse.model_validate_json(
-            _query_automation_helper(site, HealthMode().model_dump_json())
-        ).last_reload_at
-        with _fake_config_file(site):
-            _query_automation_helper(
-                site,
-                AutomationMode(
-                    payload=AutomationPayload(
-                        # it doesn't matter that this automation doesn't exist, we just want to trigger a reload
-                        name="non-existing-automation",
-                        args=[],
-                        stdin="",
-                        log_level=logging.INFO,
-                    )
-                ).model_dump_json(),
-            )
-            assert (
-                HealthCheckResponse.model_validate_json(
-                    _query_automation_helper(site, HealthMode().model_dump_json())
-                ).last_reload_at
-                > current_last_reload_timestamp
-            )
-
-
-def test_config_reloading_with_reloader(site: Site) -> None:
-    reloader_configuration = default_config(
-        omd_root=Path(),
-        run_directory=Path(),
-        log_directory=Path(),
-    ).reloader_config
-    current_last_reload_timestamp = HealthCheckResponse.model_validate_json(
-        _query_automation_helper(site, HealthMode().model_dump_json())
-    ).last_reload_at
-    with _fake_config_file(site):
-        wait_until(
-            lambda: (
-                HealthCheckResponse.model_validate_json(
-                    _query_automation_helper(site, HealthMode().model_dump_json())
-                ).last_reload_at
-                > current_last_reload_timestamp
-            ),
-            timeout=reloader_configuration.poll_interval
-            + reloader_configuration.cooldown_interval
-            + 2,
+    with (
+        ensure_cleanup(site, "etc/check_mk/conf.d/aut_helper_reload_trigger.mk") as (file,),
+        _disable_automation_helper_reloader_and_set_worker_count_to_one(site),
+        _reload_ensurer(site) as wait_for_reload,
+    ):
+        site.write_file(file, "")
+        _query_automation_helper(
+            site,
+            AutomationMode(
+                payload=AutomationPayload(
+                    name="non-existing-automation",  # we just want to trigger a reload
+                    args=[],
+                    stdin="",
+                    log_level=logging.INFO,
+                )
+            ).model_dump_json(),
         )
+        wait_for_reload(0)
+
+
+@pytest.mark.parametrize("extension", ["mk", "txt"])
+def test_config_reloading_with_reloader(extension: str, site: Site, reload_timeout: float) -> None:
+    with (
+        ensure_cleanup(
+            site,
+            f"etc/check_mk/conf.d/aut_helper_reload_trigger.{extension}",
+        ) as (file,),
+        _reload_ensurer(site) as wait_for_reload,
+    ):
+        site.write_file(file, "")
+        wait_for_reload(reload_timeout)
+
+
+def test_config_reloading_on_move_from_unwatched_to_watched_directory(
+    site: Site, reload_timeout: float
+) -> None:
+    with ensure_cleanup(
+        site,
+        "tmp/file.mk",
+        "etc/check_mk/conf.d/aut_helper_reload_trigger.mk",
+    ) as (
+        unwatched,
+        watched,
+    ):
+        site.write_file(unwatched, "")
+
+        with _reload_ensurer(site) as wait_for_reload:
+            site.move_file(unwatched, watched)
+            wait_for_reload(reload_timeout)
+
+
+def test_config_reloading_on_move_from_watched_to_unwatched_directory(
+    site: Site, reload_timeout: float
+) -> None:
+    with ensure_cleanup(
+        site,
+        "tmp/file.mk",
+        "etc/check_mk/conf.d/aut_helper_reload_trigger.mk",
+    ) as (
+        unwatched,
+        watched,
+    ):
+        site.write_file(watched, "")
+
+        with _reload_ensurer(site) as wait_for_reload:
+            site.move_file(watched, unwatched)
+            wait_for_reload(reload_timeout)
+
+
+def test_config_reloading_on_move_within_watched_directory(
+    site: Site, reload_timeout: float
+) -> None:
+    with ensure_cleanup(
+        site,
+        "etc/check_mk/conf.d/aut_helper_reload_trigger1.mk",
+        "etc/check_mk/conf.d/aut_helper_reload_trigger2.mk",
+    ) as (
+        watched_1,
+        watched_2,
+    ):
+        site.write_file(watched_1, "")
+
+        with _reload_ensurer(site) as wait_for_reload:
+            site.move_file(watched_1, watched_2)
+            wait_for_reload(reload_timeout)
+
+
+def test_config_reloading_on_edit(site: Site, reload_timeout: float) -> None:
+    with ensure_cleanup(site, "etc/check_mk/conf.d/aut_helper_reload_trigger.mk") as (watched,):
+        site.write_file(watched, "")
+
+        with _reload_ensurer(site) as wait_for_reload:
+            site.write_file(watched, "hooray = True\n")
+            wait_for_reload(reload_timeout)
+
+
+def test_config_reloading_on_delete(site: Site, reload_timeout: float) -> None:
+    with ensure_cleanup(site, "etc/check_mk/conf.d/aut_helper_reload_trigger.mk") as (watched,):
+        site.write_file(watched, "")
+
+        with _reload_ensurer(site) as wait_for_reload:
+            site.delete_file(watched)
+            wait_for_reload(reload_timeout)
 
 
 def test_standard_workflow_involving_automations(site: Site) -> None:
@@ -191,12 +244,28 @@ def _set_automation_helper_worker_count_to_one(site: Site) -> Generator[None]:
 
 
 @contextmanager
-def _fake_config_file(site: Site) -> Generator[None]:
-    site.write_file("etc/check_mk/conf.d/aut_helper_reload_trigger.mk", "")
+def ensure_cleanup(site: Site, *files: str) -> Generator[tuple[str, ...]]:
     try:
-        yield
+        yield files
     finally:
-        site.delete_file("etc/check_mk/conf.d/aut_helper_reload_trigger.mk")
+        for filename in files:
+            site.delete_file(filename)
+
+
+@pytest.fixture(scope="module")
+def reload_timeout() -> float:
+    reloader_configuration = default_config(
+        omd_root=Path(),
+        run_directory=Path(),
+        log_directory=Path(),
+    ).reloader_config
+    return (
+        # worst case: we wait for this long until we even check if a reload is necessary
+        reloader_configuration.poll_interval
+        + reloader_configuration.cooldown_interval
+        # some time to actually do the reload
+        + 2
+    )
 
 
 def _query_automation_helper(site: Site, serialized_input: str) -> str:
@@ -241,3 +310,24 @@ def _restart_automation_helper_and_wait_until_reachable(site: Site) -> None:
         timeout=10,
         interval=0.25,
     )
+
+
+@contextmanager
+def _reload_ensurer(site: Site) -> Generator[Callable[[float], None]]:
+    last_reload_timestamp = HealthCheckResponse.model_validate_json(
+        _query_automation_helper(site, HealthMode().model_dump_json())
+    ).last_reload_at
+
+    def _wait_for_reload(timeout: float) -> None:
+        wait_until(
+            lambda: (
+                HealthCheckResponse.model_validate_json(
+                    _query_automation_helper(site, HealthMode().model_dump_json())
+                ).last_reload_at
+                > last_reload_timestamp
+            ),
+            timeout=timeout,
+            condition_name="Reloaded automation-helper",
+        )
+
+    yield _wait_for_reload

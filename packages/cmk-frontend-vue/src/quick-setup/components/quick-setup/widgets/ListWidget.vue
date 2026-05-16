@@ -4,8 +4,10 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { type ListWidgetProps } from './widget_types'
 import { getGetWidget } from '@/quick-setup/components/quick-setup/utils'
+
+import { type ListWidgetProps } from './widget_types'
+
 const getWidget = getGetWidget()
 
 const props = defineProps<ListWidgetProps>()
@@ -35,7 +37,7 @@ const getBullet = (): string => {
 <style scoped>
 .qs-list-widget {
   margin-bottom: var(--spacing);
-  padding-left: 0px;
+  padding-left: 0;
   line-height: 18px;
   list-style-type: v-bind('getBullet()');
   list-style-position: inside;

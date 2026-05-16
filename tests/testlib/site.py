@@ -2,7 +2,6 @@
 # Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
-# ruff: noqa: A005
 
 """Module for managing Checkmk test sites.
 
@@ -40,6 +39,11 @@ from typing import Any, Final, Literal, overload
 import pytest
 import pytest_check
 
+import livestatus
+
+from cmk import trace
+from cmk.crypto.password import Password
+from cmk.crypto.secrets import Secret
 from tests.testlib.common.repo import current_branch_name, repo_path
 from tests.testlib.common.utils import wait_until
 from tests.testlib.cse.utils import (  # type: ignore[import-untyped, unused-ignore]
@@ -51,6 +55,7 @@ from tests.testlib.utils import (
     check_output,
     execute,
     get_processes_by_cmdline,
+    is_cleanup_enabled,
     is_containerized,
     makedirs,
     PExpectDialog,
@@ -70,12 +75,6 @@ from tests.testlib.version import (
     version_from_env,
 )
 from tests.testlib.web_session import CMKWebSession
-
-import livestatus
-
-from cmk import trace
-from cmk.crypto.password import Password
-from cmk.crypto.secrets import Secret
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer()
@@ -351,9 +350,22 @@ class Site:
         )
 
     @tracer.instrument("Site.reschedule_services")
-    def reschedule_services(self, hostname: str, max_count: int = 10) -> None:
+    def reschedule_services(
+        self,
+        hostname: str,
+        max_count: int = 10,
+        strict: bool = True,
+        wait_timeout: int | None = None,
+    ) -> None:
         """Reschedule services in the test-site for a given host until no pending services are
-        found."""
+        found.
+
+        Args:
+            hostname: Name of the target host.
+            max_count: Maximum number of iterations.
+            strict: Assert having no pending services.
+            wait_timeout: Number of seconds to wait for the service check.
+        """
         count = 0
         while (
             len(pending_services := self.get_host_services(hostname, pending=True)) > 0
@@ -365,13 +377,21 @@ class Site:
                 hostname,
                 pformat(pending_services),
             )
-            self.schedule_check(hostname, "Check_MK", 0)
+            self.schedule_check(hostname, "Check_MK", 0, wait_timeout)
             count += 1
 
-        assert len(pending_services) == 0, (
-            "The following services are in pending state after rescheduling checks:"
-            f"\n{pformat(pending_services)}\n"
-        )
+        if strict:
+            assert len(pending_services) == 0, (
+                "The following services are in pending state after rescheduling checks:"
+                f"\n{pformat(pending_services)}\n"
+            )
+        if pending_services:
+            logger.info(
+                '%s pending service(s) found on host "%s": %s',
+                len(pending_services),
+                hostname,
+                ",".join(list(pending_services.keys())),
+            )
 
     @tracer.instrument("Site.wait_for_service_state_update")
     def wait_for_services_state_update(
@@ -484,7 +504,7 @@ class Site:
             "Columns: last_check state plugin_output\n"
             f"Filter: host_name = {hostname}\n"
             f"WaitObject: {hostname}\n"
-            f"WaitTimeout: {wait_timeout or self.check_wait_timeout * 1000:d}\n"
+            f"WaitTimeout: {(wait_timeout or self.check_wait_timeout) * 1000:d}\n"
             f"WaitTrigger: check\n"
             f"WaitCondition: last_check > {last_check_before:.0f}\n"
         )
@@ -673,15 +693,22 @@ class Site:
         return output
 
     @contextmanager
-    def copy_file(self, name: str | Path, target: str | Path) -> Iterator[None]:
-        """Copies a file from the same directory as the caller to the site"""
+    def copy_file(self, source_path: str | Path, target_path: str | Path) -> Iterator[Path]:
+        """Copies a file from the same directory as the caller to the site.
+
+        If absolute paths are passed, those will override the default source and target paths.
+
+        Args:
+            source_path: Source path of the file (either absolute or relative to the callers folder).
+            target_path: Target path of the file (either absolute or relative to the site).
+        """
         caller_file = Path(inspect.stack()[2].filename)
-        source_path = caller_file.parent / name
-        target_path = Path(target)
+        source_path = caller_file.parent / source_path
+        target_path = self.path(target_path)
         self.makedirs(target_path.parent)
         self.write_file(target_path, source_path.read_text())
         try:
-            yield
+            yield target_path
         finally:
             self.delete_file(target_path)
 
@@ -694,7 +721,7 @@ class Site:
         """run the "omd" command with the given mode and arguments.
 
         Args:
-            mode (str): The mode of the "omd" command. e.g. "status", "restart", "start", "stop"
+            mode (str): The mode of the "omd" command. e.g. "status", "restart", "start", "stop", "reload"
             args (str): More (optional) arguments to the "omd" command.
             check (bool, optional): Run cmd as check/strict - raise Exception on rc!=0.
 
@@ -772,6 +799,19 @@ class Site:
             excp.add_note(f"Failed to read file '{rel_path}'!")
             raise excp
 
+    def move_file(self, src_rel_path: str | Path, dst_rel_path: str | Path) -> None:
+        """Move a file from one path to another within the site.
+
+        Note - directories mentioned within `dst_rel_path` must exist for successful operation!
+        """
+        try:
+            _ = self.run(
+                ["mv", self.path(src_rel_path).as_posix(), self.path(dst_rel_path).as_posix()]
+            )
+        except subprocess.CalledProcessError as excp:
+            excp.add_note(f"Failed to move file from '{src_rel_path}' to '{dst_rel_path}'!")
+            raise excp
+
     def delete_dir(self, rel_path: str | Path) -> None:
         try:
             _ = self.run(["rm", "-rf", self.path(rel_path).as_posix()])
@@ -835,7 +875,7 @@ class Site:
         return output.strip().split("\n") if output else []
 
     def system_temp_dir(self) -> Iterator[str]:
-        stdout = self.check_output(["mktemp", "-d", "cmk-system-test-XXXXXXXXX", "-p", "/tmp"])
+        stdout = self.check_output(["mktemp", "-d", "cmk-system-test-XXXXXXXXX", "-p", "/tmp"])  # nosec
         assert stdout is not None
         path = stdout.strip()
 
@@ -931,7 +971,7 @@ class Site:
             )
 
     @tracer.instrument("Site.create")
-    def create(self) -> None:
+    def create(self) -> subprocess.CompletedProcess:
         self.install_cmk()
 
         if not self.reuse and self.exists():
@@ -983,6 +1023,7 @@ class Site:
         self.set_timezone(os.getenv("TZ", "UTC"))
 
         self._disable_autostart()
+        return completed_process
 
     def _ensure_sample_config_is_present(self) -> None:
         if missing_files := self._missing_but_required_wato_files():
@@ -1254,6 +1295,32 @@ class Site:
     def is_running(self) -> bool:
         return self.omd("status").returncode == 0
 
+    def get_omd_service_names_and_statuses(self, service: str = "") -> dict[str, int]:
+        """
+        Return all service names and their statuses for the given site.
+        """
+        # Get all service names from 'omd status --bare <service>' command.
+        cmd = ["status", "--bare"]
+        if service:
+            cmd.append(service)
+        p = self.omd(*cmd, check=False)
+        services = {}
+        for line in p.stdout.strip().splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0] != "OVERALL":
+                try:
+                    services[parts[0]] = int(parts[1])
+                except ValueError as e:
+                    raise ValueError(
+                        f"Expected status code to be an integer for service {parts[0]}"
+                    ) from e
+        if not services:
+            raise RuntimeError(
+                f"No status found for '{' '.join(cmd)}'!\nSTDOUT:\n{p.stdout}\n",
+                f"STDERR:\n{p.stderr}\n",
+            )
+        return services
+
     def is_stopped(self) -> bool:
         # 0 -> fully running
         # 1 -> fully stopped
@@ -1377,11 +1444,30 @@ class Site:
         # load the config without loading the checks in advance, this leads into an
         # exception.
         # We set this config option here trying to catch this kind of issue.
-        self.openapi.rules.create(
-            ruleset_name="fileinfo_groups",
-            value={"group_patterns": [("TESTGROUP", ("*gwia*", ""))]},
-            folder="/",
-        )
+        try:
+            # Try to create the ruleset with the new API.
+            self.openapi.rules.create(
+                ruleset_name="fileinfo_groups",
+                value={
+                    "group_patterns": [
+                        {
+                            "group_name": "TESTGROUP",
+                            "pattern_configs": {
+                                "include_pattern": "*gwia*",
+                                "exclude_pattern": "",
+                            },
+                        }
+                    ],
+                },
+                folder="/",
+            )
+        except Exception:
+            # Fallback to the old API in case the new API is not available.
+            self.openapi.rules.create(
+                ruleset_name="fileinfo_groups",
+                value={"group_patterns": [("TESTGROUP", ("*gwia*", ""))]},
+                folder="/",
+            )
 
     def enforce_non_localized_gui(self, web: CMKWebSession) -> None:
         r = web.get("user_profile.py")
@@ -1392,6 +1478,9 @@ class Site:
         user_spec, etag = user
         user_spec["language"] = "en"
         user_spec.pop("enforce_password_change", None)
+        # TODO: DEPRECATED(18295) remove "mega_menu_icons"
+        # Response contains "mega_menu_icons" AND "main_menu_icons" only _one_ is allowed in a request.
+        user_spec["interface_options"].pop("mega_menu_icons", None)
         self.openapi.users.edit(ADMIN_USER, user_spec, etag)
 
         # Verify the language is as expected now
@@ -1540,7 +1629,7 @@ class Site:
             for crash_id in self.listdir(self.crash_report_dir / crash_type)
         ]
 
-    def report_crashes(self):
+    def report_crashes(self) -> None:
         for crash_dir in self.crash_reports_dirs():
             crash_file = crash_dir / "crash.info"
             try:
@@ -1558,6 +1647,11 @@ class Site:
                 continue
             if re.search("Licensed phase: too many services.", crash_detail):
                 logger.warning("Ignored crash report due to license violation!")
+                continue
+            if (
+                crash_type == "ValueError"
+                and crash_detail == "This is intended, please move on... Really"
+            ):
                 continue
             pytest_check.fail(
                 f"""Crash report detected! {crash_type}: {crash_detail}.
@@ -1681,7 +1775,7 @@ class Site:
 
     def read_global_settings(self, relative_path: Path) -> dict[str, object]:
         global_settings: dict[str, object] = {}
-        exec(self.read_file(relative_path), {}, global_settings)
+        exec(self.read_file(relative_path), {}, global_settings)  # nosec
         return global_settings
 
     def write_global_settings(
@@ -1704,7 +1798,7 @@ class Site:
         self, relative_path: Path
     ) -> dict[str, dict[str, dict[str, object]]]:
         site_specific_settings: dict[str, dict[str, dict[str, object]]] = {"sites": {}}
-        exec(self.read_file(relative_path), {}, site_specific_settings)
+        exec(self.read_file(relative_path), {}, site_specific_settings)  # nosec
         return site_specific_settings
 
     def write_site_specific_settings(
@@ -1727,6 +1821,25 @@ class Site:
             current_settings["sites"][site_id].update(updated_site_settings)
 
         self.write_site_specific_settings(relative_path, current_settings)
+
+    @contextmanager
+    def backup_and_restore_files(self, files: list[Path]) -> Iterator[None]:
+        """Backup file(s) when entering the context and restore them when exiting.
+
+        Args:
+            files: List of files to be backed up.
+                Files are assumed to be relative to the site's root directory.
+        """
+        list_of_files = ", ".join(map(str, files))
+        logger.info("Backup files: '%s'", list_of_files)
+        backup = {file: self.read_file(file) for file in files}
+        try:
+            yield
+        finally:
+            logger.info("Restore files: '%s'", list_of_files)
+            for file, content in backup.items():
+                self.write_file(rel_path=file, content=content)
+            self.openapi.changes.activate_and_wait_for_completion()
 
 
 @dataclass(frozen=True)
@@ -1771,7 +1884,7 @@ class SiteFactory:
     def edition(self) -> TypeCMKEdition:
         return self._package.edition
 
-    def get_site(self, name: str) -> Site:
+    def get_site(self, name: str, create: bool = True) -> Site:
         site = self._site_obj(name)
 
         if self.edition.is_saas_edition():
@@ -1779,7 +1892,8 @@ class SiteFactory:
             # happens on the SaaS environment, where k8s takes care of creating the config files
             # before the site is created.
             create_cse_initial_config()
-        site.create()
+        if create:
+            site.create()
         return site
 
     def initialize_site(
@@ -1878,7 +1992,9 @@ class SiteFactory:
             check=False,
         )
 
-        assert completed_process.returncode == 0
+        assert completed_process.returncode == 0, (
+            f"Restoring site from backup failed!\n{completed_process.stdout.strip()}"
+        )
 
         site = self.get_existing_site(site.id)
         site.start()
@@ -1900,11 +2016,13 @@ class SiteFactory:
         site_copy = self.get_existing_site(copy_name)
         site_copy.start()
 
+        site.start()
+
         try:
             yield site_copy
 
         finally:
-            if os.getenv("CLEANUP", "1") == "1":
+            if is_cleanup_enabled():
                 logger.info("Removing site '%s'...", site_copy.id)
                 site_copy.rm()
 
@@ -1914,7 +2032,7 @@ class SiteFactory:
         target_package: CMKPackageInfo,
         min_version: CMKVersion,
         conflict_mode: str = "keepold",
-        logfile_path: str = "/tmp/sep.out",
+        logfile_path: str = "/tmp/sep.out",  # nosec
         timeout: int = 60,
         abort: bool = False,
         disable_extensions: bool = False,
@@ -2057,12 +2175,15 @@ class SiteFactory:
         # refresh the site object after creating the site
         site = self.get_existing_site(test_site.id)
 
+        assert site.version.version == target_package.version.version, (
+            "Version mismatch after update process:\n"
+            f"Expected version: {target_package.version.version}\n"
+            f"Actual version: {site.version.version}"
+        )
+
         _assert_tmpfs(site, base_package.version)
         if not site.edition.is_saas_edition():
             _assert_nagvis_server(target_package)
-
-        # open the livestatus port
-        site.open_livestatus_tcp(encrypted=False)
 
         # start the site after manually installing it
         site.start()
@@ -2086,6 +2207,7 @@ class SiteFactory:
         ),
         min_version: CMKVersion = get_min_version(),
         conflict_mode: str = "keepold",
+        start_site_after_update: bool = True,
     ) -> Site:
         base_package = test_site.package
         self._package = target_package
@@ -2104,10 +2226,10 @@ class SiteFactory:
         site.stop()
 
         logger.info(
-            "Updating %s site from %s version to %s version...",
+            "Updating %s site from %s to %s ...",
             site.id,
-            base_package.version,
-            target_package.version_directory(),
+            base_package.omd_version(),
+            target_package.omd_version(),
         )
 
         cmd = [
@@ -2124,21 +2246,25 @@ class SiteFactory:
         # refresh the site object after creating the site
         site = self.get_existing_site(site.id)
 
+        assert site.version.version == target_package.version.version, (
+            "Version mismatch after update process:\n"
+            f"Expected version: {target_package.version.version}\n"
+            f"Actual version: {site.version.version}"
+        )
+
         _assert_tmpfs(site, base_package.version)
         if not site.edition.is_saas_edition():
             _assert_nagvis_server(target_package)
 
-        # open the livestatus port
-        site.open_livestatus_tcp(encrypted=False)
+        if start_site_after_update:
+            # start the site after manually installing it
+            site.start()
 
-        # start the site after manually installing it
-        site.start()
+            assert site.is_running(), "Site is not running!"
+            logger.info("Site %s is up", site.id)
 
-        assert site.is_running(), "Site is not running!"
-        logger.info("Site %s is up", site.id)
-
-        restart_httpd()
-        site.openapi.changes.activate_and_wait_for_completion()
+            restart_httpd()
+            site.openapi.changes.activate_and_wait_for_completion()
 
         return site
 
@@ -2258,7 +2384,7 @@ class SiteFactory:
         self._index += 1
         return new_ident
 
-    def _site_obj(self, name: str, check_wait_timeout: int = 20) -> Site:
+    def _site_obj(self, name: str) -> Site:
         if f"{self._base_ident}{name}" in self._sites:
             return self._sites[f"{self._base_ident}{name}"]
         # For convenience, allow to retrieve site by name or full ident
@@ -2272,7 +2398,6 @@ class SiteFactory:
             site_id=site_id,
             reuse=False,
             enforce_english_gui=self._enforce_english_gui,
-            check_wait_timeout=check_wait_timeout,
         )
 
     def save_results(self) -> None:
@@ -2430,52 +2555,51 @@ def connection(
     remote_site: Site,
 ) -> Iterator[None]:
     """Set up the site connection between central and remote site for a distributed setup"""
-    if central_site.edition.is_managed_edition():
-        basic_settings = {
-            "alias": "Remote Testsite",
-            "site_id": remote_site.id,
-            "customer": "provider",
-        }
-    else:
-        basic_settings = {
-            "alias": "Remote Testsite",
-            "site_id": remote_site.id,
-        }
+    basic_settings = {
+        "alias": "Remote Testsite",
+        "site_id": remote_site.id,
+    }
 
+    if central_site.edition.is_managed_edition():
+        basic_settings["customer"] = "provider"
+
+    configuration_connection = {
+        "enable_replication": True,
+        "url_of_remote_site": remote_site.internal_url,
+        "disable_remote_configuration": True,
+        "ignore_tls_errors": True,
+        "direct_login_to_web_gui_allowed": True,
+        "user_sync": {"sync_with_ldap_connections": "all"},
+        "replicate_event_console": True,
+        "replicate_extensions": True,
+    }
+    # stay backwards-compatible for performance tests:
+    # only set message_broker_port for CMK2.4.0+
+    if central_site.version == remote_site.version >= CMKVersion("2.4.0"):
+        configuration_connection["message_broker_port"] = remote_site.message_broker_port
+    site_config: dict[str, object] = {
+        "basic_settings": basic_settings,
+        "status_connection": {
+            "connection": {
+                "socket_type": "tcp",
+                "host": remote_site.http_address,
+                "port": remote_site.livestatus_port,
+                "encrypted": False,
+                "verify": False,
+            },
+            "proxy": {
+                "use_livestatus_daemon": "direct",
+            },
+            "connect_timeout": 2,
+            "persistent_connection": False,
+            "url_prefix": f"/{remote_site.id}/",
+            "status_host": {"status_host_set": "disabled"},
+            "disable_in_status_gui": False,
+        },
+        "configuration_connection": configuration_connection,
+    }
     logger.info("Create site connection from '%s' to '%s'", central_site.id, remote_site.id)
-    central_site.openapi.sites.create(
-        {
-            "basic_settings": basic_settings,
-            "status_connection": {
-                "connection": {
-                    "socket_type": "tcp",
-                    "host": remote_site.http_address,
-                    "port": remote_site.livestatus_port,
-                    "encrypted": False,
-                    "verify": False,
-                },
-                "proxy": {
-                    "use_livestatus_daemon": "direct",
-                },
-                "connect_timeout": 2,
-                "persistent_connection": False,
-                "url_prefix": f"/{remote_site.id}/",
-                "status_host": {"status_host_set": "disabled"},
-                "disable_in_status_gui": False,
-            },
-            "configuration_connection": {
-                "enable_replication": True,
-                "url_of_remote_site": remote_site.internal_url,
-                "disable_remote_configuration": True,
-                "ignore_tls_errors": True,
-                "direct_login_to_web_gui_allowed": True,
-                "user_sync": {"sync_with_ldap_connections": "all"},
-                "replicate_event_console": True,
-                "replicate_extensions": True,
-                "message_broker_port": remote_site.message_broker_port,
-            },
-        }
-    )
+    central_site.openapi.sites.create(site_config)
     logger.info("Establish site login '%s' to '%s'", central_site.id, remote_site.id)
     central_site.openapi.sites.login(remote_site.id)
     logger.info("Activating site setup changes")
@@ -2487,7 +2611,7 @@ def connection(
         logger.info("Connection from '%s' to '%s' established", central_site.id, remote_site.id)
         yield
     finally:
-        if os.environ.get("CLEANUP", "1") == "1":
+        if is_cleanup_enabled():
             logger.info("Remove site connection from '%s' to '%s'", central_site.id, remote_site.id)
             logger.info("Hosts left: %s", central_site.openapi.hosts.get_all_names())
             logger.info("Delete remote site connection '%s'", remote_site.id)

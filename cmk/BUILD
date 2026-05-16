@@ -72,8 +72,8 @@ REQUIRED_EXTERNAL_DEPS = [
     "pyprof2calltree",
     "pysaml2",
     "pysmb",
-    "pysmi-lextudio",
-    "pysnmp-lextudio",
+    "pysmi",
+    "pysnmp",
     "python-active-directory",  # missing wheel
     "python-dateutil",
     "python-ldap",  # missing wheel
@@ -93,7 +93,7 @@ REQUIRED_EXTERNAL_DEPS = [
     "setuptools",
     "setuptools-scm",
     "simplejson",
-    "snmpsim-lextudio",
+    "snmpsim",
     "tenacity",
     "urllib3",
     "uvicorn",
@@ -102,47 +102,67 @@ REQUIRED_EXTERNAL_DEPS = [
     "werkzeug",
 ]
 
-CRE_PY = glob([
-    "**/cre/**/*.py",
-    "**/cre.py",
-    "**/raw/**/*.py",
-    "**/raw.py",
-])
+CRE_PY = glob(
+    [
+        "**/cre/**/*.py",
+        "**/cre.py",
+        "**/raw/**/*.py",
+        "**/raw.py",
+    ],
+    allow_empty = True,
+)
 
-CCE_PY = glob([
-    "**/cce/**/*.py",
-    "**/cce.py",
-])
+CCE_PY = glob(
+    [
+        "**/cce/**/*.py",
+        "**/cce.py",
+    ],
+    allow_empty = True,
+)
 
-CEE_PY = glob([
-    "**/cee/**/*.py",
-    "**/cee.py",
-])
+CEE_PY = glob(
+    [
+        "**/cee/**/*.py",
+        "**/cee.py",
+    ],
+    allow_empty = True,
+)
 
-CME_PY = glob([
-    "**/cme/**/*.py",
-    "**/cme.py",
-])
+CME_PY = glob(
+    [
+        "**/cme/**/*.py",
+        "**/cme.py",
+    ],
+    allow_empty = True,
+)
 
-CSE_PY = glob([
-    "**/cse/**/*.py",
-    "**/cse.py",
-])
+CSE_PY = glob(
+    [
+        "**/cse/**/*.py",
+        "**/cse.py",
+    ],
+    allow_empty = True,
+)
 
 CMK_PACKAGES = [
     "//packages/cmk-shared-typing:cmk_shared_typing_py",
     "//packages/cmk-agent-receiver",
     "//packages/cmk-ccc:cleanup",
+    "//packages/cmk-ccc:config-path",
+    "//packages/cmk-ccc:cpu-tracking",
     "//packages/cmk-ccc:crash-reporting",
     "//packages/cmk-ccc:daemon",
     "//packages/cmk-ccc:debug",
     "//packages/cmk-ccc:exceptions",
     "//packages/cmk-ccc:hostaddress",
     "//packages/cmk-ccc:i18n",
+    "//packages/cmk-ccc:observer",
     "//packages/cmk-ccc:plugin-registry",
     "//packages/cmk-ccc:profile",
+    "//packages/cmk-ccc:resulttype",
     "//packages/cmk-ccc:site",
     "//packages/cmk-ccc:store",
+    "//packages/cmk-ccc:timeout",
     "//packages/cmk-ccc:tty",
     "//packages/cmk-ccc:user",
     "//packages/cmk-ccc:version",
@@ -152,7 +172,12 @@ CMK_PACKAGES = [
     "//packages/cmk-livestatus-client:py_livestatus",
     "//packages/cmk-messaging",
     "//packages/cmk-mkp-tool",
-    "//packages/cmk-plugin-apis",
+    "//packages/cmk-plugin-apis:agent_based",
+    "//packages/cmk-plugin-apis:bakery",
+    "//packages/cmk-plugin-apis:graphing",
+    "//packages/cmk-plugin-apis:rulesets",
+    "//packages/cmk-plugin-apis:server_side_calls",
+    "//packages/cmk-plugin-apis:inventory_ui",
     "//packages/cmk-trace",
     "//packages/cmk-werks",
 ] + select({

@@ -2,21 +2,15 @@
 # Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
-
-
 from collections.abc import Callable, Mapping
 
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils import paths
-
-from cmk.gui.form_specs.private import ListExtended  # pylint: disable=cmk-module-layer-violation
-from cmk.gui.mkeventd import (  # pylint: disable=cmk-module-layer-violation
+from cmk.gui.form_specs.private import ListExtended
+from cmk.gui.mkeventd import (
     service_levels,
     syslog_facilities,
     syslog_priorities,
 )
-
 from cmk.rulesets.v1 import Help, Label, Title
 from cmk.rulesets.v1.form_specs import (
     CascadingSingleChoice,
@@ -40,6 +34,7 @@ from cmk.rulesets.v1.form_specs import (
     validators,
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
+from cmk.utils.paths import omd_root
 
 
 def _valuespec_special_agents_datadog() -> Dictionary:
@@ -138,7 +133,7 @@ def _valuespec_special_agents_datadog() -> Dictionary:
 
 
 def _fetch_events_and_logs_elements() -> Mapping[str, DictElement]:
-    if edition(paths.omd_root) is Edition.CSE:  # disabled in CSE
+    if edition(omd_root) is Edition.CSE:  # disabled in CSE
         return {}
     return {
         "events": DictElement(
@@ -252,7 +247,7 @@ def _fetch_events_and_logs_elements() -> Mapping[str, DictElement]:
                         parameter_form=CascadingSingleChoice(
                             elements=[
                                 CascadingSingleChoiceElement(
-                                    name=_format_name(name),
+                                    name=_format_service_level(value),
                                     title=Title(name),  # pylint: disable=localization-of-non-literal-string
                                     parameter_form=FixedValue(value=value),
                                 )
@@ -372,7 +367,7 @@ def _fetch_events_and_logs_elements() -> Mapping[str, DictElement]:
                         parameter_form=CascadingSingleChoice(
                             elements=[
                                 CascadingSingleChoiceElement(
-                                    name=_format_name(name),
+                                    name=_format_service_level(value),
                                     title=Title(name),  # pylint: disable=localization-of-non-literal-string
                                     parameter_form=FixedValue(value=value),
                                 )
@@ -463,17 +458,18 @@ def _migrate_priority(value: object) -> tuple[str, int]:
 
 def _migrate_service_levels(value: object) -> tuple[str, int]:
     match value:
-        case tuple((str(s), int(i))):
-            return (s, i)
-        case int(i):
+        case tuple((str(s), int(i))) if s.startswith("internal_id_"):
+            # Already migrated to e.g. ("internal_id_10", 10)
+            return s, i
+        case int(i) | tuple((str(_), int(i))):
             return next(
-                (_format_name(name), value) for value, name in service_levels() if value == i
+                (_format_service_level(i), value) for value, name in service_levels() if value == i
             )
     raise ValueError(f"Invalid priority value: {value!r}")
 
 
-def _format_name(name: str) -> str:
-    return name.replace("(", "").replace(")", "").replace(" ", "_").replace("-", "").lower()
+def _format_service_level(internal_id: int) -> str:
+    return "internal_id_" + str(internal_id)
 
 
 rule_spec_special_agent_datadog = SpecialAgent(

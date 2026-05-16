@@ -10,20 +10,18 @@ import pytest
 from pytest import MonkeyPatch
 
 import cmk.ccc.version as cmk_version
-
-from cmk.utils import paths
-
 import cmk.gui.watolib.rulespecs
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.plugins.wato.utils import TimeperiodValuespec
+from cmk.gui.search import MatchItem
 from cmk.gui.utils.rule_specs.legacy_converter import GENERATED_GROUP_PREFIX
 from cmk.gui.valuespec import Dictionary, FixedValue, TextInput
 from cmk.gui.watolib.main_menu import main_module_registry
+from cmk.gui.watolib.rule_match_item_generator import MatchItemGeneratorRules
 from cmk.gui.watolib.rulespecs import (
     get_rulegroup,
     HostRulespec,
     main_module_from_rulespec_group_name,
-    MatchItemGeneratorRules,
     rulespec_group_registry,
     rulespec_registry,
     RulespecGroup,
@@ -32,7 +30,7 @@ from cmk.gui.watolib.rulespecs import (
     RulespecRegistry,
     RulespecSubGroup,
 )
-from cmk.gui.watolib.search import MatchItem
+from cmk.utils import paths
 
 
 def test_rulespec_sub_group() -> None:
@@ -454,7 +452,7 @@ def test_all_rulespec_groups_have_main_group() -> None:
 
 
 def test_rulespec_groups_have_unique_names() -> None:
-    # The title is e.g. shown in the mega menu search. With duplicate entries a user could not
+    # The title is e.g. shown in the main menu search. With duplicate entries a user could not
     # distinguish where a rule is located in the menu hierarchy.
     main_group_titles = [e().title for e in rulespec_group_registry.get_main_groups()]
     assert len(main_group_titles) == len(set(main_group_titles)), "Main group titles are not unique"

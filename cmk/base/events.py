@@ -23,7 +23,7 @@ import cmk.ccc.daemon
 import cmk.ccc.debug
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import omd_site
-
+from cmk.events.event_context import EnrichedEventContext, EventContext
 from cmk.utils.http_proxy_config import HTTPProxyConfig
 from cmk.utils.notify import read_notify_host_file
 from cmk.utils.notify_types import EventRule, NotifyPluginParamsDict
@@ -33,8 +33,6 @@ from cmk.utils.rulesets.tuple_rulesets import in_extraconf_servicelist
 from cmk.utils.servicename import ServiceName
 from cmk.utils.tags import TagGroupID, TagID
 from cmk.utils.timeperiod import check_timeperiod, cleanup_timeperiod_caches, TimeperiodSpecs
-
-from cmk.events.event_context import EnrichedEventContext, EventContext
 
 ContactList = list  # TODO Improve this
 
@@ -289,6 +287,7 @@ def complete_raw_context(
     ensure_nagios: Callable[[str], object],
     with_dump: bool,
     contacts_needed: bool,
+    analyse: bool,
 ) -> EnrichedEventContext:
     """Extend the raw notification context
 
@@ -306,7 +305,8 @@ def complete_raw_context(
         return enriched_context
 
     try:
-        enriched_context["OMD_SITE"] = omd_site()
+        # "SITEOFHOST" is only set in case of test notifications
+        enriched_context["OMD_SITE"] = raw_context["SITEOFHOST"] if analyse else omd_site()  # type: ignore[typeddict-item]
 
         enriched_context["WHAT"] = "SERVICE" if enriched_context.get("SERVICEDESC") else "HOST"
 

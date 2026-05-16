@@ -5,14 +5,19 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import type * as FormSpec from 'cmk-shared-typing/typescript/vue_formspec_components'
-import { type ValidationMessages } from '@/form/components/utils/validation'
-import FormValidation from '@/form/components/FormValidation.vue'
-import CmkCheckbox from '@/components/CmkCheckbox.vue'
-import { watch, ref } from 'vue'
-import { immediateWatch } from '../../../lib/watch'
-import HelpText from '@/components/HelpText.vue'
-import { useFormEditDispatcher } from '@/form/private'
+import { ref, watch } from 'vue'
+
+import { untranslated } from '@/lib/i18n'
+
 import FormIndent from '@/components/CmkIndent.vue'
+import HelpText from '@/components/HelpText.vue'
+import CmkCheckbox from '@/components/user-input/CmkCheckbox.vue'
+import FormValidation from '@/components/user-input/CmkInlineValidation.vue'
+
+import { type ValidationMessages } from '@/form/components/utils/validation'
+import { useFormEditDispatcher } from '@/form/private'
+
+import { immediateWatch } from '../../../lib/watch'
 
 const props = defineProps<{
   spec: FormSpec.OptionalChoice
@@ -56,8 +61,8 @@ const { FormEditDispatcher } = useFormEditDispatcher()
 </script>
 
 <template>
-  <CmkCheckbox v-model="checkboxValue" :label="spec.i18n.label" />
-  <HelpText :help="spec.help" />
+  <CmkCheckbox v-model="checkboxValue" :label="untranslated(spec.i18n.label)" />
+  <HelpText :help="untranslated(spec.help)" />
   <FormIndent v-if="data !== null">
     <span v-if="spec.parameter_form.title" class="embedded_title">
       {{ spec.parameter_form.title }}
@@ -72,6 +77,7 @@ const { FormEditDispatcher } = useFormEditDispatcher()
 </template>
 
 <style scoped>
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
 span.embedded_title {
   margin-right: 3px;
 }

@@ -3,28 +3,24 @@
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
 
-
 import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import pytest
 
-from tests.testlib.common.repo import repo_path
-
-from tests.unit.mocks_and_helpers import FixPluginLegacy
-
-from cmk.utils import man_pages
-
-from cmk.checkengine.plugins import AgentBasedPlugins
-
 from cmk.agent_based.v2 import CheckPlugin
+from cmk.ccc.version import Edition
+from cmk.checkengine.plugins import AgentBasedPlugins
 from cmk.discover_plugins import discover_all_plugins, discover_families, PluginGroup
 from cmk.server_side_calls_backend import load_active_checks
+from cmk.utils import man_pages
+from tests.testlib.common.repo import repo_path
+from tests.unit.mocks_and_helpers import FixPluginLegacy
 
 _IF64_MAN_PAGE = man_pages.ManPage(
     name="if64",
-    path="/omd/sites/heute/lib/python3/cmk/plugins/collection/checkman/if64",
+    path=Path("/omd/sites/heute/lib/python3/cmk/plugins/collection/checkman/if64"),
     title="Monitor Network Interfaces via Standard MIB Using 64-Bit Counters",
     agents=["snmp"],
     catalog=["hw", "network", "generic"],
@@ -311,3 +307,24 @@ def test_man_page_agents(all_pages: Mapping[str, man_pages.ManPage]) -> None:
         if forbidden := set(page.agents) - set(_ALLOWED_AGENTS):
             man_page_uses_forbidden_agents.setdefault(name, forbidden)
     assert not man_page_uses_forbidden_agents
+
+
+def test_man_page_license(all_pages: Mapping[str, man_pages.ManPage]) -> None:
+    license_not_open_source = set()
+    license_not_enterprise = set()
+    non_free_editions_short = {edition.short for edition in Edition if edition is not Edition.CRE}
+
+    for page in all_pages.values():
+        if non_free_editions_short.intersection(page.path.relative_to(repo_path()).parts):
+            if page.license != "Checkmk Enterprise License":
+                license_not_enterprise.add(page.name)
+
+        elif page.license != "GPLv2":
+            license_not_open_source.add(page.name)
+
+    assert not license_not_open_source, (
+        "The following man pages should have 'GPLv2' as license but don't"
+    )
+    assert not license_not_enterprise, (
+        "The following man pages should have 'Checkmk Enterprise License' as license but don't"
+    )

@@ -4,20 +4,24 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { computed, useTemplateRef, nextTick, ref } from 'vue'
+import { computed, nextTick, ref, useTemplateRef } from 'vue'
+
+import type { TranslatedString } from '@/lib/i18nString'
 import useClickOutside from '@/lib/useClickOutside'
 import { immediateWatch } from '@/lib/watch'
-import FormRequired from '@/form/private/FormRequired.vue'
+
+import ArrowDown from '@/components/graphics/ArrowDown.vue'
+import CmkLabelRequired from '@/components/user-input/CmkLabelRequired.vue'
+
 import CmkDropdownButton from './CmkDropdownButton.vue'
 import CmkSuggestions from './CmkSuggestions.vue'
 import { type Suggestions } from './CmkSuggestions.vue'
-import ArrowDown from '@/components/graphics/ArrowDown.vue'
+import { ErrorResponse } from './suggestions'
 
 export interface DropdownOption {
   name: string
   title: string
 }
-import { ErrorResponse } from './suggestions'
 
 const {
   inputHint = '',
@@ -25,20 +29,20 @@ const {
   disabled = false,
   componentId = null,
   noElementsText = '',
-  requiredText = '',
+  required = false,
   startOfGroup = false,
   width,
   options,
   label
 } = defineProps<{
   options: Suggestions
-  inputHint?: string
-  noResultsHint?: string
+  inputHint?: TranslatedString
+  noResultsHint?: TranslatedString
   disabled?: boolean
   componentId?: string | null
-  noElementsText?: string
-  requiredText?: string
-  label: string
+  noElementsText?: TranslatedString
+  required?: boolean
+  label: TranslatedString
   startOfGroup?: boolean
   width?: 'wide' | 'default'
 }>()
@@ -146,7 +150,7 @@ const truncatedButtonLabel = computed(() =>
     class="cmk-dropdown"
   >
     <CmkDropdownButton
-      :id="componentId"
+      v-bind="componentId!! ? { id: componentId } : {}"
       ref="comboboxButtonRef"
       :aria-label="label"
       :aria-expanded="suggestionsShown"
@@ -154,16 +158,13 @@ const truncatedButtonLabel = computed(() =>
       :disabled="disabled"
       :multiple-choices-available="multipleChoicesAvailable"
       :value-is-selected="selectedOption !== null"
-      :open="suggestionsShown"
       :group="startOfGroup ? 'start' : 'no'"
       :width="width"
-      @click.prevent="showSuggestions"
+      @click="showSuggestions"
     >
       <span class="cmk-dropdown--text"
         >{{ truncatedButtonLabel
-        }}<template v-if="requiredText !== '' && selectedOption === null">
-          {{ ' ' }}<FormRequired :show="true" :space="'before'" :i18n-required="requiredText"
-        /></template>
+        }}<CmkLabelRequired :show="required && selectedOption === null" :space="'before'" />
         <template v-if="!buttonLabel">&nbsp;</template>
       </span>
       <ArrowDown
@@ -191,16 +192,19 @@ const truncatedButtonLabel = computed(() =>
 
   .cmk-dropdown--arrow {
     width: 0.7em;
+
     /* This replicates the dropdown in checkmk, which useses select2 which
        uses #888 as color by default. The color is not themed there, so we
        also don't theme it. */
     color: #888;
     margin: 0 3px 0 10px;
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.rotated {
       transform: rotate(180deg);
     }
 
+    /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
     &.disabled {
       opacity: 0.4;
     }

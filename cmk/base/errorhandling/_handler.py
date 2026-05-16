@@ -9,22 +9,17 @@ from typing import Final, Literal
 
 import cmk.ccc.debug
 from cmk.ccc.exceptions import (
-    MKAgentError,
-    MKFetcherError,
     MKGeneralException,
     MKIPAddressLookupError,
-    MKSNMPError,
     MKTimeout,
 )
 from cmk.ccc.hostaddress import HostName
-
-from cmk.utils.servicename import ServiceName
-
-from cmk.snmplib import SNMPBackendEnum
-
 from cmk.checkengine.checkresults import ActiveCheckResult
 from cmk.checkengine.exitspec import ExitSpec
 from cmk.checkengine.submitters import ServiceState
+from cmk.helper_interface import FetcherError
+from cmk.snmplib import SNMPBackendEnum
+from cmk.utils.servicename import ServiceName
 
 from ._crash import create_check_crash_dump
 
@@ -92,7 +87,7 @@ def _handle_failure(
             raise exc
         return exit_spec.get("timeout", 2), "Timed out"
 
-    if isinstance(exc, MKAgentError | MKFetcherError | MKSNMPError | MKIPAddressLookupError):
+    if isinstance(exc, FetcherError | MKIPAddressLookupError):
         return exit_spec.get("connection", 2), str(exc)
 
     if isinstance(exc, MKGeneralException):

@@ -5,14 +5,22 @@ conditions defined in the file COPYING, which is part of this source code packag
 -->
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/tooltip'
-import CmkIconButton from './CmkIconButton.vue'
-import CmkHtml from './CmkHtml.vue'
-import CmkScrollContainer from './CmkScrollContainer.vue'
+
+import type { TranslatedString } from '@/lib/i18nString'
 import { getUserFrontendConfig } from '@/lib/userConfig'
 
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/tooltip'
+
+import CmkHtml from './CmkHtml.vue'
+import CmkIconButton from './CmkIconButton.vue'
+import CmkScrollContainer from './CmkScrollContainer.vue'
+
+defineOptions({
+  inheritAttrs: false
+})
+
 const props = defineProps<{
-  help: string
+  help: TranslatedString
 }>()
 
 const open = ref(false)
@@ -47,7 +55,7 @@ const hideHelpIcon = getUserFrontendConfig()?.hide_contextual_help_icon ?? false
   <TooltipProvider v-if="!!props.help && !hideHelpIcon">
     <Tooltip :open="open" disable-closing-trigger>
       <TooltipTrigger
-        class="help-text__trigger"
+        class="cmk-help-text__trigger"
         as-child
         @click="(e: MouseEvent) => triggerHelp(e)"
       >
@@ -55,7 +63,7 @@ const hideHelpIcon = getUserFrontendConfig()?.hide_contextual_help_icon ?? false
           ref="triggerRef"
           :name="open ? 'icon_help_activated' : 'icon_info_circle'"
           size="medium"
-          class="help-text__icon"
+          class="cmk-help-text__icon"
           aria-label="?"
         />
       </TooltipTrigger>
@@ -63,12 +71,12 @@ const hideHelpIcon = getUserFrontendConfig()?.hide_contextual_help_icon ?? false
         side="top"
         align="start"
         as-child
-        class="help-text__popup"
+        class="cmk-help-text__popup"
         @pointer-down-outside="(e: Event) => checkClosing(e as MouseEvent)"
         @escape-key-down="closeHelp"
       >
         <CmkScrollContainer :max-height="'160px'">
-          <div class="help-text__content">
+          <div class="cmk-help-text__content">
             <CmkHtml :html="props.help" />
           </div>
         </CmkScrollContainer>
@@ -78,12 +86,7 @@ const hideHelpIcon = getUserFrontendConfig()?.hide_contextual_help_icon ?? false
 </template>
 
 <style scoped>
-body.inline_help_as_text .help-text__trigger,
-body.inline_help_as_text .help-text__icon {
-  display: none;
-}
-
-.help-text__trigger {
+.cmk-help-text__trigger {
   margin-bottom: -2px;
   border: none;
   background: none;
@@ -98,25 +101,26 @@ body.inline_help_as_text .help-text__icon {
   }
 }
 
-.help-text__popup {
-  z-index: 1000;
-}
-
-.help-text__content {
+.cmk-help-text__content {
   background-color: var(--default-tooltip-background-color);
   border-radius: var(--border-radius);
-
   min-width: 200px;
   max-width: 600px;
-
   color: var(--default-tooltip-text-color);
   box-shadow:
-    0 4px 6px rgba(0, 0, 0, 0.1),
-    0 2px 4px rgba(0, 0, 0, 0.06);
+    0 4px 6px rgb(0 0 0 / 10%),
+    0 2px 4px rgb(0 0 0 / 6%);
   padding: 16px;
 
+  /* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
   .text {
     line-height: 1.2;
   }
+}
+
+/* stylelint-disable-next-line checkmk/vue-bem-naming-convention */
+body.inline_help_as_text .cmk-help-text__trigger,
+body.inline_help_as_text .cmk-help-text__icon {
+  display: none;
 }
 </style>

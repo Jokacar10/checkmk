@@ -12,29 +12,34 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from livestatus import SiteConfiguration
+
+import cmk.utils.paths
 from cmk.ccc import store
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.plugin_registry import Registry
 from cmk.ccc.site import SiteId
-
-import cmk.utils.paths
-from cmk.utils.agent_registration import get_uuid_link_manager
+from cmk.gui import userdb
+from cmk.gui.background_job import BackgroundJob, BackgroundProcessInterface
+from cmk.gui.config import active_config, Config
+from cmk.gui.exceptions import MKAuthException
+from cmk.gui.http import Request, request
+from cmk.gui.i18n import _, _l
+from cmk.gui.logged_in import user
+from cmk.gui.type_defs import CustomUserAttrSpec
+from cmk.gui.userdb import get_user_attributes
+from cmk.gui.utils.urls import makeuri
+from cmk.gui.watolib.automations import (
+    LocalAutomationConfig,
+    make_automation_config,
+)
+from cmk.utils.agent_registration import UUIDLinkManager
 from cmk.utils.notify_types import EventRule
 from cmk.utils.object_diff import make_diff_text
 
-from cmk.gui import userdb
-from cmk.gui.background_job import BackgroundJob, BackgroundProcessInterface
-from cmk.gui.exceptions import MKAuthException
-from cmk.gui.http import request
-from cmk.gui.i18n import _, _l
-from cmk.gui.logged_in import user
-from cmk.gui.site_config import site_is_local
-from cmk.gui.utils.urls import makeuri
-
-from ..config import active_config
 from .audit_log import log_audit
 from .automation_commands import AutomationCommand
-from .automations import AnnotatedHostName, do_remote_automation, RemoteAutomationConfig
+from .automations import AnnotatedHostName, do_remote_automation
 from .changes import add_change
 from .check_mk_automations import rename_hosts
 from .hosts_and_folders import (
@@ -75,6 +80,8 @@ def perform_rename_hosts(
     renamings: Iterable[tuple[Folder, HostName, HostName]],
     job_interface: BackgroundProcessInterface,
     *,
+    custom_user_attributes: Sequence[CustomUserAttrSpec],
+    site_configs: Mapping[SiteId, SiteConfiguration],
     pprint_value: bool,
     use_git: bool,
     debug: bool,
@@ -95,7 +102,7 @@ def perform_rename_hosts(
         try:
             update_interface(_("Renaming host(s) in folders..."))
             setup_actions[renaming] = _rename_host_in_folder(
-                folder, oldname, newname, pprint_value=pprint_value
+                folder, oldname, newname, pprint_value=pprint_value, use_git=use_git
             )
         except MKAuthException as e:
             auth_problems.append((oldname, e))
@@ -111,11 +118,17 @@ def perform_rename_hosts(
             update_interface(_("Renaming host(s) in cluster nodes..."))
             this_host_actions.extend(
                 _rename_host_as_cluster_node(
-                    cluster_hosts, oldname, newname, pprint_value=pprint_value
+                    cluster_hosts,
+                    oldname,
+                    newname,
+                    pprint_value=pprint_value,
+                    use_git=use_git,
                 )
             )
             update_interface(_("Renaming host(s) in parents..."))
-            this_host_actions.extend(_rename_parents(oldname, newname, pprint_value=pprint_value))
+            this_host_actions.extend(
+                _rename_parents(oldname, newname, pprint_value=pprint_value, use_git=use_git)
+            )
             update_interface(_("Renaming host(s) in rule sets..."))
             this_host_actions.extend(
                 _rename_host_in_rulesets(
@@ -136,13 +149,17 @@ def perform_rename_hosts(
     update_interface(_("Renaming host(s) in base configuration, rrd, history files, etc."))
     update_interface(_("This might take some time and involves a core restart..."))
     renamings_by_site = group_renamings_by_site(successful_renamings)
-    action_counts = _rename_hosts_in_check_mk(renamings_by_site, use_git=use_git, debug=debug)
+    action_counts = _rename_hosts_in_check_mk(
+        renamings_by_site, site_configs=site_configs, use_git=use_git, debug=debug
+    )
 
     # 3. Notification settings ----------------------------------------------
     # Notification rules - both global and users' ones
     update_interface(_("Renaming host(s) in notification rules..."))
     for folder, oldname, newname in successful_renamings:
-        actions += _rename_host_in_event_rules(oldname, newname, pprint_value=pprint_value)
+        actions += _rename_host_in_event_rules(
+            oldname, newname, custom_user_attributes, pprint_value=pprint_value
+        )
         actions += _rename_host_in_multisite(oldname, newname)
 
     # 4. Trigger updates in decoupled (e.g. edition specific) features
@@ -152,7 +169,7 @@ def perform_rename_hosts(
 
     # 5. Update UUID links
     update_interface(_("Renaming host(s): Update UUID links..."))
-    actions += _rename_host_in_uuid_link_manager(renamings_by_site)
+    actions += _rename_host_in_uuid_link_manager(renamings_by_site, site_configs, debug=debug)
 
     for action in actions:
         action_counts.setdefault(action, 0)
@@ -165,13 +182,9 @@ def perform_rename_hosts(
 
 
 def _rename_host_in_folder(
-    folder: Folder,
-    oldname: HostName,
-    newname: HostName,
-    *,
-    pprint_value: bool,
+    folder: Folder, oldname: HostName, newname: HostName, *, pprint_value: bool, use_git: bool
 ) -> list[str]:
-    folder.rename_host(oldname, newname, pprint_value=pprint_value)
+    folder.rename_host(oldname, newname, pprint_value=pprint_value, use_git=use_git)
     folder_tree().invalidate_caches()
     return ["folder"]
 
@@ -182,10 +195,13 @@ def _rename_host_as_cluster_node(
     newname: HostName,
     *,
     pprint_value: bool,
+    use_git: bool,
 ) -> list[str]:
     renamed_cluster_nodes = 0
     for cluster_host in cluster_hosts:
-        if cluster_host.rename_cluster_node(oldname, newname, pprint_value=pprint_value):
+        if cluster_host.rename_cluster_node(
+            oldname, newname, pprint_value=pprint_value, use_git=use_git
+        ):
             renamed_cluster_nodes += 1
     return ["cluster_nodes"] * renamed_cluster_nodes
 
@@ -195,11 +211,12 @@ def _rename_parents(
     newname: HostName,
     *,
     pprint_value: bool,
+    use_git: bool,
 ) -> list[str]:
     parent_renamed: list[str]
     folder_parent_renamed: list[Folder]
     parent_renamed, folder_parent_renamed = _rename_host_in_parents(
-        oldname, newname, pprint_value=pprint_value
+        oldname, newname, pprint_value=pprint_value, use_git=use_git
     )
     # Needed because hosts.mk in folders with parent as effective attribute
     # would not be updated
@@ -214,6 +231,7 @@ def _rename_host_in_parents(
     newname: HostName,
     *,
     pprint_value: bool,
+    use_git: bool,
 ) -> tuple[list[str], list[Folder]]:
     folder_parent_renamed: list[Folder] = []
     parents, folder_parent_renamed = _rename_host_as_parent(
@@ -222,6 +240,7 @@ def _rename_host_in_parents(
         folder_parent_renamed,
         folder_tree().root_folder(),
         pprint_value=pprint_value,
+        use_git=use_git,
     )
     return ["parents"] * len(parents), folder_parent_renamed
 
@@ -281,6 +300,7 @@ def _rename_host_in_rulesets(
 def _rename_hosts_in_check_mk(
     renamings_by_site: Mapping[SiteId, Sequence[tuple[HostName, HostName]]],
     *,
+    site_configs: Mapping[SiteId, SiteConfiguration],
     use_git: bool,
     debug: bool,
 ) -> dict[str, int]:
@@ -303,7 +323,7 @@ def _rename_hosts_in_check_mk(
         )
 
         new_counts = rename_hosts(
-            site_id,
+            make_automation_config(site_configs[site_id]),
             name_pairs,
             debug=debug,
         ).action_counts
@@ -315,6 +335,7 @@ def _rename_hosts_in_check_mk(
 def _rename_host_in_event_rules(
     oldname: HostName,
     newname: HostName,
+    custom_user_attributes: Sequence[CustomUserAttrSpec],
     *,
     pprint_value: bool,
 ) -> list[str]:
@@ -334,7 +355,14 @@ def _rename_host_in_event_rules(
         NotificationRuleConfigFile().save(nrules, pprint_value)
 
     if some_user_changed:
-        userdb.save_users(users, datetime.now())
+        userdb.save_users(
+            users,
+            get_user_attributes(custom_user_attributes),
+            active_config.user_connections,
+            now=datetime.now(),
+            pprint_value=active_config.wato_pprint_config,
+            call_users_saved_hook=True,
+        )
 
     return actions
 
@@ -394,22 +422,28 @@ def _rename_host_as_parent(
     in_folder: Folder,
     *,
     pprint_value: bool,
+    use_git: bool,
 ) -> tuple[list[HostName | str], list[Folder]]:
     parents: list[HostName | str] = []
     for somehost in in_folder.hosts().values():
         if "parents" in somehost.attributes:
-            if somehost.rename_parent(oldname, newname, pprint_value=pprint_value):
+            if somehost.rename_parent(oldname, newname, pprint_value=pprint_value, use_git=use_git):
                 parents.append(somehost.name())
 
     if "parents" in in_folder.attributes:
-        if in_folder.rename_parent(oldname, newname, pprint_value=pprint_value):
+        if in_folder.rename_parent(oldname, newname, pprint_value=pprint_value, use_git=use_git):
             if in_folder not in folder_parent_renamed:
                 folder_parent_renamed.append(in_folder)
             parents.append(in_folder.name())
 
     for subfolder in in_folder.subfolders():
         subfolder_parents, folder_parent_renamed = _rename_host_as_parent(
-            oldname, newname, folder_parent_renamed, subfolder, pprint_value=pprint_value
+            oldname,
+            newname,
+            folder_parent_renamed,
+            subfolder,
+            pprint_value=pprint_value,
+            use_git=use_git,
         )
         parents += subfolder_parents
 
@@ -436,16 +470,27 @@ def group_renamings_by_site(
 
 def _rename_host_in_uuid_link_manager(
     renamings_by_site: Mapping[SiteId, Sequence[tuple[HostName, HostName]]],
+    site_configs: Mapping[SiteId, SiteConfiguration],
+    *,
+    debug: bool,
 ) -> list[str]:
     n_relinked = 0
     for site_id, renamings in renamings_by_site.items():
-        if site_is_local(active_config.sites[site_id], site_id):
-            n_relinked += len(get_uuid_link_manager().rename(renamings))
+        automation_config = make_automation_config(site_configs[site_id])
+        if isinstance(automation_config, LocalAutomationConfig):
+            n_relinked += len(
+                UUIDLinkManager(
+                    received_outputs_dir=cmk.utils.paths.received_outputs_dir,
+                    data_source_dir=cmk.utils.paths.data_source_push_agent_dir,
+                    r4r_discoverable_dir=cmk.utils.paths.r4r_discoverable_dir,
+                    uuid_lookup_dir=cmk.utils.paths.uuid_lookup_dir,
+                ).rename(renamings)
+            )
         else:
             n_relinked += int(
                 str(
                     do_remote_automation(
-                        RemoteAutomationConfig.from_site_config(active_config.sites[site_id]),
+                        automation_config,
                         "rename-hosts-uuid-link",
                         [
                             (
@@ -453,7 +498,7 @@ def _rename_host_in_uuid_link_manager(
                                 json.dumps(renamings),
                             )
                         ],
-                        debug=active_config.debug,
+                        debug=debug,
                     )
                 )
             )
@@ -469,9 +514,16 @@ class AutomationRenameHostsUUIDLink(AutomationCommand[_RenameHostsUUIDLinkReques
         return "rename-hosts-uuid-link"
 
     def execute(self, api_request: _RenameHostsUUIDLinkRequest) -> int:
-        return len(get_uuid_link_manager().rename(api_request.renamings))
+        return len(
+            UUIDLinkManager(
+                received_outputs_dir=cmk.utils.paths.received_outputs_dir,
+                data_source_dir=cmk.utils.paths.data_source_push_agent_dir,
+                r4r_discoverable_dir=cmk.utils.paths.r4r_discoverable_dir,
+                uuid_lookup_dir=cmk.utils.paths.uuid_lookup_dir,
+            ).rename(api_request.renamings)
+        )
 
-    def get_request(self) -> _RenameHostsUUIDLinkRequest:
+    def get_request(self, config: Config, request: Request) -> _RenameHostsUUIDLinkRequest:
         return _RenameHostsUUIDLinkRequest(renamings=json.loads(request.get_request()["renamings"]))
 
 

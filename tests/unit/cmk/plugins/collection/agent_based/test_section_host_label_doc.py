@@ -14,24 +14,28 @@ from collections.abc import Iterable, Sequence
 from typing import Final
 
 import cmk.ccc.version as cmk_version
-
-from cmk.utils import paths
-from cmk.utils.sectionname import SectionName
-
 from cmk.checkengine.plugins import (
     AgentBasedPlugins,
     AgentSectionPlugin,
+    SectionName,
     SNMPSectionPlugin,
 )
+from cmk.utils import paths
 
 CRE_DOCUMENTED_BUILTIN_HOST_LABELS: Final = {
     "cmk/azure/resource_group",
+    "cmk/azure/subscription_id",
+    "cmk/azure/subscription_name",
     "cmk/azure/tag/{key}:{value}",
+    "cmk/azure/entity:resource_group",
+    "cmk/azure/entity:<entity_type>",
+    "cmk/azure/entity:subscription",
     "cmk/azure/vm:instance",
     "cmk/aws/tag/{key}:{value}",
     "cmk/check_mk_server",
     "cmk/ceph/osd",
     "cmk/ceph/mon",
+    "cmk/device_model",
     "cmk/device_type",
     "cmk/docker_image",
     "cmk/docker_image_name",

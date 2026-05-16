@@ -4,8 +4,8 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { type HTMLAttributes, computed } from 'vue'
 import { TooltipContent, TooltipPortal, useForwardPropsEmits } from 'radix-vue'
+import { type HTMLAttributes, computed } from 'vue'
 
 defineOptions({
   inheritAttrs: false
@@ -24,6 +24,7 @@ interface TooltipContentProps {
   side?: 'right' | 'left' | 'top' | 'bottom'
   align?: 'center' | 'end' | 'start'
   class?: string
+  avoidCollisions?: boolean
 }
 
 const props = withDefaults(
@@ -48,7 +49,10 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits)
 
 <template>
   <TooltipPortal>
-    <TooltipContent v-bind="{ ...forwarded, ...$attrs }" :class="props.class">
+    <TooltipContent
+      v-bind="{ ...forwarded, avoidCollisions: avoidCollisions!! }"
+      :class="props.class"
+    >
       <slot />
     </TooltipContent>
   </TooltipPortal>

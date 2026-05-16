@@ -4,14 +4,14 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 -->
 <script setup lang="ts">
-import { computed, provide, onMounted } from 'vue'
+import { computed, onMounted, provide } from 'vue'
 
-import QuickSetupStage from './QuickSetupStage.vue'
 import QuickSetupSaveStage from './QuickSetupSaveStage.vue'
+import QuickSetupStage from './QuickSetupStage.vue'
 import type { QuickSetupProps } from './quick_setup_types'
-
-import { getWidget } from './widgets/utils'
 import { quickSetupGetWidgetKey } from './utils'
+import { getWidget } from './widgets/utils'
+
 provide(quickSetupGetWidgetKey, getWidget)
 
 const props = defineProps<QuickSetupProps>()
@@ -32,7 +32,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <ol class="quick-setup">
+  <ol class="qs__quick-setup">
     <QuickSetupStage
       v-for="(stg, index) in regularStages"
       :key="index"
@@ -66,7 +66,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.quick-setup {
+.qs__quick-setup {
   margin: 8px 0 0;
   padding-left: 0;
   counter-reset: stage-index;

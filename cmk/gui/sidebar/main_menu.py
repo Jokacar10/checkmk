@@ -4,38 +4,34 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 """Main menu processing
 
-Cares about the main navigation of our GUI. This is a) the small sidebar and b) the mega menu
+Cares about the main navigation of our GUI. This is a) the small sidebar and b) the main menu
 """
 
+from dataclasses import asdict
 from typing import NamedTuple, TypedDict
 
 from cmk.ccc.exceptions import MKGeneralException
-
 from cmk.gui import message
-from cmk.gui.config import active_config
+from cmk.gui.config import Config
 from cmk.gui.exceptions import MKAuthException
 from cmk.gui.htmllib.generator import HTMLWriter
 from cmk.gui.htmllib.html import html
 from cmk.gui.http import request, response
 from cmk.gui.i18n import _, ungettext
 from cmk.gui.logged_in import user
-from cmk.gui.main_menu import any_show_more_items, mega_menu_registry
+from cmk.gui.main_menu import any_show_more_items, main_menu_registry
 from cmk.gui.pages import AjaxPage, PageResult
 from cmk.gui.theme.current_theme import theme
-from cmk.gui.type_defs import (
-    Icon,
-    MegaMenu,
-    TopicMenuItem,
-    TopicMenuTopic,
-    TopicMenuTopicSegment,
-)
+from cmk.gui.type_defs import Icon, MainMenu, MainMenuItem, MainMenuTopic, MainMenuTopicSegment
 from cmk.gui.utils.html import HTML
 from cmk.gui.utils.output_funnel import output_funnel
 from cmk.gui.utils.popups import MethodInline
+from cmk.gui.watolib.activate_changes import ActivateChanges
 from cmk.gui.werks import may_acknowledge, num_unacknowledged_incompatible_werks
+from cmk.shared_typing.unified_search import UnifiedSearchConfig
 
 
-class MainMenuItem(NamedTuple):
+class MainMenuPopupTrigger(NamedTuple):
     name: str
     title: str
     icon: Icon
@@ -47,28 +43,55 @@ class MainMenuRenderer:
 
     def show(self) -> None:
         html.open_ul(id_="main_menu")
+        self._modify_unified_search_config()
         self._show_main_menu_content()
         html.close_ul()
 
+    def _modify_unified_search_config(
+        self,
+    ) -> None:
+        if search_item := main_menu_registry.get("search"):
+            if search_item.vue_app and isinstance(search_item.vue_app.data, UnifiedSearchConfig):
+                if mon_item := main_menu_registry.get("monitoring"):
+                    search_item.vue_app.data.providers.monitoring.active = bool(
+                        mon_item.topics and mon_item.topics()
+                    )
+                    search_item.vue_app.data.providers.setup.sort = mon_item.sort_index
+
+                if customize_item := main_menu_registry.get("customize"):
+                    search_item.vue_app.data.providers.customize.active = bool(
+                        customize_item.topics and customize_item.topics()
+                    )
+                    search_item.vue_app.data.providers.customize.sort = customize_item.sort_index
+
+                if search_item.vue_app.data.providers.setup.active:
+                    if setup_item := main_menu_registry.get("setup"):
+                        search_item.vue_app.data.providers.setup.active = bool(
+                            setup_item.topics and setup_item.topics()
+                        )
+                        search_item.vue_app.data.providers.setup.sort = setup_item.sort_index
+
+                search_item.vue_app.data = asdict(search_item.vue_app.data)
+
     def _show_main_menu_content(self) -> None:
-        for menu_item in self._get_main_menu_items():
-            if isinstance(menu_item.icon, dict):
+        for popup_trigger in self._get_main_menu_popup_triggers():
+            if isinstance(popup_trigger.icon, dict):
                 active_icon: Icon = {
-                    "icon": menu_item.icon["icon"] + "_active",
-                    "emblem": menu_item.icon["emblem"],
+                    "icon": popup_trigger.icon["icon"] + "_active",
+                    "emblem": popup_trigger.icon["emblem"],
                 }
             else:
-                active_icon = menu_item.icon + "_active"
+                active_icon = popup_trigger.icon + "_active"
 
             html.open_li()
             html.popup_trigger(
-                (self._get_popup_trigger_content(active_icon, menu_item)),
-                ident="mega_menu_" + menu_item.name,
-                method=MethodInline(self._get_mega_menu_content(menu_item)),
-                cssclass=[menu_item.name],
+                (self._get_popup_trigger_content(active_icon, popup_trigger)),
+                ident="main_menu_" + popup_trigger.name,
+                method=MethodInline(self._get_main_menu_content(popup_trigger)),
+                cssclass=[popup_trigger.name],
                 popup_group="popup_menu_handler",
                 hover_switch_delay=150,  # ms
-                onopen=menu_item.onopen,
+                onopen=popup_trigger.onopen,
             )
             html.div(
                 "",
@@ -78,19 +101,21 @@ class MainMenuRenderer:
             )
             html.close_li()
 
-    def _get_popup_trigger_content(self, active_icon: Icon, menu_item: MainMenuItem) -> HTML:
-        content = html.render_icon(menu_item.icon) + html.render_icon(
+    def _get_popup_trigger_content(
+        self, active_icon: Icon, popup_trigger: MainMenuPopupTrigger
+    ) -> HTML:
+        content = html.render_icon(popup_trigger.icon) + html.render_icon(
             active_icon, class_=["active"]
         )
 
         if not user.get_attribute("nav_hide_icons_title"):
-            content += HTMLWriter.render_div(menu_item.title)
+            content += HTMLWriter.render_div(popup_trigger.title)
 
         return content
 
-    def _get_main_menu_items(self) -> list[MainMenuItem]:
-        items: list[MainMenuItem] = []
-        for menu in sorted(mega_menu_registry.values(), key=lambda g: g.sort_index):
+    def _get_main_menu_popup_triggers(self) -> list[MainMenuPopupTrigger]:
+        items: list[MainMenuPopupTrigger] = []
+        for menu in sorted(main_menu_registry.values(), key=lambda g: g.sort_index):
             if menu.topics and not menu.topics():
                 continue  # Hide e.g. Setup menu when user is not permitted to see a single topic
 
@@ -103,7 +128,7 @@ class MainMenuRenderer:
                 else None
             )
             items.append(
-                MainMenuItem(
+                MainMenuPopupTrigger(
                     name=menu.name,
                     title=str(menu.title),
                     icon=menu.icon,
@@ -112,13 +137,12 @@ class MainMenuRenderer:
             )
         return items
 
-    def _get_mega_menu_content(self, menu_item: MainMenuItem) -> str:
+    def _get_main_menu_content(self, popup_trigger: MainMenuPopupTrigger) -> str:
         with output_funnel.plugged():
-            menu = mega_menu_registry[menu_item.name]
+            menu = main_menu_registry[popup_trigger.name]
             classes = []
-            onclick = ""
             if menu.vue_app:
-                onclick = "cmk.popup_menu.close_popup()"
+                classes.append("fullscreen-popup")
             else:
                 classes.append("popup_menu")
 
@@ -126,30 +150,47 @@ class MainMenuRenderer:
                 classes.append("min")
 
             html.open_div(
-                id_="popup_menu_%s" % menu_item.name,
-                onclick=onclick,
+                id_="popup_menu_%s" % popup_trigger.name,
                 class_=[
                     "popup_menu_handler",
                 ]
                 + classes,
             )
             if menu.vue_app:
-                html.vue_component(component_name=menu.vue_app.name, data=menu.vue_app.data)
+                html.vue_component(
+                    component_name=menu.vue_app.name,
+                    data=asdict(menu.vue_app.data(request)),
+                )
             else:
-                MegaMenuRenderer().show(menu)
+                MainMenuPopupRenderer().show(menu)
             html.close_div()
             return output_funnel.drain()
 
 
-def ajax_message_read():
+def ajax_message_read(config: Config) -> None:
     response.set_content_type("application/json")
     try:
         message.delete_gui_message(request.get_str_input_mandatory("id"))
         html.write_text_permissive("OK")
     except Exception:
-        if active_config.debug:
+        if config.debug:
             raise
         html.write_text_permissive("ERROR")
+
+
+class PageAjaxSidebarChangesMenu(AjaxPage):
+    def page(self, config: Config) -> PageResult:
+        return {
+            "number_of_pending_changes": ActivateChanges.get_number_of_pending_changes(
+                sites=list(config.sites),
+                count_limit=10,
+            )
+        }
+
+
+class PageAjaxSitesAndChanges(AjaxPage):
+    def page(self, config: Config) -> PageResult:
+        return ActivateChanges().get_all_data_required_for_activation_popout(config.sites)
 
 
 class PopUpMessage(TypedDict):
@@ -158,7 +199,7 @@ class PopUpMessage(TypedDict):
 
 
 class PageAjaxSidebarGetMessages(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         popup_msg: list[PopUpMessage] = []
         hint_msg: int = 0
 
@@ -179,7 +220,7 @@ class PageAjaxSidebarGetMessages(AjaxPage):
 
 
 class PageAjaxSidebarGetUnackIncompWerks(AjaxPage):
-    def page(self) -> PageResult:
+    def page(self, config: Config) -> PageResult:
         if not may_acknowledge():
             raise MKAuthException(_("You are not allowed to acknowlegde werks"))
 
@@ -200,20 +241,22 @@ class PageAjaxSidebarGetUnackIncompWerks(AjaxPage):
         }
 
 
-class MegaMenuRenderer:
-    """Renders the content of the mega menu popups"""
+class MainMenuPopupRenderer:
+    """Renders the content of the main menu popups"""
 
-    def show(self, menu: MegaMenu) -> None:
+    def show(self, menu: MainMenu) -> None:
         more_id = "main_menu_" + menu.name
 
         show_more = user.get_show_more_setting(more_id)
         html.open_div(id_=more_id, class_=["main_menu", "more" if show_more else "less"])
-        hide_entries_js = "cmk.popup_menu.mega_menu_hide_entries('%s')" % more_id
+        hide_entries_js = "cmk.popup_menu.main_menu_hide_entries('%s')" % more_id
 
         html.open_div(class_="navigation_bar")
         html.open_div(class_="search_bar")
         if menu.search:
             menu.search.show_search_field()
+        if menu.hint:
+            html.span(menu.hint, class_="main_menu_hint")
         html.close_div()
         if menu.info_line:
             html.span(menu.info_line(), id_="info_line_%s" % menu.name, class_="info_line")
@@ -237,7 +280,7 @@ class MegaMenuRenderer:
         html.close_div()
         html.close_div()
         html.javascript(hide_entries_js)
-        html.javascript("cmk.popup_menu.initialize_mega_menus();")
+        html.javascript("cmk.popup_menu.initialize_main_menus();")
         html.open_div(class_="content inner", id="content_inner_%s_search" % menu.name)
         html.close_div()
 
@@ -252,14 +295,12 @@ class MegaMenuRenderer:
 
     def _show_topic(
         self,
-        topic: TopicMenuTopic | TopicMenuTopicSegment,
+        topic: MainMenuTopic | MainMenuTopicSegment,
         menu_id: str,
     ) -> None:
         show_more = all(i.is_show_more for i in topic.entries)
         topic_id = self._get_topic_id(menu_id, topic.title)
-        is_multilevel: bool = (
-            isinstance(topic, TopicMenuTopicSegment) and topic.mode == "multilevel"
-        )
+        is_multilevel: bool = isinstance(topic, MainMenuTopicSegment) and topic.mode == "multilevel"
 
         html.open_div(
             id_=topic_id,
@@ -270,7 +311,7 @@ class MegaMenuRenderer:
         )
 
         self._show_topic_title(menu_id, topic_id, topic)
-        multilevel_topics: list[TopicMenuTopicSegment] = self._show_items(menu_id, topic_id, topic)
+        multilevel_topics: list[MainMenuTopicSegment] = self._show_items(menu_id, topic_id, topic)
         html.close_div()
 
         for multilevel_topic in multilevel_topics:
@@ -280,19 +321,19 @@ class MegaMenuRenderer:
         self,
         menu_id: str,
         topic_id: str,
-        topic: TopicMenuTopic | TopicMenuTopicSegment,
+        topic: MainMenuTopic | MainMenuTopicSegment,
     ) -> None:
         html.open_h2()
         html.open_a(
             class_="collapse_topic",
             href=None,
-            onclick="cmk.popup_menu.mega_menu_collapse_topic('%s')" % topic_id,
+            onclick="cmk.popup_menu.main_menu_collapse_topic('%s')" % topic_id,
         )
         html.icon(
             icon="collapse_arrow",
             title=(
                 _("Show all %s topics") % menu_id
-                if isinstance(topic, TopicMenuTopic)
+                if isinstance(topic, MainMenuTopic)
                 else _("Close topic segment %s") % topic.title
             ),
         )
@@ -303,12 +344,12 @@ class MegaMenuRenderer:
         html.close_h2()
 
     def _show_items(
-        self, menu_id: str, topic_id: str, topic: TopicMenuTopic | TopicMenuTopicSegment
-    ) -> list[TopicMenuTopicSegment]:
+        self, menu_id: str, topic_id: str, topic: MainMenuTopic | MainMenuTopicSegment
+    ) -> list[MainMenuTopicSegment]:
         html.open_ul()
-        multilevel_topics: list[TopicMenuTopicSegment] = []
+        multilevel_topics: list[MainMenuTopicSegment] = []
         for entry in sorted(topic.entries, key=lambda g: g.sort_index):
-            if isinstance(entry, TopicMenuTopicSegment):
+            if isinstance(entry, MainMenuTopicSegment):
                 if entry.mode == "multilevel":
                     self._show_multilevel_item(entry, menu_id)
                     multilevel_topics.append(entry)
@@ -323,7 +364,7 @@ class MegaMenuRenderer:
         html.open_li(class_="show_all_items")
         html.open_a(
             href=None,
-            onclick="cmk.popup_menu.mega_menu_show_all_items('%s')" % topic_id,
+            onclick="cmk.popup_menu.main_menu_show_all_items('%s')" % topic_id,
         )
         if user.get_attribute("icons_per_item"):
             html.icon("trans")
@@ -334,12 +375,15 @@ class MegaMenuRenderer:
 
         return multilevel_topics
 
-    def _show_multilevel_item(self, multilevel_topic: TopicMenuTopicSegment, menu_id: str) -> None:
+    def _show_multilevel_item(self, multilevel_topic: MainMenuTopicSegment, menu_id: str) -> None:
         multilevel_topic_id = self._get_topic_id(menu_id, multilevel_topic.title)
         html.open_li(class_="multilevel_item")
         html.open_a(
             href="javascript:void(0);",
-            onclick="cmk.popup_menu.mega_menu_show_all_items('%s')" % multilevel_topic_id,
+            onclick="""
+cmk.popup_menu.main_menu_show_all_items('%s');
+oncontextmenu = e => e.preventDefault();"""
+            % multilevel_topic_id,
             title=_("Show entries for %s") % multilevel_topic.title,
         )
         if user.get_attribute("icons_per_item"):
@@ -353,7 +397,7 @@ class MegaMenuRenderer:
         html.close_a()
         html.close_li()
 
-    def _show_indented_topic_segment(self, topic_segment: TopicMenuTopicSegment) -> None:
+    def _show_indented_topic_segment(self, topic_segment: MainMenuTopicSegment) -> None:
         html.open_ul(
             class_="indented_topic_segment"
             + (" show_more_mode" if topic_segment.is_show_more else "")
@@ -361,11 +405,11 @@ class MegaMenuRenderer:
         html.span(topic_segment.title)
         for item in sorted(topic_segment.entries, key=lambda g: g.sort_index):
             # We only allow for one level of indentation so far
-            assert isinstance(item, TopicMenuItem)
+            assert isinstance(item, MainMenuItem)
             self._show_item(item)
         html.close_ul()
 
-    def _show_item(self, item: TopicMenuItem) -> None:
+    def _show_item(self, item: MainMenuItem) -> None:
         html.open_li(class_="show_more_mode" if item.is_show_more else None)
         html.open_a(
             href=item.url,
@@ -378,9 +422,9 @@ class MegaMenuRenderer:
         html.close_a()
         html.close_li()
 
-    def _show_item_title(self, item: TopicMenuItem | TopicMenuTopicSegment) -> None:
+    def _show_item_title(self, item: MainMenuItem | MainMenuTopicSegment) -> None:
         item_title: HTML | str = item.title
-        if isinstance(item, TopicMenuTopicSegment) or not item.button_title:
+        if isinstance(item, MainMenuTopicSegment) or not item.button_title:
             html.write_text_permissive(item_title)
             return
         html.span(item.title)

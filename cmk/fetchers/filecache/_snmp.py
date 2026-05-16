@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import ast
 
-from cmk.utils.sectionname import SectionName
-
-from cmk.snmplib import SNMPRawData
+from cmk.snmplib import SNMPRawData, SNMPSectionMarker
 
 from ._cache import FileCache
 
@@ -19,7 +17,9 @@ __all__ = ["SNMPFileCache"]
 class SNMPFileCache(FileCache[SNMPRawData]):
     @staticmethod
     def _from_cache_file(raw_data: bytes) -> SNMPRawData:
-        return {SectionName(k): v for k, v in ast.literal_eval(raw_data.decode("utf-8")).items()}
+        return {
+            SNMPSectionMarker(k): v for k, v in ast.literal_eval(raw_data.decode("utf-8")).items()
+        }
 
     @staticmethod
     def _to_cache_file(raw_data: SNMPRawData) -> bytes:

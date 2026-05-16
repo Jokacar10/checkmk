@@ -9,7 +9,7 @@ REST-API.
 """
 
 from cmk.ccc.version import Edition
-
+from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
 from cmk.gui.graphing._from_api import graphs_from_api, metrics_from_api
 from cmk.gui.graphing._graph_images import graph_spec_from_request
@@ -22,6 +22,8 @@ from cmk.gui.openapi.endpoints.metric.common import (
 from cmk.gui.openapi.restful_objects import constructors, Endpoint
 from cmk.gui.openapi.restful_objects.registry import EndpointRegistry
 from cmk.gui.openapi.utils import problem, serve_json
+from cmk.gui.permissions import permission_registry
+from cmk.gui.utils.roles import UserPermissions
 
 
 # This is the only endpoint that is available in the raw edition
@@ -57,6 +59,7 @@ def get_graph(params):
             },
             metrics_from_api,
             graphs_from_api,
+            UserPermissions.from_config(active_config, permission_registry),
         )
 
     except MKUserError as e:
@@ -71,5 +74,5 @@ def get_graph(params):
     return serve_json(response)
 
 
-def register(endpoint_registry: EndpointRegistry) -> None:
-    endpoint_registry.register(get_graph)
+def register(endpoint_registry: EndpointRegistry, *, ignore_duplicates: bool) -> None:
+    endpoint_registry.register(get_graph, ignore_duplicates=ignore_duplicates)

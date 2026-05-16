@@ -2,12 +2,14 @@
 # Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
 # This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 # conditions defined in the file COPYING, which is part of this source code package.
+import dataclasses
 
 from cmk.gui.breadcrumb import Breadcrumb, BreadcrumbItem, make_topic_breadcrumb
 from cmk.gui.http import request
-from cmk.gui.main_menu import mega_menu_registry
+from cmk.gui.main_menu import main_menu_registry
 from cmk.gui.pagetypes import PagetypeTopics
 from cmk.gui.type_defs import HTTPVariables, VisualContext
+from cmk.gui.utils.roles import UserPermissions
 from cmk.gui.utils.urls import makeuri, makeuri_contextless
 
 from .type_defs import DashboardConfig
@@ -15,13 +17,31 @@ from .type_defs import DashboardConfig
 __all__ = ["dashboard_breadcrumb"]
 
 
-def dashboard_breadcrumb(
-    name: str, board: DashboardConfig, title: str, context: VisualContext
-) -> Breadcrumb:
-    breadcrumb = make_topic_breadcrumb(
-        mega_menu_registry.menu_monitoring(),
-        PagetypeTopics.get_topic(board["topic"]).title(),
+@dataclasses.dataclass
+class EvaluatedBreadcrumbItem:
+    title: str
+    link: str | None
+
+    @classmethod
+    def from_breadcrumb_item(cls, item: BreadcrumbItem) -> "EvaluatedBreadcrumbItem":
+        return cls(title=str(item.title), link=item.url)
+
+
+def dashboard_topic_breadcrumb(topic: str, user_permissions: UserPermissions) -> Breadcrumb:
+    return make_topic_breadcrumb(
+        main_menu_registry.menu_monitoring(),
+        PagetypeTopics.get_topic(topic, user_permissions).title(),
     )
+
+
+def dashboard_breadcrumb(
+    name: str,
+    board: DashboardConfig,
+    title: str,
+    context: VisualContext,
+    user_permissions: UserPermissions,
+) -> Breadcrumb:
+    breadcrumb = dashboard_topic_breadcrumb(board["topic"], user_permissions)
 
     if "kubernetes" in name:
         return kubernetes_dashboard_breadcrumb(name, board, title, breadcrumb, context)

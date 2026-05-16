@@ -11,9 +11,10 @@ from collections.abc import Callable, Collection, Generator, Iterator
 
 import cmk.utils.paths
 import cmk.utils.render
-
+from cmk.discover_plugins import AGENT_PLUGINS_FOLDER, discover_families
 from cmk.gui import forms
 from cmk.gui.breadcrumb import Breadcrumb
+from cmk.gui.config import Config
 from cmk.gui.htmllib.html import html
 from cmk.gui.i18n import _
 from cmk.gui.page_menu import (
@@ -55,7 +56,7 @@ class ABCModeDownloadAgents(WatoMode):
     def static_permissions() -> Collection[PermissionName]:
         return ["download_agents"]
 
-    def page_menu(self, breadcrumb: Breadcrumb) -> PageMenu:
+    def page_menu(self, config: Config, breadcrumb: Breadcrumb) -> PageMenu:
         return PageMenu(
             dropdowns=[
                 PageMenuDropdown(
@@ -115,7 +116,7 @@ class ABCModeDownloadAgents(WatoMode):
             "/windows/plugins/.gitattributes",
         }
 
-    def page(self) -> None:
+    def page(self, config: Config) -> None:
         html.open_div(class_="rulesets")
 
         if packed := self._packed_agents():
@@ -194,7 +195,21 @@ class ModeDownloadAgentsOther(ABCModeDownloadAgents):
         return []
 
     def _walk_base_dirs(self) -> list[str]:
-        return [str(cmk.utils.paths.agents_dir)]
+        return [
+            str(cmk.utils.paths.agents_dir),
+            # With cmk.bakery.v2, agent plugin files are grouped according to their plugin family.
+            # This does not play nicely with the structure of this page.
+            # We just include all of those files here for now (discarding the information about their family).
+            # It would be nice to support some sort of meta data file per family, providing maybe
+            # * general information
+            # * a (allow/deny) list of the files that should be exposed for download
+            # * description / title for those.
+            *(
+                os.path.join(family_path, AGENT_PLUGINS_FOLDER)
+                for _family, family_paths in sorted(discover_families(raise_errors=False).items())
+                for family_path in family_paths
+            ),
+        ]
 
     def _exclude_file_glob_patterns(self):
         return [

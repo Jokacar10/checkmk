@@ -5,15 +5,16 @@
 
 
 from os import path
-from typing import Any, Literal
+from typing import Any, Literal, override
 
 from marshmallow import validate, ValidationError
 
-from cmk.utils.tags import BuiltinTagConfig, TagGroupID, TagID
-
+from cmk import fields
+from cmk.crypto import certificate, keys
+from cmk.fields import validators
 from cmk.gui.config import active_config
+from cmk.gui.ldap.ldap_connector import LDAPUserConnector
 from cmk.gui.userdb import connection_choices, get_saml_connections
-from cmk.gui.userdb.ldap_connector import LDAPUserConnector
 from cmk.gui.watolib.config_domains import ConfigDomainCore
 from cmk.gui.watolib.groups_io import load_contact_group_information
 from cmk.gui.watolib.password_store import PasswordStore
@@ -23,10 +24,7 @@ from cmk.gui.watolib.tags import (
     tag_group_exists,
 )
 from cmk.gui.watolib.timeperiods import verify_timeperiod_name_exists
-
-from cmk import fields
-from cmk.crypto import certificate, keys
-from cmk.fields import validators
+from cmk.utils.tags import BuiltinTagConfig, TagGroupID, TagID
 
 
 class RelativeUrl(fields.String):
@@ -80,6 +78,7 @@ class RelativeUrl(fields.String):
             )
             self.validators.insert(0, validator)
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -113,6 +112,7 @@ class Timeout(fields.Float):
         self.minimum = minimum
         self.maximum = maximum
 
+    @override
     def _validate(self, value: float) -> None:
         super()._validate(value)
 
@@ -142,6 +142,7 @@ class UnixPath(fields.String):
         super().__init__(required=required, description=description, **kwargs)
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -183,6 +184,7 @@ class LDAPConnectionSuffix(fields.String):
         super().__init__(required=required, description=description, **kwargs)
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -211,6 +213,7 @@ class LDAPConnectionID(fields.String):
         super().__init__(required=required, description=description, **kwargs)
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -242,6 +245,7 @@ class SAMLConnectionID(fields.String):
         super().__init__(required=required, description=description, minLength=minLength, **kwargs)
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -266,6 +270,7 @@ class CertPublicKey(fields.String):
     ) -> None:
         super().__init__(description=description, **kwargs)
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -288,6 +293,7 @@ class CertPrivateKey(fields.String):
     ) -> None:
         super().__init__(description=description, **kwargs)
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -331,7 +337,8 @@ class AuxTagIDField(fields.String):
         )
         self.presence = presence
 
-    def _validate(self, value):
+    @override
+    def _validate(self, value: str) -> None:
         super()._validate(value)
         tag_id = TagID(value)
 
@@ -382,6 +389,7 @@ class ContactGroupField(fields.String):
         )
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
         cgs = list(load_contact_group_information())  # list of contact group ids
@@ -418,6 +426,7 @@ class TimePeriodIDField(fields.String):
         )
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -447,6 +456,7 @@ class SplunkURLField(fields.URL):
             **kwargs,
         )
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -476,6 +486,7 @@ class IPField(fields.String):
         self.ip_type_allowed = ip_type_allowed
         self.validation_results: list[ValidationError] = []
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 
@@ -536,6 +547,7 @@ class PasswordStoreIDField(fields.String):
         )
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
         pw_ids = load_passwords_for_validation()
@@ -566,7 +578,8 @@ class ServiceLevelField(fields.Integer):
         super().__init__(required=required, example=example, description=description, **kwargs)
         self.presence = presence
 
-    def _validate(self, value):
+    @override
+    def _validate(self, value: int) -> None:
         super()._validate(value)
 
         choices = [int_val for int_val, _str_val in active_config.mkeventd_service_levels]
@@ -604,13 +617,19 @@ class TagGroupIDField(fields.String):
         super().__init__(description=description, example=example, **kwargs)
         self.presence = presence
 
-    def _validate(self, value):
+    @override
+    def _validate(self, value: str) -> None:
         super()._validate(value)
+        tag_group_id = TagGroupID(value)
 
-        if self.presence == "should_exist" and not tag_group_exists(value, builtin_included=True):
+        if self.presence == "should_exist" and not tag_group_exists(
+            tag_group_id, builtin_included=True
+        ):
             raise self.make_error("should_exist", name=value)
 
-        if self.presence == "should_not_exist" and tag_group_exists(value, builtin_included=True):
+        if self.presence == "should_not_exist" and tag_group_exists(
+            tag_group_id, builtin_included=True
+        ):
             raise self.make_error("should_exist", name=value)
 
 
@@ -641,6 +660,7 @@ class GlobalHTTPProxyField(fields.String):
         )
         self.presence = presence
 
+    @override
     def _validate(self, value: str) -> None:
         super()._validate(value)
 

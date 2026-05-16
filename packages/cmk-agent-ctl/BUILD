@@ -7,7 +7,7 @@ file_from_flag(
     name = "version.rs",
     out = "src/version.rs",
     content = ['pub const VERSION: &str = "{VERSION}";'],
-    replace_labels = {"VERSION": "//bazel/cmk/version"},
+    replace_labels = {"VERSION": "@cmk//version"},
     visibility = ["//visibility:private"],
 )
 
@@ -134,7 +134,7 @@ rust_binary(
 platform_transition_binary(
     name = "cmk-agent-ctl-musl",
     binary = ":cmk-agent-ctl",
-    platform = "//bazel/platforms:x86_64-unknown-linux-musl",
+    platform = "//bazel/platforms:x86_64-linux-musl",
     visibility = ["//visibility:public"],
 )
 

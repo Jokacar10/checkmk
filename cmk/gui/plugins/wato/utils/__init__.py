@@ -18,16 +18,12 @@ from livestatus import SiteConfiguration, SiteConfigurations
 
 import cmk.ccc.plugin_registry
 import cmk.ccc.version as cmk_version
+import cmk.gui.watolib.rulespecs as _rulespecs
 from cmk.ccc.exceptions import MKGeneralException
 from cmk.ccc.hostaddress import HostName
 from cmk.ccc.site import SiteId
 from cmk.ccc.version import Edition, edition
-
-from cmk.utils.rulesets.definition import RuleGroup
-
 from cmk.checkengine.plugins import CheckPluginName
-
-import cmk.gui.watolib.rulespecs as _rulespecs
 from cmk.gui import forms, hooks, userdb, weblib
 from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
@@ -38,7 +34,7 @@ from cmk.gui.i18n import _, _u
 from cmk.gui.logged_in import user
 from cmk.gui.pages import page_registry
 from cmk.gui.permissions import permission_section_registry, PermissionSection
-from cmk.gui.site_config import is_wato_slave_site as is_wato_slave_site
+from cmk.gui.site_config import is_distributed_setup_remote_site as is_wato_slave_site
 from cmk.gui.type_defs import Choices as Choices
 from cmk.gui.type_defs import ChoiceText as ChoiceText
 from cmk.gui.utils.html import HTML as HTML
@@ -230,6 +226,7 @@ from cmk.gui.watolib.translation import (
     ServiceDescriptionTranslation as ServiceDescriptionTranslation,
 )
 from cmk.gui.watolib.translation import translation_elements as translation_elements
+from cmk.utils.rulesets.definition import RuleGroup
 
 
 def check_icmp_params() -> list[DictionaryEntry]:

@@ -25,15 +25,11 @@ from livestatus import (
 from cmk.ccc.site import omd_site, SiteId
 from cmk.ccc.user import UserId
 from cmk.ccc.version import __version__, Edition, edition, Version, VersionsIncompatible
-
-from cmk.utils import paths
-from cmk.utils.licensing.handler import LicenseState
-from cmk.utils.licensing.registry import get_license_state
-from cmk.utils.paths import livestatus_unix_socket
-
-from cmk.gui.config import active_config
+from cmk.gui import site_config
+from cmk.gui.config import active_config, Config
 from cmk.gui.ctx_stack import g
 from cmk.gui.flask_app import current_app
+from cmk.gui.groups import GroupType
 from cmk.gui.http import request
 from cmk.gui.i18n import _
 from cmk.gui.log import logger
@@ -45,6 +41,10 @@ from cmk.gui.utils.compatibility import (
     LicensingCompatible,
     make_incompatible_info,
 )
+from cmk.utils import paths
+from cmk.utils.licensing.handler import LicenseState
+from cmk.utils.licensing.registry import get_license_state
+from cmk.utils.paths import livestatus_unix_socket
 
 #   .--API-----------------------------------------------------------------.
 #   |                             _    ____ ___                            |
@@ -119,13 +119,13 @@ def disconnect() -> None:
 
 
 # TODO: This should live somewhere else, it's just a random helper...
-def all_groups(what: str) -> list[tuple[str, str]]:
+def all_groups(group_type: GroupType) -> list[tuple[str, str]]:
     """Returns a list of host/service/contact groups (pairs of name/alias)
 
     Groups are collected via livestatus from all sites. In case no alias is defined
     the name is used as second element. The list is sorted by lower case alias in the first place.
     """
-    query = "GET %sgroups\nCache: reload\nColumns: name alias\n" % what
+    query = "GET %sgroups\nCache: reload\nColumns: name alias\n" % group_type
     groups = cast(list[tuple[str, str]], live().query(query))
     # The dict() removes duplicate group names. Aliases don't need be deduplicated.
     return sorted(
@@ -374,9 +374,10 @@ def _get_enabled_and_disabled_sites(
     enabled_sites: SiteConfigurations = SiteConfigurations({})
     disabled_sites: SiteConfigurations = SiteConfigurations({})
 
-    for site_id, site_spec in user.authorized_sites().items():
+    for site_id, site_spec in user.authorized_sites(
+        unfiltered_sites=site_config.enabled_sites(active_config.sites)
+    ).items():
         site_spec = _site_config_for_livestatus(site_id, site_spec)
-        # Astroid 2.x bug prevents us from using NewType https://github.com/PyCQA/pylint/issues/2296
 
         if user.is_site_disabled(site_id):
             disabled_sites[site_id] = site_spec
@@ -583,23 +584,10 @@ def _map_site_state(state: str) -> str:
     return "error"
 
 
-def filter_available_site_choices(choices: list[tuple[SiteId, str]]) -> list[tuple[SiteId, str]]:
-    # Only add enabled sites to choices
-    all_site_states = states()
-    sites_enabled = []
-    for entry in choices:
-        site_id, _desc = entry
-        site_state = all_site_states.get(site_id, SiteStatus({})).get("state")
-        if site_state is None:
-            continue
-        sites_enabled.append(entry)
-    return sites_enabled
-
-
-def site_choices() -> list[tuple[str, str]]:
+def site_choices(config: Config) -> list[tuple[str, str]]:
     return sorted(
         [
-            (sitename, active_config.sites[sitename]["alias"])
+            (sitename, config.sites[sitename]["alias"])
             for sitename, state in states().items()
             if state["state"] == "online"
         ],

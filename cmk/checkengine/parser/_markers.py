@@ -4,13 +4,13 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 import re
+import string
 from collections.abc import Sequence
-from typing import NamedTuple
+from typing import Final, NamedTuple
 
 from cmk.ccc.hostaddress import HostAddress, HostName
-
+from cmk.checkengine.plugins import SectionName
 from cmk.utils.encoding import ensure_str_with_fallback
-from cmk.utils.sectionname import SectionName
 from cmk.utils.translations import translate_raw_host_name, TranslationOptions
 
 __all__ = ["PiggybackMarker", "SectionMarker"]
@@ -75,8 +75,9 @@ class SectionMarker(NamedTuple):
         return cls(name, None, "ascii", True, None, None)
 
     @classmethod
-    def from_header(cls, header: bytes) -> "SectionMarker":
-        section_name, *elems = header.decode().split(":")
+    def from_header(cls, header: str) -> "SectionMarker":
+        raw_section_name, *elems = header.split(":")
+
         # NOTE: We silenty ignore some syntactically invalid options below, but throw for others. Hmmm...
         options = {
             name_and_value[1]: name_and_value[2]
@@ -104,7 +105,7 @@ class SectionMarker(NamedTuple):
             separator = None
 
         return SectionMarker(
-            name=SectionName(section_name),
+            name=_parse_valid_section_name(raw_section_name),
             cached=cached,
             encoding=encoding,
             nostrip=nostrip,
@@ -147,3 +148,15 @@ class SectionMarker(NamedTuple):
         if not self.nostrip:
             line_str = line_str.strip()
         return line_str.split(self.separator)
+
+
+_VALID_SECTION_NAME_CHARACTERS: Final = frozenset(string.ascii_letters + "_" + string.digits)
+
+
+def _parse_valid_section_name(raw: str) -> SectionName:
+    # if the section name does not match an existing check- or section plugin,
+    # there's no point in accepting it. It would never be used.
+    # So we copy the validation of the section name of the agent based API.
+    if _VALID_SECTION_NAME_CHARACTERS.issuperset(raw):
+        return SectionName(raw)
+    raise ValueError(raw)

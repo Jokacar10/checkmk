@@ -10,6 +10,7 @@ from __future__ import annotations
 import functools
 import itertools
 import logging
+import socket
 import time
 from collections.abc import Callable, Container, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
@@ -19,32 +20,31 @@ from typing import Final, Literal, Protocol
 import livestatus
 
 import cmk.ccc.debug
-from cmk.ccc import tty
-from cmk.ccc.exceptions import MKTimeout, OnError
-from cmk.ccc.hostaddress import HostAddress, HostName
-
-import cmk.utils.paths
-import cmk.utils.resulttype as result
-from cmk.utils import password_store
-from cmk.utils.agentdatatype import AgentRawData
-from cmk.utils.check_utils import ParametersTypeAlias
-from cmk.utils.cpu_tracking import CPUTracker, Snapshot
-from cmk.utils.ip_lookup import IPStackConfig
-from cmk.utils.log import console
-from cmk.utils.misc import pnp_cleanup
-from cmk.utils.prediction import make_updated_predictions, MetricRecord, PredictionStore
-from cmk.utils.rulesets import RuleSetName
-from cmk.utils.sectionname import SectionMap, SectionName
-from cmk.utils.servicename import ServiceName
-from cmk.utils.timeperiod import timeperiod_active
-
-from cmk.snmplib import SNMPBackendEnum, SNMPRawData
-
-from cmk.fetchers import Fetcher, get_raw_data, Mode, SNMPScanConfig, TLSConfig
-from cmk.fetchers.config import make_persisted_section_dir
-from cmk.fetchers.filecache import FileCache, FileCacheOptions, MaxAge
-
+import cmk.ccc.resulttype as result
 import cmk.checkengine.plugin_backend as agent_based_register
+import cmk.utils.paths
+from cmk.agent_based.prediction_backend import (
+    InjectedParameters,
+    lookup_predictive_levels,
+    PredictionParameters,
+)
+from cmk.agent_based.v1 import IgnoreResults, IgnoreResultsError, Metric, State
+from cmk.agent_based.v1 import Result as CheckFunctionResult
+from cmk.base.config import ConfigCache
+from cmk.base.errorhandling import create_check_crash_dump
+from cmk.base.sources import (
+    FetcherFactory,
+    make_parser,
+    make_sources,
+    ParserConfig,
+    Source,
+    SpecialAgentSource,
+)
+from cmk.ccc import tty
+from cmk.ccc.cpu_tracking import CPUTracker, Snapshot
+from cmk.ccc.exceptions import MKTimeout
+from cmk.ccc.hostaddress import HostAddress, HostName
+from cmk.checkengine.checkerplugin import AggregatedResult, CheckerPlugin, ConfiguredService
 from cmk.checkengine.checking import cluster_mode
 from cmk.checkengine.checkresults import (
     ActiveCheckResult,
@@ -59,22 +59,25 @@ from cmk.checkengine.discovery import (
     get_plugin_parameters,
     HostLabelPlugin,
 )
-from cmk.checkengine.fetcher import HostKey, SourceInfo, SourceType
+from cmk.checkengine.fetcher import HostKey
 from cmk.checkengine.parameters import Parameters
-from cmk.checkengine.parser import HostSections, NO_SELECTION, parse_raw_data, SectionNameCollection
+from cmk.checkengine.parser import HostSections, parse_raw_data, SectionNameCollection
 from cmk.checkengine.plugins import (
     AgentBasedPlugins,
-    AggregatedResult,
     AutocheckEntry,
-    CheckerPlugin,
     CheckPluginName,
-    ConfiguredService,
     DiscoveryPlugin,
+    ParsedSectionName,
+    SectionName,
 )
 from cmk.checkengine.plugins import AgentSectionPlugin as AgentSectionPluginAPI
 from cmk.checkengine.plugins import CheckPlugin as CheckPluginAPI
 from cmk.checkengine.plugins import SNMPSectionPlugin as SNMPSectionPluginAPI
-from cmk.checkengine.sectionparser import ParsedSectionName, Provider, ResolvedResult, SectionPlugin
+from cmk.checkengine.sectionparser import (
+    Provider,
+    ResolvedResult,
+    SectionPlugin,
+)
 from cmk.checkengine.sectionparserutils import (
     get_cache_info,
     get_section_cluster_kwargs,
@@ -83,32 +86,29 @@ from cmk.checkengine.sectionparserutils import (
 from cmk.checkengine.submitters import ServiceState
 from cmk.checkengine.summarize import summarize, SummaryConfig
 from cmk.checkengine.value_store import ValueStoreManager
-
-from cmk.base.config import (
-    ConfigCache,
-    IPLookup,
-    lookup_ip_address,
-    lookup_mgmt_board_ip_address,
+from cmk.fetchers import (
+    Fetcher,
+    FetcherTrigger,
+    Mode,
+    TLSConfig,
 )
-from cmk.base.errorhandling import create_check_crash_dump
-from cmk.base.sources import (
-    FetcherFactory,
-    make_parser,
-    make_sources,
-    ParserFactory,
-    SNMPFetcherConfig,
-    Source,
-    SpecialAgentSource,
-)
-
-from cmk.agent_based.prediction_backend import (
-    InjectedParameters,
-    lookup_predictive_levels,
-    PredictionParameters,
-)
-from cmk.agent_based.v1 import IgnoreResults, IgnoreResultsError, Metric, State
-from cmk.agent_based.v1 import Result as CheckFunctionResult
+from cmk.fetchers.config import make_persisted_section_dir
+from cmk.fetchers.filecache import FileCache, FileCacheOptions, MaxAge
+from cmk.helper_interface import AgentRawData, SourceInfo, SourceType
 from cmk.server_side_calls_backend import SpecialAgentCommandLine
+from cmk.snmplib import SNMPBackendEnum, SNMPRawData
+from cmk.utils import password_store
+from cmk.utils.check_utils import ParametersTypeAlias
+from cmk.utils.ip_lookup import (
+    IPLookup,
+    IPLookupOptional,
+    IPStackConfig,
+)
+from cmk.utils.log import console
+from cmk.utils.prediction import make_updated_predictions, MetricRecord, PredictionStore
+from cmk.utils.rulesets import RuleSetName
+from cmk.utils.servicename import ServiceName
+from cmk.utils.timeperiod import timeperiod_active
 
 __all__ = [
     "CheckerPluginMapper",
@@ -146,7 +146,12 @@ class CheckerConfig(Protocol):  # protocol for now.
 
 
 def _fetch_all(
-    sources: Iterable[Source], *, simulation: bool, file_cache_options: FileCacheOptions, mode: Mode
+    trigger: FetcherTrigger,
+    sources: Iterable[Source],
+    *,
+    simulation: bool,
+    file_cache_options: FileCacheOptions,
+    mode: Mode,
 ) -> Sequence[
     tuple[
         SourceInfo,
@@ -157,6 +162,7 @@ def _fetch_all(
     console.verbose(f"{tty.yellow}+{tty.normal} FETCHING DATA")
     return [
         _do_fetch(
+            trigger,
             source.source_info(),
             source.file_cache(simulation=simulation, file_cache_options=file_cache_options),
             source.fetcher(),
@@ -167,6 +173,7 @@ def _fetch_all(
 
 
 def _do_fetch(
+    trigger: FetcherTrigger,
     source_info: SourceInfo,
     file_cache: FileCache,
     fetcher: Fetcher,
@@ -179,20 +186,20 @@ def _do_fetch(
 ]:
     console.debug(f"  Source: {source_info}")
     with CPUTracker(console.debug) as tracker:
-        raw_data = get_raw_data(file_cache, fetcher, mode)
+        raw_data = trigger.get_raw_data(file_cache, fetcher, mode)
     return source_info, raw_data, tracker.duration
 
 
 class CMKParser:
     def __init__(
         self,
-        factory: ParserFactory,
+        config: ParserConfig,
         *,
         selected_sections: SectionNameCollection,
         keep_outdated: bool,
         logger: logging.Logger,
     ) -> None:
-        self.factory: Final = factory
+        self.config: Final = config
         self.selected_sections: Final = selected_sections
         self.keep_outdated: Final = keep_outdated
         self.logger: Final = logger
@@ -215,12 +222,13 @@ class CMKParser:
         for source, raw_data in fetched:
             source_result = parse_raw_data(
                 make_parser(
-                    self.factory,
+                    self.config,
                     source.hostname,
+                    source.ipaddress,
                     source.fetcher_type,
+                    omd_root=cmk.utils.paths.omd_root,
                     persisted_section_dir=make_persisted_section_dir(
                         source.hostname,
-                        fetcher_type=source.fetcher_type,
                         ident=source.ident,
                         section_cache_path=section_cache_path,
                     ),
@@ -282,8 +290,6 @@ def _summarize_host_sections(
             )
             for idx, s in enumerate(
                 summarize(
-                    source.hostname,
-                    source.ipaddress,
                     host_sections,
                     config,
                     fetcher_type=source.fetcher_type,
@@ -296,6 +302,7 @@ def _summarize_host_sections(
 class SpecialAgentFetcher:
     def __init__(
         self,
+        trigger: FetcherTrigger,
         factory: FetcherFactory,
         *,
         # alphabetically sorted
@@ -303,6 +310,7 @@ class SpecialAgentFetcher:
         cmds: Iterator[SpecialAgentCommandLine],
         file_cache_options: FileCacheOptions,
     ) -> None:
+        self.trigger: Final = trigger
         self.factory: Final = factory
         self.agent_name: Final = agent_name
         self.cmds: Final = cmds
@@ -321,6 +329,7 @@ class SpecialAgentFetcher:
         file_cache_path = cmk.utils.paths.data_source_cache_dir
 
         return _fetch_all(
+            self.trigger,
             [
                 SpecialAgentSource(
                     self.factory,
@@ -344,34 +353,40 @@ class CMKFetcher:
     def __init__(
         self,
         config_cache: ConfigCache,
+        make_trigger: Callable[[HostName], FetcherTrigger],
         factory: FetcherFactory,
         plugins: AgentBasedPlugins,
         *,
         # alphabetically sorted
+        default_address_family: Callable[
+            [HostName], Literal[socket.AddressFamily.AF_INET, socket.AddressFamily.AF_INET6]
+        ],
         file_cache_options: FileCacheOptions,
         force_snmp_cache_refresh: bool,
+        get_ip_stack_config: Callable[[HostName], IPStackConfig],
         ip_address_of: IPLookup,
+        ip_address_of_mandatory: IPLookup,  # slightly different :-| TODO: clean up!!
+        ip_address_of_mgmt: IPLookupOptional,
         mode: Mode,
-        on_error: OnError,
         password_store_file: Path,
-        selected_sections: SectionNameCollection,
         simulation_mode: bool,
         max_cachefile_age: MaxAge | None = None,
-        snmp_backend_override: SNMPBackendEnum | None,
     ) -> None:
         self.config_cache: Final = config_cache
+        self.make_trigger: Final = make_trigger
+        self.default_address_family: Final = default_address_family
         self.factory: Final = factory
         self.plugins: Final = plugins
         self.file_cache_options: Final = file_cache_options
         self.force_snmp_cache_refresh: Final = force_snmp_cache_refresh
+        self.get_ip_stack_config: Final = get_ip_stack_config
         self.ip_address_of: Final = ip_address_of
+        self.ip_address_of_mandatory: Final = ip_address_of_mandatory
+        self.ip_address_of_mgmt: Final = ip_address_of_mgmt
         self.mode: Final = mode
-        self.on_error: Final = on_error
         self.password_store_file: Final = password_store_file
-        self.selected_sections: Final = selected_sections
         self.simulation_mode: Final = simulation_mode
         self.max_cachefile_age: Final = max_cachefile_age
-        self.snmp_backend_override: Final = snmp_backend_override
 
     def __call__(
         self, host_name: HostName, *, ip_address: HostAddress | None
@@ -391,12 +406,15 @@ class CMKFetcher:
             hosts = [
                 (
                     host_name,
-                    (ip_stack_config := ConfigCache.ip_stack_config(host_name)),
+                    self.default_address_family(host_name),
+                    (ip_stack_config := self.config_cache.ip_stack_config(host_name)),
                     ip_address
                     or (
                         None
                         if ip_stack_config is IPStackConfig.NO_IP
-                        else lookup_ip_address(self.config_cache, host_name)
+                        else self.ip_address_of_mandatory(
+                            host_name, self.default_address_family(host_name)
+                        )
                     ),
                 )
             ]
@@ -404,17 +422,17 @@ class CMKFetcher:
             hosts = [
                 (
                     node,
-                    (ip_stack_config := ConfigCache.ip_stack_config(node)),
+                    self.default_address_family(node),
+                    (ip_stack_config := self.get_ip_stack_config(node)),
                     (
                         None
                         if ip_stack_config is IPStackConfig.NO_IP
-                        else lookup_ip_address(self.config_cache, node)
+                        else self.ip_address_of_mandatory(node, self.default_address_family(node))
                     ),
                 )
                 for node in self.config_cache.nodes(host_name)
             ]
 
-        walk_cache_path = cmk.utils.paths.var_dir / "snmp_cache"
         file_cache_path = cmk.utils.paths.data_source_cache_dir
         tcp_cache_path = cmk.utils.paths.tcp_cache_dir
         tls_config = TLSConfig(
@@ -424,29 +442,15 @@ class CMKFetcher:
         )
         passwords = password_store.load(self.password_store_file)
         return _fetch_all(
+            self.make_trigger(host_name),
             itertools.chain.from_iterable(
                 make_sources(
                     self.plugins,
                     current_host_name,
+                    current_ip_family,
                     current_ip_address,
                     current_ip_stack_config,
                     fetcher_factory=self.factory,
-                    snmp_fetcher_config=SNMPFetcherConfig(
-                        scan_config=SNMPScanConfig(
-                            missing_sys_description=self.config_cache.missing_sys_description(
-                                current_host_name
-                            ),
-                            on_error=self.on_error if not is_cluster else OnError.RAISE,
-                            oid_cache_dir=cmk.utils.paths.snmp_scan_cache_dir,
-                        ),
-                        selected_sections=(
-                            self.selected_sections if not is_cluster else NO_SELECTION
-                        ),
-                        backend_override=self.snmp_backend_override,
-                        stored_walk_path=cmk.utils.paths.snmpwalks_dir,
-                        walk_cache_path=walk_cache_path,
-                    ),
-                    is_cluster=current_host_name in hosts_config.clusters,
                     force_snmp_cache_refresh=(
                         self.force_snmp_cache_refresh if not is_cluster else False
                     ),
@@ -461,14 +465,14 @@ class CMKFetcher:
                     tls_config=tls_config,
                     computed_datasources=self.config_cache.computed_datasources(current_host_name),
                     datasource_programs=self.config_cache.datasource_programs(current_host_name),
-                    tag_list=self.config_cache.tag_list(current_host_name),
-                    management_ip=lookup_mgmt_board_ip_address(
-                        self.config_cache,
-                        current_host_name,
+                    tag_list=self.config_cache.host_tags.tag_list(current_host_name),
+                    management_ip=self.ip_address_of_mgmt(
+                        current_host_name, self.default_address_family(current_host_name)
                     ),
                     management_protocol=self.config_cache.management_protocol(current_host_name),
                     special_agent_command_lines=self.config_cache.special_agent_command_lines(
                         current_host_name,
+                        current_ip_family,
                         current_ip_address,
                         passwords,
                         self.password_store_file,
@@ -481,7 +485,7 @@ class CMKFetcher:
                         current_host_name
                     ),
                 )
-                for current_host_name, current_ip_stack_config, current_ip_address in hosts
+                for current_host_name, current_ip_family, current_ip_stack_config, current_ip_address in hosts
             ),
             simulation=self.simulation_mode,
             file_cache_options=self.file_cache_options,
@@ -489,7 +493,7 @@ class CMKFetcher:
         )
 
 
-class SectionPluginMapper(SectionMap[SectionPlugin]):
+class SectionPluginMapper(Mapping[SectionName, SectionPlugin]):
     def __init__(
         self,
         sections: Mapping[SectionName, AgentSectionPluginAPI | SNMPSectionPluginAPI],
@@ -533,7 +537,7 @@ def _make_parameters_getter(
     return get_parameters
 
 
-class HostLabelPluginMapper(SectionMap[HostLabelPlugin]):
+class HostLabelPluginMapper(Mapping[SectionName, HostLabelPlugin]):
     def __init__(
         self,
         *,
@@ -657,6 +661,35 @@ def _make_rrd_data_getter(
     return get_rrd_data
 
 
+def update_predictive_levels(metric_name: str, levels: tuple) -> tuple:
+    match levels:
+        case ("cmk_postprocessed", "predictive_levels", dict() as lvl):
+            return (
+                "cmk_postprocessed",
+                "predictive_levels",
+                {**lvl, "__reference_metric__": metric_name},
+            )
+        case _:
+            return levels
+
+
+def _special_processing_hack_for_predictive_otel_metrics(
+    params: Mapping[str, object],
+) -> Mapping[str, object]:
+    match params:
+        case {"metrics": ("multi_metrics", list() as metrics)}:
+            for metric in metrics:
+                metric["levels_lower"] = update_predictive_levels(
+                    metric["metric_name"], metric["levels_lower"]
+                )
+                metric["levels_upper"] = update_predictive_levels(
+                    metric["metric_name"], metric["levels_upper"]
+                )
+            return {"metrics": ("multi_metrics", metrics)}
+        case _:
+            return params
+
+
 def _compute_final_check_parameters(
     host_name: HostName,
     service: ConfiguredService,
@@ -664,17 +697,20 @@ def _compute_final_check_parameters(
     logger: logging.Logger,
 ) -> Parameters:
     params = service.parameters.evaluate(timeperiod_active)
+
     if not _needs_postprocessing(params):
         return Parameters(params)
+
+    # We have this special case for the otel plugin, where we want to have predictive levels,
+    # but don't know the metric names ahead of time.
+    if service.check_plugin_name == CheckPluginName("otel_metrics"):
+        params = _special_processing_hack_for_predictive_otel_metrics(params)
 
     # Most of the following are only needed for individual plugins, actually.
     # We delay every computation until needed.
 
     def make_prediction():
-        # Whatch out. The CMC has to agree on the path.
-        prediction_store = PredictionStore(
-            cmk.utils.paths.predictions_dir / host_name / pnp_cleanup(service.description)
-        )
+        prediction_store = PredictionStore(host_name=host_name, service_name=service.description)
         # In the past the creation of predictions (and the livestatus query needed)
         # was performed inside the check plug-ins context.
         # We should consider moving this side effect even further up the stack

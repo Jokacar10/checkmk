@@ -8,12 +8,15 @@ from collections.abc import Sequence
 from datetime import timedelta
 
 from cmk.ccc import version
-
 from cmk.gui import hooks
 from cmk.gui.background_job import BackgroundJobRegistry
 from cmk.gui.cron import CronJob, CronJobRegistry
+from cmk.gui.search import (
+    launch_requests_processing_background,
+    MatchItemGeneratorRegistry,
+    SearchIndexBackgroundJob,
+)
 from cmk.gui.valuespec import AutocompleterRegistry
-from cmk.gui.watolib.search import MatchItemGeneratorRegistry
 
 from . import (
     _sync_remote_sites,
@@ -51,8 +54,13 @@ from .config_domain_name import (
 from .config_hostname import config_hostname_autocompleter
 from .config_sync import ReplicationPathRegistry
 from .groups import ContactGroupUsageFinderRegistry as ContactGroupUsageFinderRegistry
-from .host_attributes import ABCHostAttribute, HostAttributeRegistry, HostAttributeTopicRegistry
+from .host_attributes import (
+    ABCHostAttribute,
+    HostAttributeRegistry,
+    HostAttributeTopicRegistry,
+)
 from .host_label_sync import AutomationDiscoveredHostLabelSync
+from .host_match_item_generator import MatchItemGeneratorHosts
 from .host_rename import (
     AutomationRenameHostsUUIDLink,
     RenameHostBackgroundJob,
@@ -63,7 +71,6 @@ from .hosts_and_folders import (
     find_usages_of_contact_group_in_hosts_and_folders,
     FolderValidators,
     FolderValidatorsRegistry,
-    MatchItemGeneratorHosts,
     rebuild_folder_lookup_cache,
 )
 from .notifications import (
@@ -71,12 +78,12 @@ from .notifications import (
     find_usages_of_contact_group_in_notification_rules,
 )
 from .parent_scan import ParentScanBackgroundJob
+from .rule_match_item_generator import MatchItemGeneratorRules
 from .rulesets import (
     find_timeperiod_usage_in_host_and_service_rules,
     find_timeperiod_usage_in_time_specific_parameters,
 )
 from .rulespecs import (
-    MatchItemGeneratorRules,
     rulespec_registry,
     RulespecGroupEnforcedServices,
     RulespecGroupRegistry,
@@ -84,9 +91,10 @@ from .rulespecs import (
 from .sample_config import (
     ConfigGeneratorAcknowledgeInitialWerks,
     ConfigGeneratorBasicWATOConfig,
+    ConfigGeneratorInitialAdminUser,
+    ConfigGeneratorLocalSiteConnection,
     ConfigGeneratorRegistrationUser,
 )
-from .search import launch_requests_processing_background, SearchIndexBackgroundJob
 from .services import ServiceDiscoveryBackgroundJob
 from .timeperiods import TimeperiodUsageFinderRegistry
 from .user_profile import handle_ldap_sync_finished, PushUserProfilesToSite
@@ -140,8 +148,10 @@ def register(
     automation_command_registry.register(AutomationCheckAnalyzeConfig)
     automation_command_registry.register(AutomationDiscoveredHostLabelSync)
     sample_config_generator_registry.register(ConfigGeneratorBasicWATOConfig)
+    sample_config_generator_registry.register(ConfigGeneratorLocalSiteConnection)
     sample_config_generator_registry.register(ConfigGeneratorAcknowledgeInitialWerks)
     sample_config_generator_registry.register(ConfigGeneratorRegistrationUser)
+    sample_config_generator_registry.register(ConfigGeneratorInitialAdminUser)
     contact_group_usage_finder_registry_.register(find_usages_of_contact_group_in_hosts_and_folders)
     contact_group_usage_finder_registry_.register(
         find_usages_of_contact_group_in_notification_rules

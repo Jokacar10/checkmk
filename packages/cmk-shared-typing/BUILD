@@ -17,23 +17,23 @@ SOURCES_COMMON = [
     "mode_host.json",
     "notifications.json",
     "setup.json",
+    "unified_search.json",
     "user_frontend_config.json",
     "vue_formspec_components.json",
-    "agent_connection_test.json",
+    "welcome.json",
+    "agent_slideout.json",
 ]
 
-SOURCES_PYDANTIC = [
+SOURCES_SPECIAL_DATACLASSES = [
     "graph_designer.json",
+    "service_graphs.json",
 ]
 
 json2typescript(
     name = "generated_ts_files",
-    srcs = SOURCES_COMMON + SOURCES_PYDANTIC,
+    srcs = SOURCES_COMMON + SOURCES_SPECIAL_DATACLASSES,
     chdir = package_name(),
-    data = glob([
-        "source/**/*.json",
-        "header*_ts.txt",
-    ]),
+    data = glob(["source/**/*.json"]),
     header_txt = """/**
  * Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
  * This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
@@ -93,9 +93,9 @@ py_library(
 )
 
 json2python(
-    name = "generated_py_files_pydantic",
-    srcs = SOURCES_PYDANTIC,
-    data = ["header_py.txt"],
+    name = "generated_py_files_special_dataclasses",
+    srcs = SOURCES_SPECIAL_DATACLASSES,
+    data = glob(["source/**/*.json"]) + ["header_py.txt"],
     extra_args = [
         "--use-field-description",
         "--use-title-as-name",
@@ -104,7 +104,7 @@ json2python(
         "--use-one-literal-as-default",
         "--custom-file-header-path=$(location :header_py.txt)",
         "--custom-formatters=utils.format",
-        "--output-model-type=pydantic.BaseModel",
+        "--output-model-type=dataclasses.dataclass",
         "--collapse-root-models",
         "--enum-field-as-literal=all",
         "--use-generic-container-types",
@@ -118,7 +118,7 @@ json2python(
 json2python(
     name = "generated_py_files_common",
     srcs = SOURCES_COMMON,
-    data = ["header_py.txt"],
+    data = glob(["source/**/*.json"]) + ["header_py.txt"],
     extra_args = [
         "--use-field-description",
         "--use-title-as-name",
@@ -140,6 +140,7 @@ copy_file(
     name = "j2py_init",
     src = "header_py.txt",
     out = "cmk/shared_typing/__init__.py",
+    allow_symlink = True,
 )
 
 py_library(
@@ -147,7 +148,7 @@ py_library(
     srcs = [
         ":cmk/shared_typing/__init__.py",
         ":generated_py_files_common",
-        ":generated_py_files_pydantic",
+        ":generated_py_files_special_dataclasses",
     ],
     imports = ["."],
     visibility = ["//cmk:__pkg__"],

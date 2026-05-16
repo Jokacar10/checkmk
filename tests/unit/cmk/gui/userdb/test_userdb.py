@@ -13,30 +13,43 @@ from typing import TYPE_CHECKING
 import pytest
 from pytest import MonkeyPatch
 
-from tests.testlib.common.repo import is_managed_repo
-
 import cmk.ccc.version
-from cmk.ccc.user import UserId
-
-import cmk.utils.paths
-
 import cmk.gui.userdb._user_attribute._registry
 import cmk.gui.userdb.session  # pylint: disable-unused-import
+import cmk.utils.paths
+from cmk.ccc.user import UserId
+from cmk.crypto import password_hashing
+from cmk.crypto.password import Password
 from cmk.gui import http, userdb
 from cmk.gui.config import active_config
 from cmk.gui.exceptions import MKUserError
+from cmk.gui.ldap import ldap_connector as ldap
 from cmk.gui.session import session
-from cmk.gui.type_defs import SessionInfo, TotpCredential, TwoFactorCredentials, WebAuthnCredential
-from cmk.gui.userdb import ldap_connector as ldap
-from cmk.gui.userdb._connections import Fixed, LDAPConnectionConfigFixed, LDAPUserConnectionConfig
+from cmk.gui.type_defs import (
+    CustomUserAttrSpec,
+    SessionInfo,
+    TotpCredential,
+    TwoFactorCredentials,
+    UserSpec,
+    WebAuthnCredential,
+)
+from cmk.gui.user_connection_config_types import (
+    Fixed,
+    LDAPConnectionConfigFixed,
+    LDAPUserConnectionConfig,
+)
+from cmk.gui.userdb import get_user_attributes
 from cmk.gui.userdb.htpasswd import hash_password
 from cmk.gui.userdb.session import is_valid_user_session, load_session_infos
-from cmk.gui.userdb.store import load_custom_attr, save_two_factor_credentials, save_users
+from cmk.gui.userdb.store import (
+    load_custom_attr,
+    load_user,
+    save_two_factor_credentials,
+    save_users,
+)
 from cmk.gui.utils.htpasswd import Htpasswd
 from cmk.gui.valuespec import Dictionary
-
-from cmk.crypto import password_hashing
-from cmk.crypto.password import Password
+from tests.testlib.common.repo import is_managed_repo
 
 if TYPE_CHECKING:
     from tests.unit.cmk.web_test_app import SetConfig, SingleRequest, WebTestAppForCMK
@@ -54,6 +67,28 @@ def single_user_session_enabled(set_config: SetConfig, user_id: UserId) -> Gener
     with set_config(single_user_session=10):
         assert active_config.single_user_session == 10
         yield
+
+
+@pytest.fixture(scope="function")
+def single_auth_request(wsgi_app: WebTestAppForCMK, auth_request: http.Request) -> SingleRequest:
+    """Do a single authenticated request, thereby persisting the session to disk."""
+
+    def caller(*, in_the_past: int = 0) -> tuple[UserId, SessionInfo]:
+        wsgi_app.get(auth_request)
+        infos = load_session_infos(session.user.ident, lock=True)
+
+        # When `in_the_past` is a positive integer, the resulting session will have happened
+        # that many seconds in the past.
+        session.session_info.last_activity -= in_the_past
+        session.session_info.started_at -= in_the_past
+
+        session_id = session.session_info.session_id
+        user_id = auth_request.environ["REMOTE_USER"]
+        userdb.session.save_session_infos(user_id, session_infos={session_id: session.session_info})
+        assert session.user.id == user_id
+        return session.user.id, infos[session_id]
+
+    return caller
 
 
 def _load_users_uncached(*, lock: bool) -> userdb.Users:
@@ -109,63 +144,101 @@ def test_on_succeeded_login(single_auth_request: SingleRequest) -> None:
     assert _load_failed_logins(user_id) == 0
 
 
-@pytest.mark.usefixtures("request_context")
 def test_on_failed_login_no_locking(user_id: UserId) -> None:
     now = datetime.now()
+    user_attributes = get_user_attributes([])
     assert active_config.lock_on_logon_failures == 10
     assert _load_failed_logins(user_id) == 0
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-    userdb.on_failed_login(user_id, now)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=10,
+        log_logon_failures=True,
+    )
     assert _load_failed_logins(user_id) == 1
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-    userdb.on_failed_login(user_id, now)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=10,
+        log_logon_failures=True,
+    )
     assert _load_failed_logins(user_id) == 2
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-    userdb.on_failed_login(user_id, now)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=10,
+        log_logon_failures=True,
+    )
     assert _load_failed_logins(user_id) == 3
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
 
-@pytest.mark.usefixtures("request_context")
 def test_on_failed_login_count_reset_on_succeeded_login(user_id: UserId) -> None:
     now = datetime.now()
+    user_attributes = get_user_attributes(active_config.wato_user_attrs)
     assert active_config.lock_on_logon_failures == 10
     assert _load_failed_logins(user_id) == 0
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-    userdb.on_failed_login(user_id, now)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=10,
+        log_logon_failures=True,
+    )
     assert _load_failed_logins(user_id) == 1
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
     userdb.session.on_succeeded_login(user_id, now)
     assert _load_failed_logins(user_id) == 0
-    assert not userdb.user_locked(user_id)
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
 
-@pytest.mark.usefixtures("request_context")
-def test_on_failed_login_with_locking(
-    monkeypatch: MonkeyPatch, user_id: UserId, set_config: SetConfig
-) -> None:
+def test_on_failed_login_with_locking(user_id: UserId) -> None:
     now = datetime.now()
-    with set_config(lock_on_logon_failures=3):
-        assert active_config.lock_on_logon_failures == 3
-        assert _load_failed_logins(user_id) == 0
-        assert not userdb.user_locked(user_id)
+    user_attributes = get_user_attributes([])
+    assert _load_failed_logins(user_id) == 0
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-        userdb.on_failed_login(user_id, now)
-        assert _load_failed_logins(user_id) == 1
-        assert not userdb.user_locked(user_id)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=3,
+        log_logon_failures=True,
+    )
+    assert _load_failed_logins(user_id) == 1
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-        userdb.on_failed_login(user_id, now)
-        assert _load_failed_logins(user_id) == 2
-        assert not userdb.user_locked(user_id)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=3,
+        log_logon_failures=True,
+    )
+    assert _load_failed_logins(user_id) == 2
+    assert not userdb.user_locked(user_id, load_user(user_id))
 
-        userdb.on_failed_login(user_id, now)
-        assert _load_failed_logins(user_id) == 3
-        assert userdb.user_locked(user_id)
+    userdb.on_failed_login(
+        user_id,
+        user_attributes,
+        now=now,
+        lock_on_logon_failures=3,
+        log_logon_failures=True,
+    )
+    assert _load_failed_logins(user_id) == 3
+    assert userdb.user_locked(user_id, load_user(user_id))
 
 
 def test_on_logout_no_session(wsgi_app: WebTestAppForCMK, auth_request: http.Request) -> None:
@@ -358,12 +431,10 @@ def test_ensure_user_can_not_init_with_previous_session(single_auth_request: Sin
         userdb.session.ensure_user_can_init_session(user_id, now)
 
 
-@pytest.mark.usefixtures("request_context")
 def test_active_sessions_no_existing() -> None:
     assert userdb.session.active_sessions({}, datetime.now()) == {}
 
 
-@pytest.mark.usefixtures("request_context")
 def test_active_sessions_remove_outdated() -> None:
     now = datetime.now()
     assert list(
@@ -387,7 +458,6 @@ def test_active_sessions_remove_outdated() -> None:
     ) == ["keep"]
 
 
-@pytest.mark.usefixtures("request_context")
 def test_active_sessions_too_many() -> None:
     now = datetime.now()
     sessions = {
@@ -469,98 +539,107 @@ def test_get_last_activity(single_auth_request: SingleRequest) -> None:
     assert "session_info" in user
 
 
-@pytest.mark.usefixtures("request_context")
-def test_user_attribute_sync_plugins(monkeypatch: MonkeyPatch, set_config: SetConfig) -> None:
-    # Need to use a new context here to patch the config initialized by request_context
-    with monkeypatch.context() as m:
-        m.setattr(
-            active_config,
-            "wato_user_attrs",
-            [
-                {
-                    "add_custom_macro": False,
-                    "help": "VIP attribute",
-                    "name": "vip",
-                    "show_in_table": False,
-                    "title": "VIP",
-                    "topic": "ident",
-                    "type": "TextAscii",
-                    "user_editable": True,
-                }
-            ],
+def test_user_attribute_sync_plugins() -> None:
+    attrs = [
+        CustomUserAttrSpec(
+            {
+                "add_custom_macro": False,
+                "help": "VIP attribute",
+                "name": "vip",
+                "show_in_table": False,
+                "title": "VIP",
+                "topic": "ident",
+                "type": "TextAscii",
+                "user_editable": True,
+            }
         )
+    ]
 
-        connection = ldap.LDAPUserConnector(
-            LDAPUserConnectionConfig(
-                id="ldp",
-                description="",
-                comment="",
-                docu_url="",
-                disabled=False,
-                directory_type=(
-                    "ad",
-                    LDAPConnectionConfigFixed(
-                        connect_to=(
-                            "fixed_list",
-                            Fixed(server="127.0.0.1"),
+    connection = ldap.LDAPUserConnector(
+        LDAPUserConnectionConfig(
+            id="ldp",
+            description="",
+            comment="",
+            docu_url="",
+            disabled=False,
+            directory_type=(
+                "ad",
+                LDAPConnectionConfigFixed(
+                    connect_to=(
+                        "fixed_list",
+                        Fixed(server="127.0.0.1"),
+                    )
+                ),
+            ),
+            bind=(
+                "CN=svc_checkmk,OU=checkmktest-users,DC=int,DC=testdomain,DC=com",
+                ("store", "AD_svc_checkmk"),
+            ),
+            port=636,
+            use_ssl=True,
+            user_dn="OU=checkmktest-users,DC=int,DC=testdomain,DC=com",
+            user_scope="sub",
+            user_filter="(&(objectclass=user)(objectcategory=person)(|(memberof=CN=cmk_AD_admins,OU=checkmktest-groups,DC=int,DC=testdomain,DC=com)))",
+            user_id_umlauts="keep",
+            group_dn="OU=checkmktest-groups,DC=int,DC=testdomain,DC=com",
+            group_scope="sub",
+            active_plugins={
+                "alias": {},
+                "auth_expire": {},
+                "groups_to_contactgroups": {"nested": True},
+                "disable_notifications": {"attr": "msDS-cloudExtensionAttribute1"},
+                "email": {"attr": "mail"},
+                "icons_per_item": {"attr": "msDS-cloudExtensionAttribute3"},
+                "nav_hide_icons_title": {"attr": "msDS-cloudExtensionAttribute4"},
+                "pager": {"attr": "mobile"},
+                "groups_to_roles": {
+                    "admin": [
+                        (
+                            "CN=cmk_AD_admins,OU=checkmktest-groups,DC=int,DC=testdomain,DC=com",
+                            None,
                         )
-                    ),
-                ),
-                bind=(
-                    "CN=svc_checkmk,OU=checkmktest-users,DC=int,DC=testdomain,DC=com",
-                    ("store", "AD_svc_checkmk"),
-                ),
-                port=636,
-                use_ssl=True,
-                user_dn="OU=checkmktest-users,DC=int,DC=testdomain,DC=com",
-                user_scope="sub",
-                user_filter="(&(objectclass=user)(objectcategory=person)(|(memberof=CN=cmk_AD_admins,OU=checkmktest-groups,DC=int,DC=testdomain,DC=com)))",
-                user_id_umlauts="keep",
-                group_dn="OU=checkmktest-groups,DC=int,DC=testdomain,DC=com",
-                group_scope="sub",
-                active_plugins={
-                    "alias": {},
-                    "auth_expire": {},
-                    "groups_to_contactgroups": {"nested": True},
-                    "disable_notifications": {"attr": "msDS-cloudExtensionAttribute1"},
-                    "email": {"attr": "mail"},
-                    "icons_per_item": {"attr": "msDS-cloudExtensionAttribute3"},
-                    "nav_hide_icons_title": {"attr": "msDS-cloudExtensionAttribute4"},
-                    "pager": {"attr": "mobile"},
-                    "groups_to_roles": {
-                        "admin": [
-                            (
-                                "CN=cmk_AD_admins,OU=checkmktest-groups,DC=int,DC=testdomain,DC=com",
-                                None,
-                            )
-                        ]
-                    },
-                    "show_mode": {"attr": "msDS-cloudExtensionAttribute2"},
-                    "ui_sidebar_position": {"attr": "msDS-cloudExtensionAttribute5"},
-                    "start_url": {"attr": "msDS-cloudExtensionAttribute9"},
-                    "temperature_unit": {"attr": "msDS-cloudExtensionAttribute6"},
-                    "ui_theme": {"attr": "msDS-cloudExtensionAttribute7"},
-                    "force_authuser": {"attr": "msDS-cloudExtensionAttribute8"},
+                    ]
                 },
-                cache_livetime=300,
-                type="ldap",
-            )
+                "show_mode": {"attr": "msDS-cloudExtensionAttribute2"},
+                "ui_sidebar_position": {"attr": "msDS-cloudExtensionAttribute5"},
+                "start_url": {"attr": "msDS-cloudExtensionAttribute9"},
+                "temperature_unit": {"attr": "msDS-cloudExtensionAttribute6"},
+                "ui_theme": {"attr": "msDS-cloudExtensionAttribute7"},
+                "force_authuser": {"attr": "msDS-cloudExtensionAttribute8"},
+            },
+            cache_livetime=300,
+            type="ldap",
         )
+    )
 
-        plugins = dict(ldap.all_attribute_plugins())
-        ldap_plugin = plugins["vip"]
-        assert ldap_plugin.title == "VIP"
-        assert ldap_plugin.help == "VIP attribute"
-        assert ldap_plugin.needed_attributes(connection, {"attr": "vip_attr"}) == ["vip_attr"]
-        assert ldap_plugin.needed_attributes(connection, {"attr": "vip_attr"}) == ["vip_attr"]
-        assert isinstance(ldap_plugin.parameters(connection), Dictionary)
+    user_attributes = get_user_attributes(attrs)
+    plugins = dict(ldap.all_attribute_plugins(user_attributes))
+    ldap_plugin = plugins["vip"]
+    assert ldap_plugin.title == "VIP"
+    assert ldap_plugin.help == "VIP attribute"
+    assert ldap_plugin.needed_attributes(connection, {"attr": "vip_attr"}) == ["vip_attr"]
+    assert ldap_plugin.needed_attributes(connection, {"attr": "vip_attr"}) == ["vip_attr"]
+    assert isinstance(ldap_plugin.parameters(connection), Dictionary)
 
-        assert "vip" in dict(ldap.ldap_attribute_plugins_elements(connection)).keys()
+    assert "vip" in dict(ldap.ldap_attribute_plugins_elements(connection, user_attributes)).keys()
 
 
 def test_check_credentials_local_user(with_user: tuple[UserId, str]) -> None:
     username, password = with_user
-    assert userdb.check_credentials(username, Password(password), datetime.now()) == username
+    assert (
+        userdb.check_credentials(
+            username,
+            Password(password),
+            get_user_attributes([]),
+            datetime.now(),
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
+        == username
+    )
 
 
 @pytest.mark.usefixtures("request_context")
@@ -577,7 +656,20 @@ def test_check_credentials_local_user_create_htpasswd_user_ad_hoc() -> None:
     assert not userdb.user_exists_according_to_profile(user_id)
     assert user_id in _load_users_uncached(lock=False)
 
-    assert userdb.check_credentials(user_id, Password("cmk"), datetime.now()) == user_id
+    assert (
+        userdb.check_credentials(
+            user_id,
+            Password("cmk"),
+            get_user_attributes([]),
+            datetime.now(),
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
+        == user_id
+    )
 
     # Nothing changes during regular access
     assert userdb.user_exists(user_id)
@@ -588,15 +680,46 @@ def test_check_credentials_local_user_create_htpasswd_user_ad_hoc() -> None:
 def test_check_credentials_local_user_disallow_locked(with_user: tuple[UserId, str]) -> None:
     now = datetime.now()
     user_id, password = with_user
-    assert userdb.check_credentials(user_id, Password(password), now) == user_id
+    user_attributes = get_user_attributes([])
+    assert (
+        userdb.check_credentials(
+            user_id,
+            Password(password),
+            user_attributes,
+            now,
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
+        == user_id
+    )
 
     users = _load_users_uncached(lock=True)
 
     users[user_id]["locked"] = True
-    save_users(users, now)
+    save_users(
+        users,
+        user_attributes,
+        user_connections=[],
+        now=now,
+        pprint_value=True,
+        call_users_saved_hook=False,
+    )
 
     with pytest.raises(MKUserError, match="User is locked"):
-        userdb.check_credentials(user_id, Password(password), now)
+        userdb.check_credentials(
+            user_id,
+            Password(password),
+            user_attributes,
+            now,
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
 
 
 # user_id needs to be used here because it executes a reload of the config and the monkeypatch of
@@ -621,8 +744,28 @@ def test_check_credentials_managed_global_user_is_allowed(with_user: tuple[UserI
 
     users = _load_users_uncached(lock=True)
     users[user_id]["customer"] = managed.SCOPE_GLOBAL
-    save_users(users, now)
-    assert userdb.check_credentials(user_id, Password(password), now) == user_id
+    save_users(
+        users,
+        (user_attributes := get_user_attributes([])),
+        user_connections=[],
+        now=now,
+        pprint_value=True,
+        call_users_saved_hook=False,
+    )
+    assert (
+        userdb.check_credentials(
+            user_id,
+            Password(password),
+            user_attributes,
+            now,
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
+        == user_id
+    )
 
 
 @pytest.mark.skipif(not is_managed_repo(), reason="managed-edition-only test")
@@ -632,8 +775,28 @@ def test_check_credentials_managed_customer_user_is_allowed(with_user: tuple[Use
     now = datetime.now()
     users = _load_users_uncached(lock=True)
     users[user_id]["customer"] = "test-customer"
-    save_users(users, now)
-    assert userdb.check_credentials(user_id, Password(password), now) == user_id
+    save_users(
+        users,
+        (user_attributes := get_user_attributes([])),
+        user_connections=[],
+        now=now,
+        pprint_value=True,
+        call_users_saved_hook=False,
+    )
+    assert (
+        userdb.check_credentials(
+            user_id,
+            Password(password),
+            user_attributes,
+            now,
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
+        == user_id
+    )
 
 
 @pytest.mark.skipif(not is_managed_repo(), reason="managed-edition-only test")
@@ -645,8 +808,28 @@ def test_check_credentials_managed_wrong_customer_user_is_denied(
     now = datetime.now()
     users = _load_users_uncached(lock=True)
     users[user_id]["customer"] = "wrong-customer"
-    save_users(users, now)
-    assert userdb.check_credentials(user_id, Password(password), now) is False
+    save_users(
+        users,
+        (user_attributes := get_user_attributes([])),
+        user_connections=[],
+        now=now,
+        pprint_value=True,
+        call_users_saved_hook=False,
+    )
+    assert (
+        userdb.check_credentials(
+            user_id,
+            Password(password),
+            user_attributes,
+            now,
+            UserSpec(
+                contactgroups=[],
+                roles=["user"],
+                force_authuser=False,
+            ),
+        )
+        is False
+    )
 
 
 def test_load_custom_attr_not_existing(user_id: UserId) -> None:

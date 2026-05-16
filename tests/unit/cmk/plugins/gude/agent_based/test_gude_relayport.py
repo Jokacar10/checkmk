@@ -4,14 +4,11 @@
 # conditions defined in the file COPYING, which is part of this source code package.
 
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
-
-from tests.unit.cmk.plugins.collection.agent_based.snmp import (
-    get_parsed_snmp_section,
-)
 
 from cmk.agent_based.v2 import CheckResult, Metric, Result, Service, State
 from cmk.plugins.gude.agent_based import gude_relayport as gr
@@ -20,7 +17,9 @@ from cmk.plugins.gude.agent_based.gude_relayport import (
     discover_gude_relayport,
     parse_gude_relayport,
 )
-from cmk.plugins.lib.elphase import CheckParams
+from tests.unit.cmk.plugins.collection.agent_based.snmp import (
+    get_parsed_snmp_section,
+)
 
 _STRING_TABLE = [
     ["TWTA 2", "1", "0", "0", "228", "4995", "0"],
@@ -230,7 +229,7 @@ def test_discovery_function() -> None:
                 Metric("power", 0.0),
                 Result(state=State.OK, summary="Apparent Power: 0.0 VA"),
                 Metric("appower", 0.0),
-                Result(state=State.OK, summary="Frequency: 50.0 hz"),
+                Result(state=State.OK, summary="Frequency: 50.0 Hz"),
                 Metric("frequency", 49.95),
             ],
             id="Everything is OK",
@@ -253,7 +252,7 @@ def test_discovery_function() -> None:
                 Metric("power", 0.0),
                 Result(state=State.OK, summary="Apparent Power: 2.0 VA"),
                 Metric("appower", 2.0),
-                Result(state=State.OK, summary="Frequency: 60.0 hz"),
+                Result(state=State.OK, summary="Frequency: 60.0 Hz"),
                 Metric("frequency", 60.0),
             ],
             id="Voltage too low. CRIT State",
@@ -271,7 +270,7 @@ def test_discovery_function() -> None:
 )
 def test_check_function(
     item: str,
-    params: CheckParams,
+    params: Mapping[str, Any],
     expected: CheckResult,
 ) -> None:
     assert list(check_gude_relayport(item, params, parse_gude_relayport(_STRING_TABLE))) == expected

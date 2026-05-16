@@ -25,15 +25,12 @@ import pydantic
 import requests
 from dateutil import parser as dateutil_parser
 
-from cmk.ccc import store
-
-from cmk.utils import paths
-from cmk.utils.http_proxy_config import deserialize_http_proxy_config
-
-import cmk.ec.export as ec  # pylint: disable=cmk-module-layer-violation
-
+import cmk.ec.export as ec
+from cmk.ccc.store import load_text_from_file, save_text_to_file
 from cmk.special_agents.v0_unstable.agent_common import SectionWriter, special_agent_main
 from cmk.special_agents.v0_unstable.argument_parsing import Args, create_default_argument_parser
+from cmk.utils.http_proxy_config import deserialize_http_proxy_config
+from cmk.utils.paths import omd_root, tmp_dir
 
 Tags = Sequence[str]
 
@@ -283,7 +280,7 @@ class IDStore(Generic[_TID]):
         self.path: Final = path
 
     def write(self, ids: Iterable[_TID]) -> None:
-        store.save_text_to_file(
+        save_text_to_file(
             self.path,
             json.dumps(list(ids)),
         )
@@ -291,7 +288,7 @@ class IDStore(Generic[_TID]):
     def read(self) -> frozenset[_TID]:
         return frozenset(
             json.loads(
-                store.load_text_from_file(
+                load_text_from_file(
                     self.path,
                     default="[]",
                 )
@@ -379,7 +376,7 @@ class EventsQuerier:
     ) -> None:
         self.datadog_api: Final = datadog_api
         self.id_store: Final = IDStore[int](
-            paths.tmp_dir / "agents" / "agent_datadog" / f"{host_name}.json"
+            tmp_dir / "agents" / "agent_datadog" / f"{host_name}.json"
         )
         self.max_age: Final = max_age
 
@@ -486,15 +483,18 @@ def _forward_events_to_ec(
     add_text: bool,
 ) -> None:
     ec.forward_to_unix_socket(
-        _event_to_syslog_message(
-            event,
-            tag_regexes,
-            facility,
-            severity,
-            service_level,
-            add_text,
-        )
-        for event in events
+        (
+            _event_to_syslog_message(
+                event,
+                tag_regexes,
+                facility,
+                severity,
+                service_level,
+                add_text,
+            )
+            for event in events
+        ),
+        omd_root=omd_root,
     )
 
 
@@ -527,7 +527,7 @@ class LogsQuerier:
     ) -> None:
         self.datadog_api: Final = datadog_api
         self.id_store: Final = IDStore[str](
-            paths.tmp_dir / "agents" / "agent_datadog" / f"{hostname}_logs.json"
+            tmp_dir / "agents" / "agent_datadog" / f"{hostname}_logs.json"
         )
         self.max_age: Final = max_age
         self.indexes: Final = indexes
@@ -672,13 +672,16 @@ def _forward_logs_to_ec(
     translator: Sequence[LogMessageElement],
 ) -> None:
     ec.forward_to_unix_socket(
-        _log_to_syslog_message(
-            log,
-            facility,
-            service_level,
-            translator,
-        )
-        for log in logs
+        (
+            _log_to_syslog_message(
+                log,
+                facility,
+                service_level,
+                translator,
+            )
+            for log in logs
+        ),
+        omd_root=omd_root,
     )
 
 
